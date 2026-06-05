@@ -5,7 +5,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from ..auth import CurrentUser
@@ -144,6 +144,9 @@ def list_leads(current_user: CurrentUser):
 
 @router.post("/sync", response_model=list[Lead])
 def sync_leads(leads: list[Lead], current_user: CurrentUser):
+    if not leads:
+        raise HTTPException(status_code=400, detail="Refusing to sync an empty lead list")
+
     replace_saved_leads(leads)
     return leads
 

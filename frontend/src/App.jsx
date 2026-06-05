@@ -170,6 +170,7 @@ export function App() {
       };
       setAuth(nextAuth);
       safeStorageSet(authStorageKey, JSON.stringify(nextAuth));
+      setBackendReady(false);
       setLeads([]);
       setSaveStatus("Connecting...");
     } catch {
@@ -179,6 +180,7 @@ export function App() {
 
   function logout() {
     setAuth(null);
+    setBackendReady(false);
     setLeads([]);
     safeStorageRemove(authStorageKey);
     safeStorageRemove("chatcrm.leads");
@@ -195,6 +197,7 @@ export function App() {
 
   React.useEffect(() => {
     let cancelled = false;
+    setBackendReady(false);
 
     async function hydrateLeads() {
       if (!authToken) return;
@@ -220,7 +223,7 @@ export function App() {
   }, [authToken]);
 
   React.useEffect(() => {
-    if (!backendReady || !authToken) return undefined;
+    if (!backendReady || !authToken || leads.length === 0) return undefined;
     setSaveStatus("Saving...");
     const timeoutId = window.setTimeout(async () => {
       try {
