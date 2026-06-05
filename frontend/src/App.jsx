@@ -788,10 +788,10 @@ function LoginPage({ error, onLogin }) {
           </div>
         </div>
         <div>
-          <p className="login-kicker">Close more. Build wealth.</p>
-          <h2>Your deal desk for land leads.</h2>
+          <p className="login-kicker">ChatCRM Command Center</p>
+          <h2>Find the owner. Make the offer. Track the deal.</h2>
           <p>
-            Work the list, call the owners, check the numbers, and move cleanly from lead to offer.
+            Built for land acquisitions: skip traced leads, call notes, maps, ARV math, and purchase agreements in one clean workspace.
           </p>
         </div>
       </section>

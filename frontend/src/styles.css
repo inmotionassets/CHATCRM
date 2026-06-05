@@ -1281,12 +1281,12 @@ textarea::placeholder {
 .login-shell {
   align-items: center;
   background:
-    linear-gradient(135deg, rgba(31, 143, 122, 0.22), transparent 38%),
-    linear-gradient(160deg, #070b10 0%, #111a23 48%, #0d171f 100%);
+    linear-gradient(90deg, rgba(31, 143, 122, 0.2), transparent 34%),
+    linear-gradient(160deg, #070b10 0%, #101923 58%, #090f15 100%);
   color: #f8fafc;
   display: grid;
-  gap: 42px;
-  grid-template-columns: minmax(0, 1.1fr) minmax(340px, 440px);
+  gap: 56px;
+  grid-template-columns: minmax(0, 1fr) minmax(340px, 440px);
   min-height: 100vh;
   padding: 48px;
   position: relative;
@@ -1294,9 +1294,9 @@ textarea::placeholder {
 
 .login-shell::before {
   background:
-    linear-gradient(rgba(255, 255, 255, 0.045) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px);
-  background-size: 54px 54px;
+    linear-gradient(rgba(255, 255, 255, 0.032) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.026) 1px, transparent 1px);
+  background-size: 72px 72px;
   content: "";
   inset: 0;
   opacity: 0.5;
@@ -1307,14 +1307,14 @@ textarea::placeholder {
 .login-shell::after {
   background: url("/assets/chatcrm-logo.png") center / contain no-repeat;
   content: "";
-  height: min(62vw, 820px);
-  left: 40%;
-  opacity: 0.08;
+  height: min(46vw, 600px);
+  left: 37%;
+  opacity: 0.1;
   pointer-events: none;
   position: absolute;
   top: 50%;
   transform: translate(-50%, -50%);
-  width: min(62vw, 820px);
+  width: min(46vw, 600px);
 }
 
 .login-shell > * {
@@ -1324,8 +1324,8 @@ textarea::placeholder {
 
 .login-hero {
   display: grid;
-  gap: 44px;
-  max-width: 720px;
+  gap: 54px;
+  max-width: 760px;
 }
 
 .login-hero .brand-block {
@@ -1338,21 +1338,22 @@ textarea::placeholder {
 
 .login-hero h2 {
   color: #ffffff;
-  font-size: clamp(2.35rem, 5vw, 4.6rem);
-  line-height: 1;
-  margin-bottom: 18px;
-  max-width: 680px;
+  font-size: clamp(2.4rem, 4.6vw, 4.75rem);
+  line-height: 1.02;
+  margin-bottom: 20px;
+  max-width: 760px;
 }
 
 .login-hero p {
   color: #cbd5e1;
-  font-size: 1.08rem;
-  line-height: 1.6;
-  max-width: 560px;
+  font-size: 1.04rem;
+  line-height: 1.65;
+  max-width: 620px;
 }
 
 .login-kicker {
   color: var(--gold) !important;
+  font-size: 0.86rem !important;
   font-weight: 850;
   margin-bottom: 12px;
   text-transform: uppercase;
@@ -1367,7 +1368,7 @@ textarea::placeholder {
   color: var(--text);
   display: grid;
   gap: 16px;
-  padding: 30px;
+  padding: 32px;
 }
 
 :root[data-theme="dark"] .login-panel {
