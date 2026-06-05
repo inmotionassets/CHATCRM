@@ -147,6 +147,11 @@ export function App() {
 
   async function login(username, password) {
     setLoginError("");
+    if (!username.trim() || !password) {
+      setLoginError("Enter your username and password.");
+      return;
+    }
+
     try {
       const response = await fetch(`${apiBaseUrl}/auth/login`, {
         method: "POST",
@@ -769,8 +774,8 @@ function Stat({ label, value }) {
 }
 
 function LoginPage({ error, onLogin }) {
-  const [username, setUsername] = React.useState("virgo");
-  const [password, setPassword] = React.useState("Virgo2026!");
+  const [username, setUsername] = React.useState("");
+  const [password, setPassword] = React.useState("");
 
   function submitLogin(event) {
     event.preventDefault();
@@ -804,12 +809,16 @@ function LoginPage({ error, onLogin }) {
 
         <label>
           Username
-          <input autoComplete="username" value={username} onChange={(event) => setUsername(event.target.value)} />
+          <input
+            autoComplete="off"
+            value={username}
+            onChange={(event) => setUsername(event.target.value)}
+          />
         </label>
         <label>
           Password
           <input
-            autoComplete="current-password"
+            autoComplete="new-password"
             type="password"
             value={password}
             onChange={(event) => setPassword(event.target.value)}
