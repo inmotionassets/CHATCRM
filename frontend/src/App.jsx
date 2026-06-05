@@ -665,7 +665,7 @@ export function App() {
                         {lead.address}
                         <StatusDot lead={lead} />
                       </h3>
-                      <p>{lead.name || "Unknown Owner"}</p>
+                      <p>{getDisplayOwnerName(lead) || "Owner name needed"}</p>
                       <small>{formatPhoneList(lead) || "No phone yet"}</small>
                     </button>
                     <div className="lead-meta-grid">
@@ -907,7 +907,7 @@ function PipelineView({ leads, onViewLead }) {
               {stageLeads.length > 0 ? (
                 stageLeads.map((lead) => (
                   <button className="pipeline-card" key={lead.id} onClick={() => onViewLead(lead.id)}>
-                    <strong>{lead.name}</strong>
+                    <strong>{getDisplayOwnerName(lead) || "Owner name needed"}</strong>
                     <span>{lead.address}</span>
                     <small>{formatPhoneList(lead) || "No phone"}</small>
                   </button>
@@ -1170,6 +1170,11 @@ function LeadDetail({
   const phoneHref = phones[0] ? `tel:${phones[0].replace(/[^\d+]/g, "")}` : null;
   const emailHref = lead.email ? `mailto:${lead.email}` : null;
   const ownerLabel = getDisplayOwnerName(lead);
+  const rawOwnerName = safeText(lead.name).trim();
+  const ownerPlaceholder =
+    rawOwnerName && rawOwnerName !== "Unknown Owner"
+      ? "Replace parsed text with owner name"
+      : "Enter owner name";
 
   function saveMyMapsUrl(value) {
     setMyMapsUrl(value);
@@ -1181,8 +1186,8 @@ function LeadDetail({
       <div className="panel-header">
         <div>
           <p className="eyebrow">Lead Detail</p>
-          <h2>{lead.address || "Missing Address"}</h2>
-          {ownerLabel ? <p className="detail-subtitle">Owner: {ownerLabel}</p> : null}
+          <h2>{ownerLabel || "Owner name needed"}</h2>
+          <p className="detail-subtitle">{lead.address || "Missing Address"}</p>
         </div>
         <button className="ghost-button" onClick={onClose}>Close</button>
       </div>
@@ -1193,7 +1198,18 @@ function LeadDetail({
       </div>
 
       <div className="detail-address">
-        <p className="detail-owner-name">{ownerLabel || "Owner name needed"}</p>
+        <label className="owner-name-field">
+          Owner Name
+          <input
+            placeholder={ownerPlaceholder}
+            value={ownerLabel}
+            onChange={(event) => onUpdate({ name: event.target.value })}
+          />
+        </label>
+        <div className="property-address-line">
+          <span>Property Address</span>
+          <strong>{lead.address || "Missing Address"}</strong>
+        </div>
         <span className="detail-status"><StatusDot lead={lead} />{getLeadContactStatus(lead).label}</span>
         <button className="inline-map-button" onClick={() => setShowMap((current) => !current)}>
           {showMap ? "Hide Map" : "Show Map"}
@@ -1846,12 +1862,20 @@ function getDisplayOwnerName(lead = {}) {
   const name = safeText(lead.name).trim();
   if (!name || name === "Unknown Owner") return "";
 
-  const normalizedName = normalizeText(name);
-  const normalizedAddress = normalizeText(lead.address);
-  const addressWords = ["st", "street", "dr", "drive", "rd", "road", "ave", "ln", "lane", "ct", "circle", "dallas"];
-  const looksLikeAddress = addressWords.some((word) => normalizedName.includes(word)) && normalizedAddress.includes(normalizedName.slice(0, 8));
+  if (isLikelyParsedAddressName(name, lead.address)) return "";
 
-  return looksLikeAddress ? "" : name;
+  return name;
+}
+
+function isLikelyParsedAddressName(name, address = "") {
+  const normalizedName = normalizeText(name);
+  const normalizedAddress = normalizeText(address);
+  const blockedNames = new Set(["owner oc", "owner occupied", "import review", "review owner"]);
+  const streetWords = /\b(st|street|dr|drive|rd|road|ave|avenue|ln|lane|ct|court|cir|circle|blvd|boulevard|pkwy|parkway|trl|trail|way)\b/i;
+  const ownerSignals = /\b(llc|inc|corp|co|company|trust|estate|properties|property|holdings|capital|partners|lp|llp)\b/i;
+  const addressOverlap = normalizedName.length >= 8 && normalizedAddress.includes(normalizedName.slice(0, 8));
+
+  return blockedNames.has(normalizedName) || (!ownerSignals.test(name) && (streetWords.test(name) || addressOverlap));
 }
 
 function getLeadContactStatus(lead) {
