@@ -90,7 +90,11 @@ const contactStatuses = [
   { value: "left-voicemail", label: "Left Voicemail", color: "blue" },
   { value: "follow-up", label: "Follow Up", color: "yellow" }
 ];
-const apiBaseUrl = "http://127.0.0.1:8001";
+const apiBaseUrl =
+  import.meta.env.VITE_API_BASE_URL ||
+  (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1"
+    ? "http://127.0.0.1:8001"
+    : "https://chatcrm.onrender.com");
 const authStorageKey = "chatcrm.auth";
 const emptyLead = {
   name: "",

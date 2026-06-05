@@ -18,6 +18,7 @@ app.add_middleware(
         "http://localhost:4176",
         "http://localhost:4177",
         "http://localhost:4178",
+        "https://chatcrm-olive.vercel.app",
     ],
     allow_credentials=True,
     allow_methods=["*"],
