@@ -1,4 +1,5 @@
 import json
+import os
 import sqlite3
 from pathlib import Path
 
@@ -9,7 +10,7 @@ from ..auth import CurrentUser
 
 router = APIRouter(prefix="/leads", tags=["leads"])
 
-DATABASE_PATH = Path(__file__).resolve().parents[2] / "chatcrm.db"
+DATABASE_PATH = Path(os.getenv("DATABASE_PATH", Path(__file__).resolve().parents[2] / "chatcrm.db"))
 
 
 class Lead(BaseModel):
