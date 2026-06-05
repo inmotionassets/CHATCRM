@@ -1169,6 +1169,7 @@ function LeadDetail({
   const phones = getLeadPhones(lead);
   const phoneHref = phones[0] ? `tel:${phones[0].replace(/[^\d+]/g, "")}` : null;
   const emailHref = lead.email ? `mailto:${lead.email}` : null;
+  const ownerLabel = getDisplayOwnerName(lead);
 
   function saveMyMapsUrl(value) {
     setMyMapsUrl(value);
@@ -1180,7 +1181,8 @@ function LeadDetail({
       <div className="panel-header">
         <div>
           <p className="eyebrow">Lead Detail</p>
-          <h2>{lead.name}</h2>
+          <h2>{lead.address || "Missing Address"}</h2>
+          {ownerLabel ? <p className="detail-subtitle">Owner: {ownerLabel}</p> : null}
         </div>
         <button className="ghost-button" onClick={onClose}>Close</button>
       </div>
@@ -1191,10 +1193,11 @@ function LeadDetail({
       </div>
 
       <div className="detail-address">
-        <button className="address-button" onClick={() => setShowMap((current) => !current)}>
-          {lead.address}
-        </button>
+        <p className="detail-owner-name">{ownerLabel || "Owner name needed"}</p>
         <span className="detail-status"><StatusDot lead={lead} />{getLeadContactStatus(lead).label}</span>
+        <button className="inline-map-button" onClick={() => setShowMap((current) => !current)}>
+          {showMap ? "Hide Map" : "Show Map"}
+        </button>
       </div>
 
       <div className="quick-actions">
@@ -1837,6 +1840,18 @@ function getLeadZip(lead = {}) {
   const searchText = [lead.zip, lead.zipCode, lead.postalCode, lead.address].filter(Boolean).join(" ");
   const match = String(searchText).match(/\b\d{5}(?:-\d{4})?\b/);
   return match ? match[0].slice(0, 5) : "";
+}
+
+function getDisplayOwnerName(lead = {}) {
+  const name = safeText(lead.name).trim();
+  if (!name || name === "Unknown Owner") return "";
+
+  const normalizedName = normalizeText(name);
+  const normalizedAddress = normalizeText(lead.address);
+  const addressWords = ["st", "street", "dr", "drive", "rd", "road", "ave", "ln", "lane", "ct", "circle", "dallas"];
+  const looksLikeAddress = addressWords.some((word) => normalizedName.includes(word)) && normalizedAddress.includes(normalizedName.slice(0, 8));
+
+  return looksLikeAddress ? "" : name;
 }
 
 function getLeadContactStatus(lead) {
