@@ -2060,11 +2060,7 @@ function buildCountyTaxUrl(lead) {
   const county = `${lead.county || ""} ${lead.source || ""} ${lead.address || ""}`.toLowerCase();
 
   if (county.includes("dallas")) {
-    if (lead.parcelNumber) {
-      return "https://www.dallascad.org/SearchAcct.aspx";
-    }
-
-    return "https://www.dallascad.org/SearchAddr.aspx";
+    return "https://www.dallasact.com/act_webdev/dallas/index.jsp";
   }
 
   const query = [lead.county, lead.parcelNumber, lead.address, "county appraisal district property search"].filter(Boolean).join(" ");
