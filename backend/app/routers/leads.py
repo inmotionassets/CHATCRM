@@ -1,7 +1,9 @@
 import json
 import os
 import sqlite3
+from contextlib import contextmanager
 from pathlib import Path
+from typing import Iterator
 
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
@@ -10,7 +12,9 @@ from ..auth import CurrentUser
 
 router = APIRouter(prefix="/leads", tags=["leads"])
 
+DATABASE_URL = os.getenv("DATABASE_URL", "")
 DATABASE_PATH = Path(os.getenv("DATABASE_PATH", Path(__file__).resolve().parents[2] / "chatcrm.db"))
+USE_POSTGRES = DATABASE_URL.startswith(("postgres://", "postgresql://"))
 
 
 class Lead(BaseModel):
@@ -42,7 +46,7 @@ class Lead(BaseModel):
     contactStatus: str = "needs-review"
 
 
-def get_connection() -> sqlite3.Connection:
+def get_sqlite_connection() -> sqlite3.Connection:
     connection = sqlite3.connect(DATABASE_PATH)
     connection.row_factory = sqlite3.Row
     connection.execute(
@@ -56,47 +60,108 @@ def get_connection() -> sqlite3.Connection:
     return connection
 
 
-@router.get("", response_model=list[Lead])
-def list_leads(current_user: CurrentUser):
-    with get_connection() as connection:
+@contextmanager
+def get_postgres_connection() -> Iterator[object]:
+    import psycopg
+
+    with psycopg.connect(DATABASE_URL) as connection:
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS leads (
+                id TEXT PRIMARY KEY,
+                payload TEXT NOT NULL,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+            )
+            """
+        )
+        yield connection
+
+
+def list_saved_leads() -> list[Lead]:
+    if USE_POSTGRES:
+        with get_postgres_connection() as connection:
+            rows = connection.execute("SELECT payload FROM leads ORDER BY created_at DESC, id DESC").fetchall()
+        return [Lead.model_validate(json.loads(row[0])) for row in rows]
+
+    with get_sqlite_connection() as connection:
         rows = connection.execute("SELECT payload FROM leads ORDER BY rowid DESC").fetchall()
     return [Lead.model_validate(json.loads(row["payload"])) for row in rows]
 
 
-@router.post("/sync", response_model=list[Lead])
-def sync_leads(leads: list[Lead], current_user: CurrentUser):
-    with get_connection() as connection:
+def replace_saved_leads(leads: list[Lead]) -> None:
+    if USE_POSTGRES:
+        with get_postgres_connection() as connection:
+            connection.execute("DELETE FROM leads")
+            with connection.cursor() as cursor:
+                cursor.executemany(
+                    "INSERT INTO leads (id, payload) VALUES (%s, %s)",
+                    [(lead.id, lead.model_dump_json()) for lead in leads],
+                )
+        return
+
+    with get_sqlite_connection() as connection:
         connection.execute("DELETE FROM leads")
         connection.executemany(
             "INSERT INTO leads (id, payload) VALUES (?, ?)",
             [(lead.id, lead.model_dump_json()) for lead in leads],
         )
+
+
+def save_lead(lead: Lead) -> None:
+    if USE_POSTGRES:
+        with get_postgres_connection() as connection:
+            connection.execute(
+                """
+                INSERT INTO leads (id, payload)
+                VALUES (%s, %s)
+                ON CONFLICT (id) DO UPDATE SET payload = EXCLUDED.payload
+                """,
+                (lead.id, lead.model_dump_json()),
+            )
+        return
+
+    with get_sqlite_connection() as connection:
+        connection.execute(
+            "INSERT OR REPLACE INTO leads (id, payload) VALUES (?, ?)",
+            (lead.id, lead.model_dump_json()),
+        )
+
+
+def remove_lead(lead_id: str) -> None:
+    if USE_POSTGRES:
+        with get_postgres_connection() as connection:
+            connection.execute("DELETE FROM leads WHERE id = %s", (lead_id,))
+        return
+
+    with get_sqlite_connection() as connection:
+        connection.execute("DELETE FROM leads WHERE id = ?", (lead_id,))
+
+
+@router.get("", response_model=list[Lead])
+def list_leads(current_user: CurrentUser):
+    return list_saved_leads()
+
+
+@router.post("/sync", response_model=list[Lead])
+def sync_leads(leads: list[Lead], current_user: CurrentUser):
+    replace_saved_leads(leads)
     return leads
 
 
 @router.post("", response_model=Lead)
 def create_lead(lead: Lead, current_user: CurrentUser):
-    with get_connection() as connection:
-        connection.execute(
-            "INSERT OR REPLACE INTO leads (id, payload) VALUES (?, ?)",
-            (lead.id, lead.model_dump_json()),
-        )
+    save_lead(lead)
     return lead
 
 
 @router.put("/{lead_id}", response_model=Lead)
 def update_lead(lead_id: str, lead: Lead, current_user: CurrentUser):
     saved_lead = lead.model_copy(update={"id": lead_id})
-    with get_connection() as connection:
-        connection.execute(
-            "INSERT OR REPLACE INTO leads (id, payload) VALUES (?, ?)",
-            (saved_lead.id, saved_lead.model_dump_json()),
-        )
+    save_lead(saved_lead)
     return saved_lead
 
 
 @router.delete("/{lead_id}")
 def delete_lead(lead_id: str, current_user: CurrentUser):
-    with get_connection() as connection:
-        connection.execute("DELETE FROM leads WHERE id = ?", (lead_id,))
+    remove_lead(lead_id)
     return {"deleted": lead_id}
