@@ -90,6 +90,81 @@ const contactStatuses = [
   { value: "left-voicemail", label: "Left Voicemail", color: "blue" },
   { value: "follow-up", label: "Follow Up", color: "yellow" }
 ];
+const mainViews = ["Leads", "Pipeline", "Imports", "Analytics", "Training"];
+const callScript = {
+  objective: "Verify ownership, determine interest, gather good contact notes, and schedule the right follow-up. Do not make offers on the first call.",
+  opening: "Hello, is this {ownerName}? My name is [AGENT NAME], and I am calling about {propertyAddress}. Did I catch you at a bad time?",
+  questions: [
+    "Do you still own the property?",
+    "Have you thought about selling it recently?",
+    "If the right offer came along, would you consider selling?",
+    "Is there anything preventing you from selling right now?",
+    "How soon would you like to sell?"
+  ],
+  classifications: [
+    { label: "Hot", detail: "Wants an offer, inherited property, back taxes, or wants to sell quickly." },
+    { label: "Warm", detail: "Interested but not rushed, wants information, or needs a later follow-up." },
+    { label: "Cold", detail: "Not interested, keeping long term, already listed, or wrong fit." }
+  ],
+  rebuttals: [
+    { prompt: "How did you get my number?", response: "Public property records and data providers." },
+    { prompt: "What is my property worth?", response: "Our acquisitions team reviews each property before giving numbers." },
+    { prompt: "Make me an offer right now.", response: "We need to review the property first so we can provide accurate numbers." }
+  ],
+  voicemail: "Hello, this is [AGENT NAME]. I am calling regarding {propertyAddress}, a property we believe you own in the Dallas area. Please call me back at [PHONE NUMBER]. Thank you."
+};
+const trainingSections = [
+  {
+    title: "Mission",
+    items: [
+      "Find out if the owner would consider selling.",
+      "Verify owner and property details before moving the lead forward.",
+      "Do not quote prices, values, guarantees, or closing dates."
+    ]
+  },
+  {
+    title: "Call Flow",
+    items: [
+      "Verify owner.",
+      "Verify property.",
+      "Determine interest.",
+      "Gather motivation.",
+      "Determine timeline.",
+      "Schedule follow-up."
+    ]
+  },
+  {
+    title: "Seller Types",
+    items: [
+      "Motivated Seller: wants cash, inherited property, tired of taxes.",
+      "Curious Seller: wants information and may not know value.",
+      "Future Seller: may sell later.",
+      "Permanent Owner: keeping long term."
+    ]
+  },
+  {
+    title: "Lead Scoring",
+    items: [
+      "Hot: wants an offer, inherited property, back taxes, wants to sell quickly.",
+      "Warm: interested but not rushed.",
+      "Cold: not interested or wrong fit."
+    ]
+  },
+  {
+    title: "CRM Statuses",
+    items: [
+      "New, No Answer, Voicemail, Callback, Wrong Number, Not Interested.",
+      "Warm, Hot, Offer Requested, Follow-Up Scheduled, Contract Sent, Closed."
+    ]
+  },
+  {
+    title: "Common Motivations",
+    items: [
+      "Inherited property, back taxes, need cash, divorce, estate settlement.",
+      "Moving, retirement, financial hardship."
+    ]
+  }
+];
 const apiBaseUrl =
   import.meta.env.VITE_API_BASE_URL ||
   (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1"
@@ -502,7 +577,7 @@ export function App() {
         </div>
 
         <nav className="nav-list" aria-label="Main navigation">
-          {["Leads", "Pipeline", "Imports", "Analytics"].map((view) => (
+          {mainViews.map((view) => (
             <button
               className={`nav-item ${activeView === view ? "active" : ""}`}
               key={view}
@@ -705,6 +780,10 @@ export function App() {
 
           {activeView === "Analytics" ? (
             <AnalyticsView followUps={followUps} hotLeads={hotLeads} imports={imports} leads={leads} />
+          ) : null}
+
+          {activeView === "Training" ? (
+            <TrainingView />
           ) : null}
 
           <aside className="panel side-panel">
@@ -983,6 +1062,52 @@ function AnalyticsView({ followUps, hotLeads, imports, leads }) {
   );
 }
 
+function TrainingView() {
+  return (
+    <div className="panel wide-panel training-panel">
+      <div className="panel-header">
+        <div>
+          <p className="eyebrow">Training</p>
+          <h2>Dallas Land Acquisition Playbook</h2>
+        </div>
+      </div>
+
+      <div className="training-hero">
+        <div>
+          <p className="training-kicker">Winning Formula</p>
+          <h3>Ask questions. Listen more than you talk. Take clean notes. Schedule the next step.</h3>
+        </div>
+        <p>
+          This training keeps the team focused on owner verification, motivation, timeline, and follow-up.
+          Acquisitions reviews numbers before any offer is made.
+        </p>
+      </div>
+
+      <div className="training-grid">
+        {trainingSections.map((section) => (
+          <section className="training-card" key={section.title}>
+            <h3>{section.title}</h3>
+            <ul>
+              {section.items.map((item) => (
+                <li key={item}>{item}</li>
+              ))}
+            </ul>
+          </section>
+        ))}
+      </div>
+
+      <section className="training-card warning-card">
+        <h3>Never Say</h3>
+        <ul>
+          <li>Do not quote property values, offer amounts, guarantees, or closing dates.</li>
+          <li>Do not negotiate. Move interested sellers to acquisitions for review.</li>
+          <li>Do not argue. Confirm the call result, save notes, and move to the next lead.</li>
+        </ul>
+      </section>
+    </div>
+  );
+}
+
 function LeadForm({ formLead, isEditing, onCancel, onChange, onSubmit }) {
   function updateField(field, value) {
     onChange({ ...formLead, [field]: value });
@@ -1146,6 +1271,68 @@ function LeadForm({ formLead, isEditing, onCancel, onChange, onSubmit }) {
   );
 }
 
+function CallScriptPanel({ lead }) {
+  const ownerName = getDisplayOwnerName(lead) || "[OWNER NAME]";
+  const propertyAddress = lead.address || "the Dallas-area property";
+  const opening = callScript.opening
+    .replace("{ownerName}", ownerName)
+    .replace("{propertyAddress}", propertyAddress);
+  const voicemail = callScript.voicemail.replace("{propertyAddress}", propertyAddress);
+
+  return (
+    <section className="call-script-panel" aria-label="Call script">
+      <div className="script-header">
+        <div>
+          <p className="eyebrow">Call Script</p>
+          <h3>Owner Interest Check</h3>
+        </div>
+        <span>Dallas Land</span>
+      </div>
+
+      <p className="script-objective">{callScript.objective}</p>
+
+      <div className="script-block">
+        <span>Opening</span>
+        <p>{opening}</p>
+      </div>
+
+      <div className="script-block">
+        <span>Qualification</span>
+        <ol>
+          {callScript.questions.map((question) => (
+            <li key={question}>{question}</li>
+          ))}
+        </ol>
+      </div>
+
+      <div className="script-classification-grid">
+        {callScript.classifications.map((item) => (
+          <div key={item.label}>
+            <strong>{item.label}</strong>
+            <p>{item.detail}</p>
+          </div>
+        ))}
+      </div>
+
+      <details className="script-details">
+        <summary>Rebuttals + Voicemail</summary>
+        <div className="rebuttal-list">
+          {callScript.rebuttals.map((item) => (
+            <p key={item.prompt}>
+              <strong>{item.prompt}</strong>
+              {item.response}
+            </p>
+          ))}
+        </div>
+        <div className="script-block">
+          <span>Voicemail</span>
+          <p>{voicemail}</p>
+        </div>
+      </details>
+    </section>
+  );
+}
+
 function LeadDetail({
   lead,
   onClose,
@@ -1223,6 +1410,28 @@ function LeadDetail({
         <ContactLink href={mapUrl} label="Map" />
       </div>
 
+      <div className="call-workspace">
+        {phones.length > 0 ? (
+          <section className="phone-stack" aria-label="Phone numbers">
+            <p>Phone Numbers</p>
+            <div>
+              {phones.map((phone) => (
+                <span className="phone-action-group" key={phone}>
+                  <a href={`tel:${phone.replace(/[^\d+]/g, "")}`}>{formatPhone(phone)}</a>
+                  <a href={buildGoogleVoiceUrl(phone)} rel="noreferrer" target="_blank">Voice</a>
+                </span>
+              ))}
+            </div>
+          </section>
+        ) : (
+          <section className="phone-stack" aria-label="Phone numbers">
+            <p>Phone Numbers</p>
+            <span className="missing-copy">No phone numbers saved yet.</span>
+          </section>
+        )}
+        <CallScriptPanel lead={lead} />
+      </div>
+
       <div className="detail-grid">
         <DetailItem label="Email" value={lead.email || "Missing"} />
         <DetailItem label="Stage" value={lead.stage} />
@@ -1291,20 +1500,6 @@ function LeadDetail({
           </div>
         </section>
       </details>
-
-      {phones.length > 0 ? (
-        <section className="phone-stack" aria-label="Phone numbers">
-          <p>Phone Numbers</p>
-          <div>
-            {phones.map((phone) => (
-              <span className="phone-action-group" key={phone}>
-                <a href={`tel:${phone.replace(/[^\d+]/g, "")}`}>{formatPhone(phone)}</a>
-                <a href={buildGoogleVoiceUrl(phone)} rel="noreferrer" target="_blank">Voice</a>
-              </span>
-            ))}
-          </div>
-        </section>
-      ) : null}
 
       {showMap ? (
         <section className="map-panel" aria-label="Embedded map">
