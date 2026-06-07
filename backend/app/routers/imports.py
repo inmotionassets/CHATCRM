@@ -279,7 +279,7 @@ ADDRESS_RE = re.compile(
     r"(?:\.|,\s*[A-Za-z .'-]+)?",
     re.IGNORECASE,
 )
-PHONE_RE = re.compile(r"(?:\+?1[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}")
+PHONE_RE = re.compile(r"(?<!\d)(?:\+?1[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}(?!\d)")
 EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
 
 
@@ -331,9 +331,52 @@ def unique_phones(values: list[str]) -> list[str]:
 def find_name(context: str, address: str) -> str:
     before_address = context.split(address)[0]
     candidates = re.findall(r"\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,2}\b", before_address)
-    blocked = {"Tax List", "County Record", "Property Address", "Owner Name"}
-    candidates = [candidate for candidate in candidates if candidate not in blocked]
+    candidates = [candidate for candidate in candidates if is_probable_owner_name(candidate)]
     return candidates[-1] if candidates else "Unknown Owner"
+
+
+def is_probable_owner_name(candidate: str) -> bool:
+    normalized = re.sub(r"[^a-z0-9]+", " ", candidate.lower()).strip()
+    blocked = {
+        "address",
+        "address unit",
+        "apn owner",
+        "balch springs",
+        "cedar hill",
+        "city state",
+        "city state zip",
+        "county record",
+        "dallas",
+        "duncanville",
+        "garland",
+        "grand prairie",
+        "hutchins",
+        "irving",
+        "lancaster",
+        "mesquite",
+        "owner name",
+        "owner oc",
+        "owner occupied",
+        "property address",
+        "rowlett",
+        "sachse",
+        "seagoville",
+        "tax list",
+        "unit city",
+        "zip county",
+    }
+    street_words = re.compile(
+        r"\b(st|street|dr|drive|rd|road|ave|avenue|ln|lane|ct|court|cir|circle|blvd|boulevard|pkwy|parkway|pl|place|way)\b",
+        re.IGNORECASE,
+    )
+
+    if normalized in blocked:
+        return False
+
+    if street_words.search(candidate):
+        return False
+
+    return bool(candidate.strip())
 
 
 def dedupe_leads(leads: list[ParsedLead], limit: int | None = None) -> list[ParsedLead]:

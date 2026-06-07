@@ -2065,7 +2065,33 @@ function getDisplayOwnerName(lead = {}) {
 function isLikelyParsedAddressName(name, address = "") {
   const normalizedName = normalizeText(name);
   const normalizedAddress = normalizeText(address);
-  const blockedNames = new Set(["owner oc", "owner occupied", "import review", "review owner"]);
+  const blockedNames = new Set([
+    "apn owner",
+    "balch springs",
+    "cedar hill",
+    "city state",
+    "city state zip",
+    "county record",
+    "dallas",
+    "duncanville",
+    "garland",
+    "grand prairie",
+    "hutchins",
+    "import review",
+    "irving",
+    "lancaster",
+    "mesquite",
+    "owner oc",
+    "owner occupied",
+    "property address",
+    "review owner",
+    "rowlett",
+    "sachse",
+    "seagoville",
+    "tax list",
+    "unit city",
+    "zip county"
+  ]);
   const streetWords = /\b(st|street|dr|drive|rd|road|ave|avenue|ln|lane|ct|court|cir|circle|blvd|boulevard|pkwy|parkway|trl|trail|way)\b/i;
   const ownerSignals = /\b(llc|inc|corp|co|company|trust|estate|properties|property|holdings|capital|partners|lp|llp)\b/i;
   const addressOverlap = normalizedName.length >= 8 && normalizedAddress.includes(normalizedName.slice(0, 8));
