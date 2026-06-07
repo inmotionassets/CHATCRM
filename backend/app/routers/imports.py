@@ -42,8 +42,10 @@ class ParseResult(BaseModel):
 @router.post("/parse-pdf", response_model=ParseResult)
 async def parse_pdf(current_user: CurrentUser, file: UploadFile = File(...)):
     contents = await file.read()
-    text, pages, warnings = extract_pdf_text(contents)
-    leads = extract_leads(text, file.filename or "uploaded.pdf")
+    page_texts, warnings = extract_pdf_page_texts(contents)
+    text = "\n".join(page_texts)
+    pages = len(page_texts)
+    leads = extract_wide_export_leads(page_texts, file.filename or "uploaded.pdf") or extract_leads(text, file.filename or "uploaded.pdf")
 
     if text.strip() and not leads:
         warnings.append("Text was found, but no clear lead rows were detected.")
@@ -79,12 +81,17 @@ async def parse_csv(current_user: CurrentUser, file: UploadFile = File(...)):
 
 
 def extract_pdf_text(contents: bytes) -> tuple[str, int, list[str]]:
+    page_texts, warnings = extract_pdf_page_texts(contents)
+    return "\n".join(page_texts), len(page_texts), warnings
+
+
+def extract_pdf_page_texts(contents: bytes) -> tuple[list[str], list[str]]:
     warnings: list[str] = []
 
     try:
         reader = PdfReader(io.BytesIO(contents))
     except Exception:
-        return "", 0, ["The file could not be opened as a PDF."]
+        return [], ["The file could not be opened as a PDF."]
 
     page_text: list[str] = []
     for index, page in enumerate(reader.pages, start=1):
@@ -93,7 +100,158 @@ def extract_pdf_text(contents: bytes) -> tuple[str, int, list[str]]:
         except Exception:
             warnings.append(f"Page {index} could not be read.")
 
-    return "\n".join(page_text), len(reader.pages), warnings
+    return page_text, warnings
+
+
+def extract_wide_export_leads(page_texts: list[str], source: str) -> list[ParsedLead]:
+    owner_start = first_page_index(page_texts, "Owner 1 First Name")
+    if owner_start <= 0:
+        return []
+
+    phone_start = first_page_index(page_texts[owner_start + 1 :], "Phone 1")
+    phone_start = owner_start + 1 + phone_start if phone_start != -1 else -1
+    group_size = phone_start - owner_start if phone_start > owner_start else owner_start
+
+    if group_size <= 0:
+        return []
+
+    leads: list[ParsedLead] = []
+
+    for page_offset in range(group_size):
+        address_page_index = page_offset
+        owner_page_index = owner_start + page_offset
+        phone_page_index = phone_start + page_offset if phone_start != -1 else -1
+        extra_phone_page_index = phone_start + group_size + page_offset if phone_start != -1 else -1
+
+        if address_page_index >= len(page_texts) or owner_page_index >= len(page_texts):
+            continue
+
+        address_rows = extract_wide_address_rows(page_texts[address_page_index])
+        owner_rows = extract_wide_text_rows(page_texts[owner_page_index])
+        phone_rows = extract_wide_text_rows(page_texts[phone_page_index]) if phone_page_index < len(page_texts) else []
+        extra_phone_rows = extract_wide_text_rows(page_texts[extra_phone_page_index]) if extra_phone_page_index < len(page_texts) else []
+
+        for row_index, row in enumerate(address_rows):
+            owner_line = owner_rows[row_index] if row_index < len(owner_rows) else ""
+            phone_line = phone_rows[row_index] if row_index < len(phone_rows) else ""
+            extra_phone_line = extra_phone_rows[row_index] if row_index < len(extra_phone_rows) else ""
+            name = build_wide_owner_name(owner_line, phone_line)
+            phones = unique_phones(find_phones(phone_line) + find_phones(extra_phone_line))
+            confidence = 75
+
+            if name != "Unknown Owner":
+                confidence += 10
+            if phones:
+                confidence += 10
+
+            leads.append(
+                ParsedLead(
+                    name=name,
+                    address=row["address"],
+                    parcelNumber=row["parcelNumber"],
+                    county=row["county"],
+                    phone=phones[0] if phones else "",
+                    phones=phones,
+                    email="",
+                    source=source,
+                    confidence=min(confidence, 95),
+                    notes="",
+                )
+            )
+
+    return dedupe_leads(leads)
+
+
+def first_page_index(page_texts: list[str], marker: str) -> int:
+    marker_lower = marker.lower()
+    for index, page_text in enumerate(page_texts):
+        if marker_lower in page_text.lower():
+            return index
+    return -1
+
+
+def extract_wide_address_rows(page_text: str) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+
+    for line in extract_wide_text_rows(page_text):
+        address = find_address(line)
+        if not address:
+            continue
+
+        remaining = line.replace(address, "", 1)
+        details = re.search(
+            r"\b(?P<state>[A-Z]{2})\s+(?P<zip>\d{5})\s+(?P<county>[A-Za-z ]+?)\s+(?P<apn>[A-Za-z0-9-]{8,})\s+(?:Yes|No)\b",
+            remaining,
+        )
+
+        rows.append(
+            {
+                "address": address,
+                "county": clean_line(details.group("county")) if details else "",
+                "parcelNumber": details.group("apn") if details else "",
+            }
+        )
+
+    return rows
+
+
+def extract_wide_text_rows(page_text: str) -> list[str]:
+    header_markers = (
+        "address unit",
+        "owner 1 first name",
+        "owner 2 last name",
+        "phone 4",
+        "email 1",
+        "mailing city",
+    )
+    rows: list[str] = []
+
+    for line in page_text.splitlines():
+        row = clean_line(line)
+        if not row:
+            continue
+
+        if any(marker in row.lower() for marker in header_markers):
+            continue
+
+        rows.append(row)
+
+    return rows
+
+
+def build_wide_owner_name(owner_line: str, phone_line: str = "") -> str:
+    owner = clean_owner_line(owner_line)
+    if not owner:
+        return "Unknown Owner"
+
+    leading_last_name = leading_phone_owner_name(phone_line)
+    parts = owner.split()
+
+    if leading_last_name and len(parts) >= 3:
+        owner_one = " ".join(parts[:-1])
+        owner_two = f"{parts[-1]} {leading_last_name}"
+        return f"{owner_one} / {owner_two}"
+
+    return owner
+
+
+def clean_owner_line(value: str) -> str:
+    owner = clean_line(value)
+    owner = re.sub(r"\s+", " ", owner).strip(" ,")
+    return owner if is_probable_owner_name(owner) else ""
+
+
+def leading_phone_owner_name(phone_line: str) -> str:
+    before_phone = PHONE_RE.split(phone_line, maxsplit=1)[0]
+    before_phone = re.sub(r"\s*[-,]\s*$", "", before_phone).strip()
+
+    if not before_phone:
+        return ""
+
+    if not re.fullmatch(r"[A-Za-z][A-Za-z.'-]*(?:\s+[A-Za-z][A-Za-z.'-]*)?", before_phone):
+        return ""
+
+    return before_phone if is_probable_owner_name(before_phone) else ""
 
 
 def extract_leads(text: str, source: str) -> list[ParsedLead]:
@@ -133,7 +291,7 @@ def extract_leads(text: str, source: str) -> list[ParsedLead]:
             )
         )
 
-    return dedupe_leads(leads, limit=100)
+    return dedupe_leads(leads)
 
 
 def decode_csv(contents: bytes) -> str:
