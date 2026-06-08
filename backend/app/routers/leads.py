@@ -13,7 +13,17 @@ from ..auth import CurrentUser
 
 router = APIRouter(prefix="/leads", tags=["leads"])
 
-DATABASE_URL = os.getenv("DATABASE_URL", "")
+def normalize_database_url(value: str) -> str:
+    cleaned = (value or "").strip().strip("\"'")
+
+    if cleaned.lower().startswith("database_url="):
+        cleaned = cleaned.split("=", 1)[1].strip().strip("\"'")
+
+    return cleaned
+
+
+RAW_DATABASE_URL = os.getenv("DATABASE_URL", "")
+DATABASE_URL = normalize_database_url(RAW_DATABASE_URL)
 DATABASE_PATH = Path(os.getenv("DATABASE_PATH", Path(__file__).resolve().parents[2] / "chatcrm.db"))
 USE_POSTGRES = DATABASE_URL.startswith(("postgres://", "postgresql://"))
 
@@ -72,6 +82,14 @@ def postgres_connection_url() -> str:
         query["sslmode"] = "require"
 
     return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, urlencode(query), parsed.fragment))
+
+
+def database_url_scheme() -> str:
+    if not DATABASE_URL:
+        return "missing"
+
+    parsed = urlsplit(DATABASE_URL)
+    return parsed.scheme or "unknown"
 
 
 @contextmanager

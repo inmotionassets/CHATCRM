@@ -40,5 +40,6 @@ def health_check():
 def database_health_check():
     return {
         "database": "postgres" if leads.USE_POSTGRES else "sqlite",
-        "database_url_configured": bool(leads.DATABASE_URL),
+        "database_url_configured": bool(leads.RAW_DATABASE_URL),
+        "database_url_scheme": leads.database_url_scheme(),
     }
