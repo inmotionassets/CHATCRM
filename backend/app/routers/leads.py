@@ -4,6 +4,7 @@ import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
@@ -60,11 +61,24 @@ def get_sqlite_connection() -> sqlite3.Connection:
     return connection
 
 
+def postgres_connection_url() -> str:
+    if not USE_POSTGRES:
+        return DATABASE_URL
+
+    parsed = urlsplit(DATABASE_URL)
+    query = dict(parse_qsl(parsed.query, keep_blank_values=True))
+
+    if parsed.hostname not in {"localhost", "127.0.0.1"} and "sslmode" not in query:
+        query["sslmode"] = "require"
+
+    return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, urlencode(query), parsed.fragment))
+
+
 @contextmanager
 def get_postgres_connection() -> Iterator[object]:
     import psycopg
 
-    with psycopg.connect(DATABASE_URL) as connection:
+    with psycopg.connect(postgres_connection_url()) as connection:
         connection.execute(
             """
             CREATE TABLE IF NOT EXISTS leads (
