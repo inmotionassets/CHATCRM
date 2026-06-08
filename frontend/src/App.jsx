@@ -108,8 +108,26 @@ const callScript = {
   ],
   rebuttals: [
     { prompt: "How did you get my number?", response: "Public property records and data providers." },
+    { prompt: "Who are you?", response: "We work with a local acquisition team that reviews vacant land and residential lots in the Dallas area." },
+    { prompt: "Are you a realtor?", response: "No. We are not calling to list the property. We are checking whether you would consider a direct sale." },
     { prompt: "What is my property worth?", response: "Our acquisitions team reviews each property before giving numbers." },
-    { prompt: "Make me an offer right now.", response: "We need to review the property first so we can provide accurate numbers." }
+    { prompt: "Make me an offer right now.", response: "We need to review the property first so we can provide accurate numbers." },
+    { prompt: "I am not interested.", response: "No problem. Is it something you would never sell, or would it make sense to check back later?" },
+    { prompt: "Remove me from your list.", response: "Absolutely. I will mark that down. Thank you for letting me know." },
+    { prompt: "I do not own that property.", response: "Thank you for clarifying. Do you know if it was sold, inherited, or titled under a different name?" },
+    { prompt: "I already sold it.", response: "Got it. Do you remember roughly when it sold so we can update our records?" },
+    { prompt: "I need to talk to family.", response: "Of course. Who else should be part of that conversation, and when would be a good time to follow up?" },
+    { prompt: "Call me later.", response: "Absolutely. What day and time works best for you?" },
+    { prompt: "Text me.", response: "Sure. I can send a quick text with who we are and the property we are calling about." },
+    { prompt: "Send me something in writing.", response: "Sure. What is the best email or mailing address to send information to?" },
+    { prompt: "I want full market value.", response: "I understand. Our team reviews the property first, then decides whether we can make an offer that makes sense." },
+    { prompt: "I do not want a low offer.", response: "I hear you. I am not here to throw out a number. My job is only to confirm interest and get the property reviewed." },
+    { prompt: "How fast can you close?", response: "That depends on title, taxes, and the property review. Acquisitions can give a better answer after checking those items." },
+    { prompt: "I owe back taxes.", response: "That is helpful to know. Our acquisitions team can review taxes and see whether that affects the offer." },
+    { prompt: "There is a lien or title issue.", response: "Thank you for mentioning that. I will note it so acquisitions can review title before discussing numbers." },
+    { prompt: "The property is listed.", response: "Thanks for letting me know. Is it currently active with an agent, or was it listed before?" },
+    { prompt: "Is this a scam?", response: "I understand the concern. We are only verifying ownership and interest right now. You do not need to provide private financial information on this call." },
+    { prompt: "I am busy.", response: "No problem. I can keep this short. Is this a bad time, or should I call back later?" }
   ],
   voicemail: "Hello, this is [AGENT NAME]. I am calling regarding {propertyAddress}, a property we believe you own in the Dallas area. Please call me back at [PHONE NUMBER]. Thank you."
 };

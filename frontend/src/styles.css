@@ -759,7 +759,7 @@ h3 {
   display: grid;
   gap: 15px;
   max-height: calc(100vh - 48px);
-  max-width: 520px;
+  max-width: 880px;
   overflow: auto;
   padding: 18px;
   position: fixed;
@@ -767,6 +767,10 @@ h3 {
   top: 24px;
   width: calc(100vw - 48px);
   z-index: 20;
+}
+
+.lead-detail * {
+  overflow-wrap: break-word;
 }
 
 .detail-backdrop {
@@ -978,7 +982,7 @@ h3 {
 .call-workspace {
   display: grid;
   gap: 10px;
-  grid-template-columns: minmax(220px, 0.75fr) minmax(280px, 1.25fr);
+  grid-template-columns: minmax(250px, 0.8fr) minmax(390px, 1.2fr);
 }
 
 .phone-stack {
@@ -1060,6 +1064,7 @@ h3 {
 
 .script-objective,
 .script-block p,
+.script-block li,
 .script-classification-grid p,
 .rebuttal-list p {
   color: var(--muted-strong);
