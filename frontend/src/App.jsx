@@ -90,7 +90,7 @@ const contactStatuses = [
   { value: "left-voicemail", label: "Left Voicemail", color: "blue" },
   { value: "follow-up", label: "Follow Up", color: "yellow" }
 ];
-const mainViews = ["Leads", "Pipeline", "Imports", "Analytics", "Training"];
+const mainViews = ["Leads", "Pipeline", "Buyer Network", "Imports", "Analytics", "Training"];
 const callScript = {
   objective: "Verify ownership, determine interest, gather good contact notes, and schedule the right follow-up. Do not make offers on the first call.",
   opening: "Hello, is this {ownerName}? My name is [AGENT NAME], and I am calling about {propertyAddress}. Did I catch you at a bad time?",
@@ -214,10 +214,35 @@ const emptyLead = {
   followUpDate: ""
 };
 
+const emptyBuyer = {
+  id: "",
+  name: "",
+  company: "",
+  phone: "",
+  phones: [],
+  email: "",
+  website: "",
+  socialLinks: [],
+  counties: [],
+  zipCodes: [],
+  priceMin: "",
+  priceMax: "",
+  propertyTypes: [],
+  fundingType: "",
+  builderType: "",
+  activityStatus: "warm",
+  relationshipTier: "C",
+  pastDealsBought: "",
+  assignmentFeeTolerance: "",
+  notes: "",
+  source: "Manual Entry"
+};
+
 export function App() {
   const [auth, setAuth] = React.useState(() => loadAuth());
   const [loginError, setLoginError] = React.useState("");
   const [leads, setLeads] = React.useState(() => loadLeads());
+  const [buyers, setBuyers] = React.useState(() => loadBuyers());
   const [imports, setImports] = React.useState(() => loadImports());
   const [query, setQuery] = React.useState("");
   const [stageFilter, setStageFilter] = React.useState("All");
@@ -235,7 +260,9 @@ export function App() {
   const [theme, setTheme] = React.useState(() => safeStorageGet("chatcrm.theme") || "light");
   const [selectedLeadIds, setSelectedLeadIds] = React.useState([]);
   const [agreementLead, setAgreementLead] = React.useState(null);
+  const [buyerMessage, setBuyerMessage] = React.useState("");
   const fileInputRef = React.useRef(null);
+  const buyerFileInputRef = React.useRef(null);
   const authToken = auth?.accessToken || "";
 
   async function login(username, password) {
@@ -265,6 +292,7 @@ export function App() {
       safeStorageSet(authStorageKey, JSON.stringify(nextAuth));
       setBackendReady(false);
       setLeads([]);
+      setBuyers([]);
       setSaveStatus("Connecting...");
     } catch {
       setLoginError("Login failed. Check the username and password.");
@@ -275,8 +303,10 @@ export function App() {
     setAuth(null);
     setBackendReady(false);
     setLeads([]);
+    setBuyers([]);
     safeStorageRemove(authStorageKey);
     safeStorageRemove("chatcrm.leads");
+    safeStorageRemove("chatcrm.buyers");
   }
 
   React.useEffect(() => {
@@ -287,6 +317,10 @@ export function App() {
   React.useEffect(() => {
     safeStorageSet("chatcrm.leads", JSON.stringify(leads));
   }, [leads]);
+
+  React.useEffect(() => {
+    safeStorageSet("chatcrm.buyers", JSON.stringify(buyers));
+  }, [buyers]);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -310,6 +344,26 @@ export function App() {
     }
 
     hydrateLeads();
+    return () => {
+      cancelled = true;
+    };
+  }, [authToken]);
+
+  React.useEffect(() => {
+    let cancelled = false;
+
+    async function hydrateBuyers() {
+      if (!authToken) return;
+
+      try {
+        const storedBuyers = await fetchBackendBuyers(authToken);
+        if (!cancelled) setBuyers(storedBuyers);
+      } catch {
+        if (!cancelled) setBuyerMessage("Buyer Network is using browser backup until the backend responds.");
+      }
+    }
+
+    hydrateBuyers();
     return () => {
       cancelled = true;
     };
@@ -583,6 +637,44 @@ export function App() {
     event.target.value = "";
   }
 
+  async function uploadBuyerFiles(event) {
+    const files = Array.from(event.target.files || []);
+    if (files.length === 0) return;
+
+    setBuyerMessage(`Importing ${files.length} buyer file${files.length === 1 ? "" : "s"}...`);
+
+    try {
+      let latestBuyers = buyers;
+      const warnings = [];
+
+      for (const file of files) {
+        const result = await importBuyerCsv(file, authToken);
+        latestBuyers = sanitizeBuyers(result.buyers);
+        warnings.push(...(result.warnings || []));
+      }
+
+      setBuyers(latestBuyers);
+      setBuyerMessage(`${latestBuyers.length} buyer profile${latestBuyers.length === 1 ? "" : "s"} ready. ${warnings.join(" ")}`.trim());
+    } catch {
+      setBuyerMessage("Buyer import failed. Check that the file is a CSV with name, company, phone/email, county, ZIP, and buy box columns.");
+    }
+
+    event.target.value = "";
+  }
+
+  async function saveBuyerProfile(buyer) {
+    const savedBuyer = await saveBuyerToBackend(buyer, authToken);
+    setBuyers((current) => mergeBuyerProfiles(current, [savedBuyer]));
+    setBuyerMessage(`${savedBuyer.name || savedBuyer.company} saved.`);
+    return savedBuyer;
+  }
+
+  async function deleteBuyerProfile(id) {
+    await deleteBuyerFromBackend(id, authToken);
+    setBuyers((current) => current.filter((buyer) => buyer.id !== id));
+    setBuyerMessage("Buyer removed.");
+  }
+
   return (
     <main className="app-shell">
       <aside className="sidebar">
@@ -678,6 +770,7 @@ export function App() {
           <Stat label="Total Leads" value={leads.length} />
           <Stat label="Needs Follow-Up" value={followUps} />
           <Stat label="Hot Leads" value={hotLeads} />
+          <Stat label="Buyers" value={buyers.length} />
           <Stat label="PDF Imports" value={imports.length} />
         </section>
 
@@ -790,6 +883,20 @@ export function App() {
 
           {activeView === "Pipeline" ? (
             <PipelineView leads={leads} onViewLead={setSelectedLeadId} />
+          ) : null}
+
+          {activeView === "Buyer Network" ? (
+            <BuyerNetworkView
+              authToken={authToken}
+              buyerFileInputRef={buyerFileInputRef}
+              buyerMessage={buyerMessage}
+              buyers={buyers}
+              leads={leads}
+              onDeleteBuyer={deleteBuyerProfile}
+              onSaveBuyer={saveBuyerProfile}
+              onUploadBuyers={uploadBuyerFiles}
+              setBuyerMessage={setBuyerMessage}
+            />
           ) : null}
 
           {activeView === "Imports" ? (
@@ -1016,6 +1123,292 @@ function PipelineView({ leads, onViewLead }) {
           );
         })}
       </div>
+    </div>
+  );
+}
+
+function BuyerNetworkView({
+  authToken,
+  buyerFileInputRef,
+  buyerMessage,
+  buyers,
+  leads,
+  onDeleteBuyer,
+  onSaveBuyer,
+  onUploadBuyers,
+  setBuyerMessage
+}) {
+  const dealOptions = leads.filter((lead) => ["Offer", "Closed", "Contracted", "Under Contract", "Follow Up"].includes(lead.stage));
+  const firstDeal = dealOptions[0] || leads[0] || {};
+  const [buyerDraft, setBuyerDraft] = React.useState(emptyBuyer);
+  const [buyerSearch, setBuyerSearch] = React.useState("");
+  const [dealDraft, setDealDraft] = React.useState(() => createDealDraft(firstDeal));
+  const [matches, setMatches] = React.useState([]);
+  const [isMatching, setIsMatching] = React.useState(false);
+  const [isSavingBuyer, setIsSavingBuyer] = React.useState(false);
+
+  const hotBuyers = buyers.filter((buyer) => normalizeText(buyer.activityStatus) === "hot").length;
+  const tierABuyers = buyers.filter((buyer) => safeText(buyer.relationshipTier).toUpperCase() === "A").length;
+  const coveredZips = new Set(buyers.flatMap((buyer) => buyer.zipCodes || [])).size;
+  const filteredBuyers = buyers.filter((buyer) => {
+    const haystack = [
+      buyer.name,
+      buyer.company,
+      buyer.email,
+      formatBuyerPhoneList(buyer),
+      buyer.counties?.join(" "),
+      buyer.zipCodes?.join(" "),
+      buyer.propertyTypes?.join(" "),
+      buyer.fundingType,
+      buyer.builderType,
+      buyer.activityStatus,
+      buyer.relationshipTier,
+      buyer.notes
+    ]
+      .join(" ")
+      .toLowerCase();
+
+    return haystack.includes(buyerSearch.toLowerCase());
+  });
+
+  function updateBuyerDraft(field, value) {
+    const arrayFields = new Set(["phones", "socialLinks", "counties", "zipCodes", "propertyTypes"]);
+    setBuyerDraft((current) => ({
+      ...current,
+      [field]: arrayFields.has(field) ? splitInputValues(value) : value
+    }));
+  }
+
+  function updateDealDraft(field, value) {
+    setDealDraft((current) => ({ ...current, [field]: value }));
+  }
+
+  function selectDeal(id) {
+    const lead = leads.find((item) => item.id === id);
+    setDealDraft(createDealDraft(lead || {}));
+    setMatches([]);
+  }
+
+  async function submitBuyer(event) {
+    event.preventDefault();
+    setIsSavingBuyer(true);
+    try {
+      const savedBuyer = await onSaveBuyer({
+        ...buyerDraft,
+        phones: buyerDraft.phones.length ? buyerDraft.phones : splitInputValues(buyerDraft.phone),
+        source: buyerDraft.source || "Manual Entry"
+      });
+      setBuyerDraft(emptyBuyer);
+      setBuyerMessage(`${savedBuyer.name} added to Buyer Network.`);
+    } catch {
+      setBuyerMessage("Could not save buyer. Check the fields and try again.");
+    } finally {
+      setIsSavingBuyer(false);
+    }
+  }
+
+  async function findBuyerMatches() {
+    setIsMatching(true);
+    setBuyerMessage("Matching buyers...");
+    try {
+      const result = await matchDealToBuyers(dealDraft, authToken);
+      setMatches(result);
+      setBuyerMessage(`${result.length} buyer match${result.length === 1 ? "" : "es"} found for this deal.`);
+    } catch {
+      setBuyerMessage("Buyer matching failed. Confirm the backend is online and try again.");
+    } finally {
+      setIsMatching(false);
+    }
+  }
+
+  return (
+    <div className="panel wide-panel buyer-network">
+      <div className="panel-header">
+        <div>
+          <p className="eyebrow">Buyer Network</p>
+          <h2>Disposition Desk</h2>
+        </div>
+        <div className="lead-filters">
+          <input
+            accept=".csv,text/csv"
+            className="file-input"
+            multiple
+            onChange={onUploadBuyers}
+            ref={buyerFileInputRef}
+            type="file"
+          />
+          <button className="secondary-button" onClick={() => buyerFileInputRef.current?.click()}>
+            <Upload size={18} />
+            Upload Buyer CSV
+          </button>
+          <button className="secondary-button" onClick={() => exportBuyersCsv(buyers)}>
+            Export Buyers
+          </button>
+        </div>
+      </div>
+
+      {buyerMessage ? <p className="import-status">{buyerMessage}</p> : null}
+
+      <div className="buyer-stats">
+        <Stat label="Buyer Profiles" value={buyers.length} />
+        <Stat label="Hot Buyers" value={hotBuyers} />
+        <Stat label="A-Tier Buyers" value={tierABuyers} />
+        <Stat label="ZIP Coverage" value={coveredZips} />
+      </div>
+
+      <section className="buyer-workbench">
+        <form className="buyer-card buyer-form" onSubmit={submitBuyer}>
+          <div className="section-heading">
+            <p className="eyebrow">Add Buyer</p>
+            <h3>Buyer / Builder Profile</h3>
+          </div>
+
+          <div className="buyer-form-grid">
+            <label>Name<input value={buyerDraft.name} onChange={(event) => updateBuyerDraft("name", event.target.value)} /></label>
+            <label>Company<input value={buyerDraft.company} onChange={(event) => updateBuyerDraft("company", event.target.value)} /></label>
+            <label>Phone<input value={buyerDraft.phone} onChange={(event) => updateBuyerDraft("phone", event.target.value)} /></label>
+            <label>Email<input value={buyerDraft.email} onChange={(event) => updateBuyerDraft("email", event.target.value)} /></label>
+            <label>Counties<input value={buyerDraft.counties.join(", ")} onChange={(event) => updateBuyerDraft("counties", event.target.value)} /></label>
+            <label>ZIP Codes<input value={buyerDraft.zipCodes.join(", ")} onChange={(event) => updateBuyerDraft("zipCodes", event.target.value)} /></label>
+            <label>Min Price<input value={buyerDraft.priceMin} onChange={(event) => updateBuyerDraft("priceMin", event.target.value)} /></label>
+            <label>Max Price<input value={buyerDraft.priceMax} onChange={(event) => updateBuyerDraft("priceMax", event.target.value)} /></label>
+            <label>Property Types<input value={buyerDraft.propertyTypes.join(", ")} onChange={(event) => updateBuyerDraft("propertyTypes", event.target.value)} /></label>
+            <label>Funding
+              <select value={buyerDraft.fundingType} onChange={(event) => updateBuyerDraft("fundingType", event.target.value)}>
+                <option value="">Unknown</option>
+                <option>Cash / POF</option>
+                <option>Hard Money</option>
+                <option>Private Money</option>
+              </select>
+            </label>
+            <label>Activity
+              <select value={buyerDraft.activityStatus} onChange={(event) => updateBuyerDraft("activityStatus", event.target.value)}>
+                <option value="hot">Hot</option>
+                <option value="warm">Warm</option>
+                <option value="dead">Dead</option>
+              </select>
+            </label>
+            <label>Tier
+              <select value={buyerDraft.relationshipTier} onChange={(event) => updateBuyerDraft("relationshipTier", event.target.value)}>
+                <option>A</option>
+                <option>B</option>
+                <option>C</option>
+              </select>
+            </label>
+          </div>
+
+          <label>Notes<textarea value={buyerDraft.notes} onChange={(event) => updateBuyerDraft("notes", event.target.value)} /></label>
+          <button className="primary-button" disabled={isSavingBuyer} type="submit">
+            <Plus size={18} />
+            {isSavingBuyer ? "Saving..." : "Save Buyer"}
+          </button>
+        </form>
+
+        <section className="buyer-card match-card">
+          <div className="section-heading">
+            <p className="eyebrow">Auto-Match</p>
+            <h3>Best Buyers For This Deal</h3>
+          </div>
+
+          <div className="buyer-form-grid">
+            <label>Contracted Lead
+              <select value={dealDraft.id} onChange={(event) => selectDeal(event.target.value)}>
+                <option value="">Manual Deal</option>
+                {dealOptions.map((lead) => (
+                  <option key={lead.id} value={lead.id}>{lead.address}</option>
+                ))}
+              </select>
+            </label>
+            <label>Address<input value={dealDraft.address} onChange={(event) => updateDealDraft("address", event.target.value)} /></label>
+            <label>County<input value={dealDraft.county} onChange={(event) => updateDealDraft("county", event.target.value)} /></label>
+            <label>ZIP<input value={dealDraft.zipCode} onChange={(event) => updateDealDraft("zipCode", event.target.value)} /></label>
+            <label>Property Type<input value={dealDraft.propertyType} onChange={(event) => updateDealDraft("propertyType", event.target.value)} /></label>
+            <label>Deal Price<input value={dealDraft.price} onChange={(event) => updateDealDraft("price", event.target.value)} /></label>
+            <label>Rehab Level
+              <select value={dealDraft.rehabLevel} onChange={(event) => updateDealDraft("rehabLevel", event.target.value)}>
+                <option value="">Unknown</option>
+                <option>Light</option>
+                <option>Medium</option>
+                <option>Heavy</option>
+                <option>New Build</option>
+              </select>
+            </label>
+          </div>
+
+          <button className="primary-button" disabled={isMatching || buyers.length === 0} onClick={findBuyerMatches} type="button">
+            <Map size={18} />
+            {isMatching ? "Matching..." : "Find Best Buyers"}
+          </button>
+
+          <div className="match-results">
+            {matches.length > 0 ? (
+              matches.slice(0, 8).map((match) => (
+                <article className="match-row" key={match.buyer.id}>
+                  <BuyerScore score={match.score} />
+                  <div>
+                    <h3>{match.buyer.company || match.buyer.name}</h3>
+                    <p>{match.buyer.name}{match.buyer.company && match.buyer.name ? ` / ${match.buyer.company}` : ""}</p>
+                    <small>{formatBuyerPhoneList(match.buyer) || match.buyer.email || "Contact needed"}</small>
+                    <div className="reason-list">
+                      {match.reasons.map((reason) => <span key={reason}>{reason}</span>)}
+                    </div>
+                  </div>
+                </article>
+              ))
+            ) : (
+              <div className="mini-empty">
+                <p>No matches run yet.</p>
+              </div>
+            )}
+          </div>
+        </section>
+      </section>
+
+      <section className="buyer-list-section">
+        <div className="panel-header compact-header">
+          <div>
+            <p className="eyebrow">Database</p>
+            <h2>Buyer / Builder Profiles</h2>
+          </div>
+          <div className="search-box compact-search">
+            <Search size={16} />
+            <input
+              onChange={(event) => setBuyerSearch(event.target.value)}
+              placeholder="Search buyers, ZIPs, counties, companies..."
+              value={buyerSearch}
+            />
+          </div>
+        </div>
+
+        {filteredBuyers.length > 0 ? (
+          <div className="buyer-list">
+            {filteredBuyers.slice(0, 120).map((buyer) => (
+              <article className="buyer-row" key={buyer.id}>
+                <div>
+                  <h3>{buyer.company || buyer.name}</h3>
+                  <p>{buyer.name}{buyer.company && buyer.name ? ` / ${buyer.company}` : ""}</p>
+                  <small>{formatBuyerPhoneList(buyer) || buyer.email || "Contact needed"}</small>
+                </div>
+                <div className="buyer-tags">
+                  <span>{safeText(buyer.relationshipTier).toUpperCase() || "C"} Tier</span>
+                  <span>{buyer.activityStatus || "warm"}</span>
+                  <span>{buyer.fundingType || "Funding Unknown"}</span>
+                </div>
+                <div className="buyer-buybox">
+                  <b>{formatBuyBox(buyer)}</b>
+                  <small>{[buyer.counties?.join(", "), buyer.zipCodes?.join(", ")].filter(Boolean).join(" / ") || "No geography"}</small>
+                </div>
+                <button className="ghost-button danger-text" onClick={() => onDeleteBuyer(buyer.id)}>Delete</button>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <div className="empty-state">
+            <h3>No buyer profiles yet</h3>
+            <p>Upload a buyer CSV or add your first buyer profile.</p>
+          </div>
+        )}
+      </section>
     </div>
   );
 }
@@ -1787,6 +2180,15 @@ function loadImports() {
   }
 }
 
+function loadBuyers() {
+  try {
+    const savedBuyers = JSON.parse(safeStorageGet("chatcrm.buyers"));
+    return sanitizeBuyers(savedBuyers);
+  } catch {
+    return [];
+  }
+}
+
 function safeStorageGet(key) {
   try {
     return window.localStorage.getItem(key);
@@ -1873,6 +2275,38 @@ function sanitizeImports(value) {
     }));
 }
 
+function sanitizeBuyers(value) {
+  if (!Array.isArray(value)) return [];
+
+  return value
+    .filter((buyer) => buyer && typeof buyer === "object")
+    .map((buyer, index) => normalizeBuyerPhones({
+      ...emptyBuyer,
+      ...buyer,
+      id: safeText(buyer.id) || `buyer-${Date.now()}-${index}`,
+      name: safeText(buyer.name) || safeText(buyer.company) || "Unknown Buyer",
+      company: safeText(buyer.company),
+      phone: safeText(buyer.phone),
+      phones: Array.isArray(buyer.phones) ? buyer.phones.map(safeText).filter(Boolean) : [],
+      email: safeText(buyer.email),
+      website: safeText(buyer.website),
+      socialLinks: Array.isArray(buyer.socialLinks) ? buyer.socialLinks.map(safeText).filter(Boolean) : [],
+      counties: Array.isArray(buyer.counties) ? buyer.counties.map(safeText).filter(Boolean) : splitInputValues(buyer.counties),
+      zipCodes: Array.isArray(buyer.zipCodes) ? buyer.zipCodes.map(safeText).filter(Boolean) : splitInputValues(buyer.zipCodes),
+      priceMin: safeText(buyer.priceMin),
+      priceMax: safeText(buyer.priceMax),
+      propertyTypes: Array.isArray(buyer.propertyTypes) ? buyer.propertyTypes.map(safeText).filter(Boolean) : splitInputValues(buyer.propertyTypes),
+      fundingType: safeText(buyer.fundingType),
+      builderType: safeText(buyer.builderType),
+      activityStatus: safeText(buyer.activityStatus) || "warm",
+      relationshipTier: safeText(buyer.relationshipTier) || "C",
+      pastDealsBought: safeText(buyer.pastDealsBought),
+      assignmentFeeTolerance: safeText(buyer.assignmentFeeTolerance),
+      notes: safeText(buyer.notes),
+      source: safeText(buyer.source) || "Imported"
+    }));
+}
+
 function safeText(value) {
   if (value === null || value === undefined) return "";
   if (typeof value === "string") return value;
@@ -1950,6 +2384,94 @@ async function syncLeadsToBackend(leads, token) {
   }
 
   return response.json();
+}
+
+async function fetchBackendBuyers(token) {
+  const response = await fetch(`${apiBaseUrl}/buyers`, {
+    headers: authHeaders(token)
+  });
+
+  if (!response.ok) {
+    throw new Error("Buyer fetch failed");
+  }
+
+  return sanitizeBuyers(await response.json());
+}
+
+async function importBuyerCsv(file, token) {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const response = await fetch(`${apiBaseUrl}/buyers/import-csv`, {
+    method: "POST",
+    headers: authHeaders(token),
+    body: formData
+  });
+
+  if (!response.ok) {
+    throw new Error("Buyer import failed");
+  }
+
+  const result = await response.json();
+  return {
+    buyers: sanitizeBuyers(result.buyers),
+    warnings: Array.isArray(result.warnings) ? result.warnings : []
+  };
+}
+
+async function saveBuyerToBackend(buyer, token) {
+  const method = buyer.id ? "PUT" : "POST";
+  const url = buyer.id ? `${apiBaseUrl}/buyers/${encodeURIComponent(buyer.id)}` : `${apiBaseUrl}/buyers`;
+  const response = await fetch(url, {
+    method,
+    headers: {
+      ...authHeaders(token),
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(buyer)
+  });
+
+  if (!response.ok) {
+    throw new Error("Buyer save failed");
+  }
+
+  return sanitizeBuyers([await response.json()])[0];
+}
+
+async function deleteBuyerFromBackend(id, token) {
+  const response = await fetch(`${apiBaseUrl}/buyers/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    headers: authHeaders(token)
+  });
+
+  if (!response.ok) {
+    throw new Error("Buyer delete failed");
+  }
+
+  return response.json();
+}
+
+async function matchDealToBuyers(deal, token) {
+  const response = await fetch(`${apiBaseUrl}/buyers/match`, {
+    method: "POST",
+    headers: {
+      ...authHeaders(token),
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(deal)
+  });
+
+  if (!response.ok) {
+    throw new Error("Buyer match failed");
+  }
+
+  const matches = await response.json();
+  return matches.map((match) => ({
+    ...match,
+    buyer: sanitizeBuyers([match.buyer])[0],
+    score: clampScore(match.score),
+    reasons: Array.isArray(match.reasons) ? match.reasons.map(safeText).filter(Boolean) : []
+  }));
 }
 
 function authHeaders(token) {
@@ -2216,6 +2738,104 @@ function mergePhones(...leads) {
   return phones;
 }
 
+function getBuyerPhones(buyer = {}) {
+  const values = [];
+  if (Array.isArray(buyer.phones)) {
+    values.push(...buyer.phones);
+  }
+  if (buyer.phone) {
+    values.push(...String(buyer.phone).split(/[\n,;|]+/));
+  }
+
+  const seen = new Set();
+  return values
+    .map((phone) => String(phone).trim())
+    .filter(Boolean)
+    .filter((phone) => {
+      const key = normalizePhone(phone);
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+}
+
+function normalizeBuyerPhones(buyer) {
+  const phones = getBuyerPhones(buyer);
+  return {
+    ...buyer,
+    phones,
+    phone: phones[0] || buyer.phone || ""
+  };
+}
+
+function formatBuyerPhoneList(buyer = {}) {
+  return getBuyerPhones(buyer).map(formatPhone).join(", ");
+}
+
+function splitInputValues(value = "") {
+  if (Array.isArray(value)) return value.map(safeText).filter(Boolean);
+
+  return String(value || "")
+    .split(/[,;|\n]+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function createDealDraft(lead = {}) {
+  const offer = calculateOffer(lead);
+  return {
+    id: safeText(lead.id),
+    address: safeText(lead.address),
+    county: safeText(lead.county) || inferCountyFromAddress(lead.address),
+    zipCode: getLeadZip(lead),
+    propertyType: safeText(lead.propertyType) || "Land",
+    price: safeText(lead.contractPrice) || safeText(lead.maxOffer) || (offer.maxOffer ? Math.round(offer.maxOffer).toString() : ""),
+    rehabLevel: safeText(lead.rehabLevel),
+    stage: safeText(lead.stage)
+  };
+}
+
+function inferCountyFromAddress(address = "") {
+  const text = safeText(address).toLowerCase();
+  if (text.includes("dallas")) return "Dallas";
+  if (text.includes("tarrant")) return "Tarrant";
+  if (text.includes("kaufman")) return "Kaufman";
+  return "";
+}
+
+function mergeBuyerProfiles(currentBuyers, incomingBuyers) {
+  const merged = new Map();
+
+  for (const buyer of sanitizeBuyers(currentBuyers)) {
+    merged.set(getBuyerMergeKey(buyer), buyer);
+  }
+
+  for (const buyer of sanitizeBuyers(incomingBuyers)) {
+    merged.set(getBuyerMergeKey(buyer), buyer);
+  }
+
+  return Array.from(merged.values());
+}
+
+function getBuyerMergeKey(buyer = {}) {
+  return normalizeText(buyer.email || buyer.phone || buyer.company || buyer.name || buyer.id);
+}
+
+function formatBuyBox(buyer = {}) {
+  const priceRange = [buyer.priceMin, buyer.priceMax].filter(Boolean).join(" - ");
+  const typeText = Array.isArray(buyer.propertyTypes) && buyer.propertyTypes.length ? buyer.propertyTypes.join(", ") : "Any type";
+  return [priceRange || "Open price", typeText].join(" / ");
+}
+
+function BuyerScore({ score }) {
+  return (
+    <div className="buyer-score">
+      <strong>{score}</strong>
+      <span>Match</span>
+    </div>
+  );
+}
+
 function exportLeadsCsv(leads) {
   const headers = [
     "Property Address",
@@ -2279,6 +2899,62 @@ function exportLeadsCsv(leads) {
 
   link.href = url;
   link.download = `chatcrm-leads-${new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+function exportBuyersCsv(buyers) {
+  const headers = [
+    "Name",
+    "Company",
+    "Phone Numbers",
+    "Email",
+    "Website",
+    "Social Links",
+    "Counties",
+    "ZIP Codes",
+    "Price Min",
+    "Price Max",
+    "Property Types",
+    "Funding Type",
+    "Builder Type",
+    "Activity Status",
+    "Relationship Tier",
+    "Past Deals Bought",
+    "Assignment Fee Tolerance",
+    "Notes",
+    "Source"
+  ];
+  const rows = sanitizeBuyers(buyers).map((buyer) => [
+    buyer.name,
+    buyer.company,
+    formatBuyerPhoneList(buyer),
+    buyer.email,
+    buyer.website,
+    buyer.socialLinks.join(", "),
+    buyer.counties.join(", "),
+    buyer.zipCodes.join(", "),
+    buyer.priceMin,
+    buyer.priceMax,
+    buyer.propertyTypes.join(", "),
+    buyer.fundingType,
+    buyer.builderType,
+    buyer.activityStatus,
+    buyer.relationshipTier,
+    buyer.pastDealsBought,
+    buyer.assignmentFeeTolerance,
+    buyer.notes,
+    buyer.source
+  ]);
+  const csv = [headers, ...rows].map((row) => row.map(escapeCsvValue).join(",")).join("\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+
+  link.href = url;
+  link.download = `chatcrm-buyers-${new Date().toISOString().slice(0, 10)}.csv`;
   document.body.appendChild(link);
   link.click();
   link.remove();

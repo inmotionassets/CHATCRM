@@ -303,7 +303,7 @@ h3 {
 .stats-grid {
   display: grid;
   gap: 14px;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
 }
 
 .stat,
@@ -1375,6 +1375,181 @@ textarea::placeholder {
   color: var(--muted);
 }
 
+.buyer-network {
+  display: grid;
+  gap: 16px;
+}
+
+.buyer-stats {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.buyer-workbench {
+  align-items: start;
+  display: grid;
+  gap: 14px;
+  grid-template-columns: minmax(300px, 0.9fr) minmax(360px, 1.1fr);
+}
+
+.buyer-card {
+  background: var(--panel-soft);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+}
+
+.buyer-form label,
+.match-card label {
+  color: var(--muted-strong);
+  display: grid;
+  font-size: 0.82rem;
+  font-weight: 750;
+  gap: 6px;
+}
+
+.buyer-form input,
+.buyer-form select,
+.buyer-form textarea,
+.match-card input,
+.match-card select {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  color: var(--text);
+  min-height: 40px;
+  outline: 0;
+  padding: 9px 10px;
+  width: 100%;
+}
+
+.buyer-form textarea {
+  min-height: 82px;
+  resize: vertical;
+}
+
+.buyer-form-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.match-results {
+  display: grid;
+  gap: 10px;
+}
+
+.match-row {
+  align-items: start;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 68px minmax(0, 1fr);
+  padding: 12px;
+}
+
+.match-row h3,
+.buyer-row h3 {
+  margin-bottom: 3px;
+}
+
+.match-row p,
+.buyer-row p,
+.match-row small,
+.buyer-row small,
+.buyer-buybox small {
+  color: var(--muted);
+}
+
+.buyer-score {
+  align-items: center;
+  background: linear-gradient(180deg, rgba(31, 143, 122, 0.14), rgba(227, 182, 75, 0.12));
+  border: 1px solid rgba(31, 143, 122, 0.24);
+  border-radius: 8px;
+  display: grid;
+  justify-items: center;
+  min-height: 62px;
+  padding: 8px;
+}
+
+.buyer-score strong {
+  font-size: 1.4rem;
+}
+
+.buyer-score span {
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.reason-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 9px;
+}
+
+.reason-list span,
+.buyer-tags span {
+  background: rgba(31, 143, 122, 0.1);
+  border: 1px solid rgba(31, 143, 122, 0.18);
+  border-radius: 999px;
+  color: var(--accent-dark);
+  font-size: 0.72rem;
+  font-weight: 800;
+  padding: 5px 8px;
+}
+
+.buyer-list-section {
+  display: grid;
+  gap: 12px;
+}
+
+.compact-header {
+  margin-bottom: 0;
+}
+
+.compact-search {
+  max-width: 420px;
+}
+
+.buyer-list {
+  display: grid;
+  gap: 10px;
+}
+
+.buyer-row {
+  align-items: start;
+  background: var(--panel-soft);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(230px, 1fr) minmax(180px, 0.7fr) minmax(220px, 0.9fr) auto;
+  padding: 12px;
+}
+
+.buyer-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.buyer-buybox {
+  display: grid;
+  gap: 4px;
+}
+
+.danger-text {
+  color: #b42318;
+}
+
 .import-history {
   display: grid;
   gap: 10px;
@@ -1744,6 +1919,9 @@ textarea::placeholder {
 
   .pipeline-board,
   .analytics-grid,
+  .buyer-stats,
+  .buyer-workbench,
+  .buyer-row,
   .call-workspace,
   .training-grid,
   .training-hero {
@@ -1807,6 +1985,7 @@ textarea::placeholder {
   }
 
   .form-grid,
+  .buyer-form-grid,
   .property-form-grid,
   .property-input-grid,
   .offer-result-grid,
