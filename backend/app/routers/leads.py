@@ -93,6 +93,30 @@ def database_url_scheme() -> str:
     return parsed.scheme or "unknown"
 
 
+def database_url_summary() -> dict[str, object]:
+    if not DATABASE_URL:
+        return {
+            "scheme": "missing",
+            "host": "",
+            "port": None,
+            "username": "",
+            "path": "",
+            "query_keys": [],
+        }
+
+    parsed = urlsplit(DATABASE_URL)
+    query = dict(parse_qsl(parsed.query, keep_blank_values=True))
+
+    return {
+        "scheme": parsed.scheme or "unknown",
+        "host": parsed.hostname or "",
+        "port": parsed.port,
+        "username": parsed.username or "",
+        "path": parsed.path,
+        "query_keys": sorted(query.keys()),
+    }
+
+
 @contextmanager
 def get_postgres_connection() -> Iterator[object]:
     import psycopg
