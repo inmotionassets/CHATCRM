@@ -106,6 +106,12 @@ def get_postgres_connection() -> Iterator[object]:
             )
             """
         )
+        connection.execute(
+            """
+            ALTER TABLE leads
+            ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+            """
+        )
         yield connection
 
 
