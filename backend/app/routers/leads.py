@@ -77,6 +77,7 @@ def postgres_connection_url() -> str:
 
     parsed = urlsplit(DATABASE_URL)
     query = dict(parse_qsl(parsed.query, keep_blank_values=True))
+    query.pop("pgbouncer", None)
 
     if parsed.hostname not in {"localhost", "127.0.0.1"} and "sslmode" not in query:
         query["sslmode"] = "require"
