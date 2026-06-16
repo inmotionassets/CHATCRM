@@ -96,7 +96,7 @@ def database_url_scheme() -> str:
 def get_postgres_connection() -> Iterator[object]:
     import psycopg
 
-    with psycopg.connect(postgres_connection_url()) as connection:
+    with psycopg.connect(postgres_connection_url(), prepare_threshold=None) as connection:
         connection.execute(
             """
             CREATE TABLE IF NOT EXISTS leads (
