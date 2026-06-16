@@ -118,12 +118,25 @@ def get_postgres_connection() -> Iterator[object]:
 def list_saved_leads() -> list[Lead]:
     if USE_POSTGRES:
         with get_postgres_connection() as connection:
-            rows = connection.execute("SELECT payload FROM leads ORDER BY created_at DESC, id DESC").fetchall()
-        return [Lead.model_validate(json.loads(row[0])) for row in rows]
+            rows = connection.execute("SELECT payload FROM leads ORDER BY id DESC").fetchall()
+        return [Lead.model_validate(parse_saved_payload(row[0])) for row in rows]
 
     with get_sqlite_connection() as connection:
         rows = connection.execute("SELECT payload FROM leads ORDER BY rowid DESC").fetchall()
-    return [Lead.model_validate(json.loads(row["payload"])) for row in rows]
+    return [Lead.model_validate(parse_saved_payload(row["payload"])) for row in rows]
+
+
+def parse_saved_payload(payload: object) -> dict:
+    if isinstance(payload, dict):
+        return payload
+
+    if isinstance(payload, (bytes, bytearray)):
+        payload = payload.decode("utf-8")
+
+    if isinstance(payload, str):
+        return json.loads(payload)
+
+    return json.loads(str(payload))
 
 
 def replace_saved_leads(leads: list[Lead]) -> None:
