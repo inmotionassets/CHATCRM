@@ -1151,7 +1151,11 @@ h3 {
 }
 
 .parcel-intelligence-panel {
-  border-color: rgba(31, 143, 122, 0.22);
+  border-color: var(--border);
+}
+
+.simple-parcel-panel {
+  gap: 12px;
 }
 
 .parcel-message {
@@ -1201,12 +1205,27 @@ h3 {
   grid-template-columns: 1fr 1fr;
 }
 
-.parcel-input-grid {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+.parcel-core-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
-.parcel-summary-grid {
+.parcel-input-grid {
   grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.parcel-advanced {
+  border-top: 1px solid var(--border-soft);
+  display: grid;
+  gap: 10px;
+  padding-top: 6px;
+}
+
+.parcel-advanced summary {
+  color: var(--accent-dark);
+  cursor: pointer;
+  font-size: 0.84rem;
+  font-weight: 850;
+  padding: 6px 0;
 }
 
 .parcel-layer-grid {
@@ -1998,7 +2017,7 @@ textarea::placeholder {
   .script-classification-grid,
   .disposition-grid,
   .detail-grid,
-  .parcel-summary-grid,
+  .parcel-core-grid,
   .parcel-input-grid,
   .parcel-layer-grid,
   .property-form-grid,

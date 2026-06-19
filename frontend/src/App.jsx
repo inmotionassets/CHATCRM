@@ -1930,11 +1930,11 @@ function LeadDetail({
 
       <details className="tool-section" open>
         <summary>Property / Offer Tools</summary>
-        <section className="parcel-intelligence-panel">
+        <section className="parcel-intelligence-panel simple-parcel-panel">
           <div className="panel-header compact-header">
             <div>
               <p className="eyebrow">Parcel Intelligence</p>
-              <h2>GIS / Tax / Ownership Research</h2>
+              <h2>Parcel Snapshot</h2>
             </div>
             <button className="primary-button" disabled={isParcelSaving} onClick={saveParcel} type="button">
               {isParcelSaving ? "Saving..." : "Save Parcel"}
@@ -1943,39 +1943,18 @@ function LeadDetail({
 
           {parcelMessage ? <p className="parcel-message">{parcelMessage}</p> : null}
 
-          <div className="detail-grid parcel-summary-grid">
-            <DetailItem label="APN" value={parcel.apn || lead.parcelNumber || "Missing"} />
-            <DetailItem label="Acreage" value={parcel.acreage || "Missing"} />
-            <DetailItem label="Zoning" value={parcel.zoning || "Missing"} />
-            <DetailItem label="Flood Zone" value={parcel.floodZone || "Unknown"} />
-            <DetailItem label="Tax Balance" value={parcel.taxBalance || "Missing"} />
-            <DetailItem label="Estimated Equity" value={parcel.estimatedEquity || "Missing"} />
-          </div>
-
-          <div className="property-input-grid parcel-input-grid">
+          <div className="property-input-grid parcel-core-grid">
             <label className="detail-field">
-              APN / Parcel ID
+              APN
               <input value={parcel.apn || ""} onChange={(event) => updateParcelField("apn", event.target.value)} />
-            </label>
-            <label className="detail-field">
-              County
-              <input value={parcel.county || ""} onChange={(event) => updateParcelField("county", event.target.value)} />
             </label>
             <label className="detail-field">
               Acreage
               <input value={parcel.acreage || ""} onChange={(event) => updateParcelField("acreage", event.target.value)} />
             </label>
             <label className="detail-field">
-              Lot Dimensions
-              <input value={parcel.lotDimensions || ""} onChange={(event) => updateParcelField("lotDimensions", event.target.value)} />
-            </label>
-            <label className="detail-field">
               Zoning
               <input value={parcel.zoning || ""} onChange={(event) => updateParcelField("zoning", event.target.value)} />
-            </label>
-            <label className="detail-field">
-              Land Use
-              <input value={parcel.landUse || ""} onChange={(event) => updateParcelField("landUse", event.target.value)} />
             </label>
             <label className="detail-field">
               Flood Zone
@@ -1986,57 +1965,12 @@ function LeadDetail({
               <input value={parcel.utilityAvailability || ""} onChange={(event) => updateParcelField("utilityAvailability", event.target.value)} />
             </label>
             <label className="detail-field">
-              Tax Balance
-              <input value={parcel.taxBalance || ""} onChange={(event) => updateParcelField("taxBalance", event.target.value)} />
-            </label>
-            <label className="detail-field">
               Tax Status
               <select value={parcel.taxDelinquencyStatus || ""} onChange={(event) => updateParcelField("taxDelinquencyStatus", event.target.value)}>
                 <option value="">Unknown</option>
                 <option>Current</option>
                 <option>Delinquent</option>
                 <option>Payment Plan</option>
-                <option>Needs Review</option>
-              </select>
-            </label>
-            <label className="detail-field">
-              Assessed Value
-              <input value={parcel.assessedValue || ""} onChange={(event) => updateParcelField("assessedValue", event.target.value)} />
-            </label>
-            <label className="detail-field">
-              Land Value
-              <input value={parcel.landValue || ""} onChange={(event) => updateParcelField("landValue", event.target.value)} />
-            </label>
-            <label className="detail-field">
-              Improvement Value
-              <input value={parcel.improvementValue || ""} onChange={(event) => updateParcelField("improvementValue", event.target.value)} />
-            </label>
-            <label className="detail-field">
-              Last Sale Date
-              <input value={parcel.lastSaleDate || ""} onChange={(event) => updateParcelField("lastSaleDate", event.target.value)} />
-            </label>
-            <label className="detail-field">
-              Last Sale Price
-              <input value={parcel.lastSalePrice || ""} onChange={(event) => updateParcelField("lastSalePrice", event.target.value)} />
-            </label>
-            <label className="detail-field">
-              Ownership Duration
-              <input value={parcel.ownershipDuration || ""} onChange={(event) => updateParcelField("ownershipDuration", event.target.value)} />
-            </label>
-            <label className="detail-field">
-              Mortgage Estimate
-              <input value={parcel.mortgageEstimate || ""} onChange={(event) => updateParcelField("mortgageEstimate", event.target.value)} />
-            </label>
-            <label className="detail-field">
-              Estimated Equity
-              <input value={parcel.estimatedEquity || ""} onChange={(event) => updateParcelField("estimatedEquity", event.target.value)} />
-            </label>
-            <label className="detail-field">
-              Opportunity Zone
-              <select value={parcel.opportunityZone || ""} onChange={(event) => updateParcelField("opportunityZone", event.target.value)}>
-                <option value="">Unknown</option>
-                <option>Yes</option>
-                <option>No</option>
                 <option>Needs Review</option>
               </select>
             </label>
@@ -2051,31 +1985,94 @@ function LeadDetail({
             </label>
           </div>
 
-          <div className="parcel-layer-grid">
-            {parcelMapLayers.map((layer) => (
-              <label key={layer}>
-                <input
-                  checked={(parcel.mapLayers || []).includes(layer)}
-                  onChange={() => toggleParcelLayer(layer)}
-                  type="checkbox"
-                />
-                {layer}
+          <details className="parcel-advanced">
+            <summary>More Parcel Details</summary>
+            <div className="property-input-grid parcel-input-grid">
+              <label className="detail-field">
+                County
+                <input value={parcel.county || ""} onChange={(event) => updateParcelField("county", event.target.value)} />
               </label>
-            ))}
-          </div>
+              <label className="detail-field">
+                Lot Dimensions
+                <input value={parcel.lotDimensions || ""} onChange={(event) => updateParcelField("lotDimensions", event.target.value)} />
+              </label>
+              <label className="detail-field">
+                Land Use
+                <input value={parcel.landUse || ""} onChange={(event) => updateParcelField("landUse", event.target.value)} />
+              </label>
+              <label className="detail-field">
+                Tax Balance
+                <input value={parcel.taxBalance || ""} onChange={(event) => updateParcelField("taxBalance", event.target.value)} />
+              </label>
+              <label className="detail-field">
+                Assessed Value
+                <input value={parcel.assessedValue || ""} onChange={(event) => updateParcelField("assessedValue", event.target.value)} />
+              </label>
+              <label className="detail-field">
+                Land Value
+                <input value={parcel.landValue || ""} onChange={(event) => updateParcelField("landValue", event.target.value)} />
+              </label>
+              <label className="detail-field">
+                Improvement Value
+                <input value={parcel.improvementValue || ""} onChange={(event) => updateParcelField("improvementValue", event.target.value)} />
+              </label>
+              <label className="detail-field">
+                Last Sale Date
+                <input value={parcel.lastSaleDate || ""} onChange={(event) => updateParcelField("lastSaleDate", event.target.value)} />
+              </label>
+              <label className="detail-field">
+                Last Sale Price
+                <input value={parcel.lastSalePrice || ""} onChange={(event) => updateParcelField("lastSalePrice", event.target.value)} />
+              </label>
+              <label className="detail-field">
+                Ownership Duration
+                <input value={parcel.ownershipDuration || ""} onChange={(event) => updateParcelField("ownershipDuration", event.target.value)} />
+              </label>
+              <label className="detail-field">
+                Mortgage Estimate
+                <input value={parcel.mortgageEstimate || ""} onChange={(event) => updateParcelField("mortgageEstimate", event.target.value)} />
+              </label>
+              <label className="detail-field">
+                Estimated Equity
+                <input value={parcel.estimatedEquity || ""} onChange={(event) => updateParcelField("estimatedEquity", event.target.value)} />
+              </label>
+              <label className="detail-field">
+                Opportunity Zone
+                <select value={parcel.opportunityZone || ""} onChange={(event) => updateParcelField("opportunityZone", event.target.value)}>
+                  <option value="">Unknown</option>
+                  <option>Yes</option>
+                  <option>No</option>
+                  <option>Needs Review</option>
+                </select>
+              </label>
+            </div>
 
-          <label className="detail-field">
-            Legal Description
-            <textarea value={parcel.legalDescription || ""} onChange={(event) => updateParcelField("legalDescription", event.target.value)} />
-          </label>
-          <label className="detail-field">
-            Ownership History
-            <textarea value={parcel.ownershipHistory || ""} onChange={(event) => updateParcelField("ownershipHistory", event.target.value)} />
-          </label>
-          <label className="detail-field">
-            Parcel Notes
-            <textarea value={parcel.notes || ""} onChange={(event) => updateParcelField("notes", event.target.value)} />
-          </label>
+            <div className="parcel-layer-grid">
+              {parcelMapLayers.map((layer) => (
+                <label key={layer}>
+                  <input
+                    checked={(parcel.mapLayers || []).includes(layer)}
+                    onChange={() => toggleParcelLayer(layer)}
+                    type="checkbox"
+                  />
+                  {layer}
+                </label>
+              ))}
+            </div>
+
+            <label className="detail-field">
+              Legal Description
+              <textarea value={parcel.legalDescription || ""} onChange={(event) => updateParcelField("legalDescription", event.target.value)} />
+            </label>
+            <label className="detail-field">
+              Ownership History
+              <textarea value={parcel.ownershipHistory || ""} onChange={(event) => updateParcelField("ownershipHistory", event.target.value)} />
+            </label>
+            <label className="detail-field">
+              Parcel Notes
+              <textarea value={parcel.notes || ""} onChange={(event) => updateParcelField("notes", event.target.value)} />
+            </label>
+          </details>
         </section>
 
         <section className="property-workbench">
