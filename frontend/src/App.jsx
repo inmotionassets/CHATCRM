@@ -238,6 +238,16 @@ const emptyBuyer = {
   source: "Manual Entry"
 };
 
+const parcelMapLayers = [
+  "Satellite",
+  "Parcel",
+  "Zoning",
+  "Flood",
+  "Utility",
+  "Tax Delinquent",
+  "Opportunity Zone"
+];
+
 export function App() {
   const [auth, setAuth] = React.useState(() => loadAuth());
   const [loginError, setLoginError] = React.useState("");
@@ -946,6 +956,7 @@ export function App() {
           <>
             <button className="detail-backdrop" aria-label="Close lead details" onClick={() => setSelectedLeadId(null)} />
             <LeadDetail
+              authToken={authToken}
               lead={selectedLead}
               onClose={() => setSelectedLeadId(null)}
               onEdit={() => openEditForm(selectedLead)}
@@ -1745,6 +1756,7 @@ function CallScriptPanel({ lead }) {
 }
 
 function LeadDetail({
+  authToken,
   lead,
   onClose,
   onEdit,
@@ -1769,14 +1781,79 @@ function LeadDetail({
   const emailHref = lead.email ? `mailto:${lead.email}` : null;
   const ownerLabel = getDisplayOwnerName(lead);
   const rawOwnerName = safeText(lead.name).trim();
+  const [parcel, setParcel] = React.useState(() => createEmptyParcelRecord(lead));
+  const [parcelMessage, setParcelMessage] = React.useState("");
+  const [isParcelSaving, setIsParcelSaving] = React.useState(false);
   const ownerPlaceholder =
     rawOwnerName && rawOwnerName !== "Unknown Owner"
       ? "Replace parsed text with owner name"
       : "Enter owner name";
 
+  React.useEffect(() => {
+    let cancelled = false;
+    setParcel(createEmptyParcelRecord(lead));
+    setParcelMessage("Loading parcel research...");
+
+    async function hydrateParcel() {
+      if (!authToken || !lead.id) {
+        setParcelMessage("");
+        return;
+      }
+
+      try {
+        const savedParcel = await fetchParcelIntelligence(lead.id, authToken);
+        if (!cancelled) {
+          setParcel(mergeParcelWithLead(savedParcel, lead));
+          setParcelMessage(savedParcel.updatedAt ? "Parcel research loaded." : "");
+        }
+      } catch {
+        if (!cancelled) setParcelMessage("Parcel research will save once the backend responds.");
+      }
+    }
+
+    hydrateParcel();
+    return () => {
+      cancelled = true;
+    };
+  }, [authToken, lead.id]);
+
   function saveMyMapsUrl(value) {
     setMyMapsUrl(value);
     safeStorageSet("chatcrm.myMapsUrl", value);
+  }
+
+  function updateParcelField(field, value) {
+    setParcel((current) => ({ ...current, [field]: value }));
+  }
+
+  function toggleParcelLayer(layer) {
+    setParcel((current) => {
+      const layers = Array.isArray(current.mapLayers) ? current.mapLayers : [];
+      return {
+        ...current,
+        mapLayers: layers.includes(layer) ? layers.filter((item) => item !== layer) : [...layers, layer]
+      };
+    });
+  }
+
+  async function saveParcel() {
+    setIsParcelSaving(true);
+    setParcelMessage("Saving parcel research...");
+
+    try {
+      const savedParcel = await saveParcelIntelligence(mergeParcelWithLead(parcel, lead), authToken);
+      setParcel(mergeParcelWithLead(savedParcel, lead));
+      setParcelMessage("Parcel Intelligence saved.");
+
+      const leadUpdates = {};
+      if (savedParcel.apn && savedParcel.apn !== lead.parcelNumber) leadUpdates.parcelNumber = savedParcel.apn;
+      if (savedParcel.county && savedParcel.county !== lead.county) leadUpdates.county = savedParcel.county;
+      if (Object.keys(leadUpdates).length) onUpdate(leadUpdates);
+    } catch {
+      setParcelMessage("Could not save Parcel Intelligence yet.");
+    } finally {
+      setIsParcelSaving(false);
+    }
   }
 
   return (
@@ -1853,6 +1930,154 @@ function LeadDetail({
 
       <details className="tool-section" open>
         <summary>Property / Offer Tools</summary>
+        <section className="parcel-intelligence-panel">
+          <div className="panel-header compact-header">
+            <div>
+              <p className="eyebrow">Parcel Intelligence</p>
+              <h2>GIS / Tax / Ownership Research</h2>
+            </div>
+            <button className="primary-button" disabled={isParcelSaving} onClick={saveParcel} type="button">
+              {isParcelSaving ? "Saving..." : "Save Parcel"}
+            </button>
+          </div>
+
+          {parcelMessage ? <p className="parcel-message">{parcelMessage}</p> : null}
+
+          <div className="detail-grid parcel-summary-grid">
+            <DetailItem label="APN" value={parcel.apn || lead.parcelNumber || "Missing"} />
+            <DetailItem label="Acreage" value={parcel.acreage || "Missing"} />
+            <DetailItem label="Zoning" value={parcel.zoning || "Missing"} />
+            <DetailItem label="Flood Zone" value={parcel.floodZone || "Unknown"} />
+            <DetailItem label="Tax Balance" value={parcel.taxBalance || "Missing"} />
+            <DetailItem label="Estimated Equity" value={parcel.estimatedEquity || "Missing"} />
+          </div>
+
+          <div className="property-input-grid parcel-input-grid">
+            <label className="detail-field">
+              APN / Parcel ID
+              <input value={parcel.apn || ""} onChange={(event) => updateParcelField("apn", event.target.value)} />
+            </label>
+            <label className="detail-field">
+              County
+              <input value={parcel.county || ""} onChange={(event) => updateParcelField("county", event.target.value)} />
+            </label>
+            <label className="detail-field">
+              Acreage
+              <input value={parcel.acreage || ""} onChange={(event) => updateParcelField("acreage", event.target.value)} />
+            </label>
+            <label className="detail-field">
+              Lot Dimensions
+              <input value={parcel.lotDimensions || ""} onChange={(event) => updateParcelField("lotDimensions", event.target.value)} />
+            </label>
+            <label className="detail-field">
+              Zoning
+              <input value={parcel.zoning || ""} onChange={(event) => updateParcelField("zoning", event.target.value)} />
+            </label>
+            <label className="detail-field">
+              Land Use
+              <input value={parcel.landUse || ""} onChange={(event) => updateParcelField("landUse", event.target.value)} />
+            </label>
+            <label className="detail-field">
+              Flood Zone
+              <input value={parcel.floodZone || ""} onChange={(event) => updateParcelField("floodZone", event.target.value)} />
+            </label>
+            <label className="detail-field">
+              Utilities
+              <input value={parcel.utilityAvailability || ""} onChange={(event) => updateParcelField("utilityAvailability", event.target.value)} />
+            </label>
+            <label className="detail-field">
+              Tax Balance
+              <input value={parcel.taxBalance || ""} onChange={(event) => updateParcelField("taxBalance", event.target.value)} />
+            </label>
+            <label className="detail-field">
+              Tax Status
+              <select value={parcel.taxDelinquencyStatus || ""} onChange={(event) => updateParcelField("taxDelinquencyStatus", event.target.value)}>
+                <option value="">Unknown</option>
+                <option>Current</option>
+                <option>Delinquent</option>
+                <option>Payment Plan</option>
+                <option>Needs Review</option>
+              </select>
+            </label>
+            <label className="detail-field">
+              Assessed Value
+              <input value={parcel.assessedValue || ""} onChange={(event) => updateParcelField("assessedValue", event.target.value)} />
+            </label>
+            <label className="detail-field">
+              Land Value
+              <input value={parcel.landValue || ""} onChange={(event) => updateParcelField("landValue", event.target.value)} />
+            </label>
+            <label className="detail-field">
+              Improvement Value
+              <input value={parcel.improvementValue || ""} onChange={(event) => updateParcelField("improvementValue", event.target.value)} />
+            </label>
+            <label className="detail-field">
+              Last Sale Date
+              <input value={parcel.lastSaleDate || ""} onChange={(event) => updateParcelField("lastSaleDate", event.target.value)} />
+            </label>
+            <label className="detail-field">
+              Last Sale Price
+              <input value={parcel.lastSalePrice || ""} onChange={(event) => updateParcelField("lastSalePrice", event.target.value)} />
+            </label>
+            <label className="detail-field">
+              Ownership Duration
+              <input value={parcel.ownershipDuration || ""} onChange={(event) => updateParcelField("ownershipDuration", event.target.value)} />
+            </label>
+            <label className="detail-field">
+              Mortgage Estimate
+              <input value={parcel.mortgageEstimate || ""} onChange={(event) => updateParcelField("mortgageEstimate", event.target.value)} />
+            </label>
+            <label className="detail-field">
+              Estimated Equity
+              <input value={parcel.estimatedEquity || ""} onChange={(event) => updateParcelField("estimatedEquity", event.target.value)} />
+            </label>
+            <label className="detail-field">
+              Opportunity Zone
+              <select value={parcel.opportunityZone || ""} onChange={(event) => updateParcelField("opportunityZone", event.target.value)}>
+                <option value="">Unknown</option>
+                <option>Yes</option>
+                <option>No</option>
+                <option>Needs Review</option>
+              </select>
+            </label>
+            <label className="detail-field">
+              Research Status
+              <select value={parcel.researchStatus || "Needs Research"} onChange={(event) => updateParcelField("researchStatus", event.target.value)}>
+                <option>Needs Research</option>
+                <option>In Review</option>
+                <option>Verified</option>
+                <option>Missing Data</option>
+              </select>
+            </label>
+          </div>
+
+          <div className="parcel-layer-grid">
+            {parcelMapLayers.map((layer) => (
+              <label key={layer}>
+                <input
+                  checked={(parcel.mapLayers || []).includes(layer)}
+                  onChange={() => toggleParcelLayer(layer)}
+                  type="checkbox"
+                />
+                {layer}
+              </label>
+            ))}
+          </div>
+
+          <label className="detail-field">
+            Legal Description
+            <textarea value={parcel.legalDescription || ""} onChange={(event) => updateParcelField("legalDescription", event.target.value)} />
+          </label>
+          <label className="detail-field">
+            Ownership History
+            <textarea value={parcel.ownershipHistory || ""} onChange={(event) => updateParcelField("ownershipHistory", event.target.value)} />
+          </label>
+          <label className="detail-field">
+            Parcel Notes
+            <textarea value={parcel.notes || ""} onChange={(event) => updateParcelField("notes", event.target.value)} />
+          </label>
+        </section>
+
         <section className="property-workbench">
           <div className="section-heading compact-heading">
             <p className="eyebrow">Property</p>
@@ -2307,6 +2532,88 @@ function sanitizeBuyers(value) {
     }));
 }
 
+function createEmptyParcelRecord(lead = {}) {
+  return {
+    leadId: safeText(lead.id),
+    address: safeText(lead.address),
+    apn: safeText(lead.parcelNumber),
+    county: safeText(lead.county),
+    acreage: "",
+    lotDimensions: safeText(lead.lotSize),
+    legalDescription: "",
+    zoning: "",
+    landUse: "",
+    floodZone: "",
+    utilityAvailability: "",
+    opportunityZone: "",
+    taxBalance: "",
+    taxDelinquencyStatus: "",
+    assessedValue: safeText(lead.assessedValue),
+    landValue: "",
+    improvementValue: "",
+    lastSaleDate: "",
+    lastSalePrice: "",
+    ownershipDuration: "",
+    mortgageEstimate: "",
+    estimatedEquity: "",
+    ownershipHistory: "",
+    mapLayers: [],
+    researchStatus: "Needs Research",
+    dataSource: "",
+    notes: "",
+    updatedAt: ""
+  };
+}
+
+function sanitizeParcelRecord(value = {}) {
+  const parcel = value && typeof value === "object" ? value : {};
+  return {
+    ...createEmptyParcelRecord({ id: parcel.leadId }),
+    ...parcel,
+    leadId: safeText(parcel.leadId),
+    address: safeText(parcel.address),
+    apn: safeText(parcel.apn),
+    county: safeText(parcel.county),
+    acreage: safeText(parcel.acreage),
+    lotDimensions: safeText(parcel.lotDimensions),
+    legalDescription: safeText(parcel.legalDescription),
+    zoning: safeText(parcel.zoning),
+    landUse: safeText(parcel.landUse),
+    floodZone: safeText(parcel.floodZone),
+    utilityAvailability: safeText(parcel.utilityAvailability),
+    opportunityZone: safeText(parcel.opportunityZone),
+    taxBalance: safeText(parcel.taxBalance),
+    taxDelinquencyStatus: safeText(parcel.taxDelinquencyStatus),
+    assessedValue: safeText(parcel.assessedValue),
+    landValue: safeText(parcel.landValue),
+    improvementValue: safeText(parcel.improvementValue),
+    lastSaleDate: safeText(parcel.lastSaleDate),
+    lastSalePrice: safeText(parcel.lastSalePrice),
+    ownershipDuration: safeText(parcel.ownershipDuration),
+    mortgageEstimate: safeText(parcel.mortgageEstimate),
+    estimatedEquity: safeText(parcel.estimatedEquity),
+    ownershipHistory: safeText(parcel.ownershipHistory),
+    mapLayers: Array.isArray(parcel.mapLayers) ? parcel.mapLayers.map(safeText).filter(Boolean) : [],
+    researchStatus: safeText(parcel.researchStatus) || "Needs Research",
+    dataSource: safeText(parcel.dataSource),
+    notes: safeText(parcel.notes),
+    updatedAt: safeText(parcel.updatedAt)
+  };
+}
+
+function mergeParcelWithLead(parcel, lead = {}) {
+  const cleanParcel = sanitizeParcelRecord(parcel);
+  return {
+    ...cleanParcel,
+    leadId: cleanParcel.leadId || safeText(lead.id),
+    address: cleanParcel.address || safeText(lead.address),
+    apn: cleanParcel.apn || safeText(lead.parcelNumber),
+    county: cleanParcel.county || safeText(lead.county),
+    lotDimensions: cleanParcel.lotDimensions || safeText(lead.lotSize),
+    assessedValue: cleanParcel.assessedValue || safeText(lead.assessedValue)
+  };
+}
+
 function safeText(value) {
   if (value === null || value === undefined) return "";
   if (typeof value === "string") return value;
@@ -2472,6 +2779,35 @@ async function matchDealToBuyers(deal, token) {
     score: clampScore(match.score),
     reasons: Array.isArray(match.reasons) ? match.reasons.map(safeText).filter(Boolean) : []
   }));
+}
+
+async function fetchParcelIntelligence(leadId, token) {
+  const response = await fetch(`${apiBaseUrl}/parcels/${encodeURIComponent(leadId)}`, {
+    headers: authHeaders(token)
+  });
+
+  if (!response.ok) {
+    throw new Error("Parcel fetch failed");
+  }
+
+  return sanitizeParcelRecord(await response.json());
+}
+
+async function saveParcelIntelligence(parcel, token) {
+  const response = await fetch(`${apiBaseUrl}/parcels/${encodeURIComponent(parcel.leadId)}`, {
+    method: "PUT",
+    headers: {
+      ...authHeaders(token),
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(parcel)
+  });
+
+  if (!response.ok) {
+    throw new Error("Parcel save failed");
+  }
+
+  return sanitizeParcelRecord(await response.json());
 }
 
 function authHeaders(token) {

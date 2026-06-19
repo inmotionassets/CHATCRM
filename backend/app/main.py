@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .routers import agreements, auth, buyers, imports, leads
+from .routers import agreements, auth, buyers, imports, leads, parcels
 
 app = FastAPI(title="ChatCRM API")
 BUILD_ID = "lead-postgres-diagnostics-1"
@@ -31,6 +31,7 @@ app.include_router(leads.router)
 app.include_router(buyers.router)
 app.include_router(imports.router)
 app.include_router(agreements.router)
+app.include_router(parcels.router)
 
 
 @app.get("/health")
@@ -45,7 +46,6 @@ def database_health_check():
         "database": "postgres" if leads.USE_POSTGRES else "sqlite",
         "database_url_configured": bool(leads.RAW_DATABASE_URL),
         "database_url_scheme": leads.database_url_scheme(),
-        "database_url": leads.database_url_summary(),
     }
 
 
