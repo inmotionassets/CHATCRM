@@ -1456,6 +1456,29 @@ textarea::placeholder {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
+.cad-import-wizard {
+  align-items: center;
+  background:
+    linear-gradient(135deg, rgba(31, 143, 122, 0.12), rgba(227, 182, 75, 0.1)),
+    var(--panel-soft);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  display: grid;
+  gap: 14px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  padding: 14px;
+}
+
+.cad-import-wizard h3 {
+  margin-bottom: 5px;
+}
+
+.cad-import-wizard p:last-child {
+  color: var(--muted-strong);
+  line-height: 1.45;
+  margin-bottom: 0;
+}
+
 .buyer-workbench {
   align-items: start;
   display: grid;
@@ -1992,6 +2015,7 @@ textarea::placeholder {
   .buyer-stats,
   .buyer-workbench,
   .buyer-row,
+  .cad-import-wizard,
   .call-workspace,
   .training-grid,
   .training-hero {

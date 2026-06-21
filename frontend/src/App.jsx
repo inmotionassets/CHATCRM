@@ -273,6 +273,7 @@ export function App() {
   const [buyerMessage, setBuyerMessage] = React.useState("");
   const fileInputRef = React.useRef(null);
   const buyerFileInputRef = React.useRef(null);
+  const cadFileInputRef = React.useRef(null);
   const authToken = auth?.accessToken || "";
 
   async function login(username, password) {
@@ -672,6 +673,25 @@ export function App() {
     event.target.value = "";
   }
 
+  async function uploadDallasCadFiles(event) {
+    const file = Array.from(event.target.files || [])[0];
+    if (!file) return;
+
+    setBuyerMessage("Reading Dallas CAD ZIP. Large files may take a few minutes...");
+
+    try {
+      const result = await importDallasCadZip(file, authToken);
+      setBuyers(sanitizeBuyers(result.buyers));
+      setBuyerMessage(
+        `Dallas CAD import complete: ${result.newBuyers} new buyers/builders, ${result.duplicatesSkipped} duplicates skipped, ${result.highScoreCount} high-score candidates.`
+      );
+    } catch {
+      setBuyerMessage("Dallas CAD import failed. Upload the official DCAD ZIP file and try again.");
+    }
+
+    event.target.value = "";
+  }
+
   async function saveBuyerProfile(buyer) {
     const savedBuyer = await saveBuyerToBackend(buyer, authToken);
     setBuyers((current) => mergeBuyerProfiles(current, [savedBuyer]));
@@ -901,9 +921,11 @@ export function App() {
               buyerFileInputRef={buyerFileInputRef}
               buyerMessage={buyerMessage}
               buyers={buyers}
+              cadFileInputRef={cadFileInputRef}
               leads={leads}
               onDeleteBuyer={deleteBuyerProfile}
               onSaveBuyer={saveBuyerProfile}
+              onUploadDallasCad={uploadDallasCadFiles}
               onUploadBuyers={uploadBuyerFiles}
               setBuyerMessage={setBuyerMessage}
             />
@@ -1143,9 +1165,11 @@ function BuyerNetworkView({
   buyerFileInputRef,
   buyerMessage,
   buyers,
+  cadFileInputRef,
   leads,
   onDeleteBuyer,
   onSaveBuyer,
+  onUploadDallasCad,
   onUploadBuyers,
   setBuyerMessage
 }) {
@@ -1248,9 +1272,20 @@ function BuyerNetworkView({
             ref={buyerFileInputRef}
             type="file"
           />
+          <input
+            accept=".zip,application/zip,application/x-zip-compressed"
+            className="file-input"
+            onChange={onUploadDallasCad}
+            ref={cadFileInputRef}
+            type="file"
+          />
           <button className="secondary-button" onClick={() => buyerFileInputRef.current?.click()}>
             <Upload size={18} />
             Upload Buyer CSV
+          </button>
+          <button className="secondary-button" onClick={() => cadFileInputRef.current?.click()}>
+            <Upload size={18} />
+            Dallas CAD Import
           </button>
           <button className="secondary-button" onClick={() => exportBuyersCsv(buyers)}>
             Export Buyers
@@ -1259,6 +1294,21 @@ function BuyerNetworkView({
       </div>
 
       {buyerMessage ? <p className="import-status">{buyerMessage}</p> : null}
+
+      <section className="cad-import-wizard">
+        <div>
+          <p className="eyebrow">Dallas CAD Wizard</p>
+          <h3>Import Dallas CAD buyers/builders.</h3>
+          <p>
+            Upload the official DCAD ZIP. ChatCRM scores public ownership records, skips duplicates,
+            and adds likely buyers/builders to Buyer Network.
+          </p>
+        </div>
+        <button className="primary-button" onClick={() => cadFileInputRef.current?.click()}>
+          <Upload size={18} />
+          Import DCAD ZIP
+        </button>
+      </section>
 
       <div className="buyer-stats">
         <Stat label="Buyer Profiles" value={buyers.length} />
@@ -1401,6 +1451,8 @@ function BuyerNetworkView({
                   <small>{formatBuyerPhoneList(buyer) || buyer.email || "Contact needed"}</small>
                 </div>
                 <div className="buyer-tags">
+                  <span>{buyer.builderScore ? `${buyer.builderScore} Score` : "Unscored"}</span>
+                  <span>{buyer.buyerType || "unknown"}</span>
                   <span>{safeText(buyer.relationshipTier).toUpperCase() || "C"} Tier</span>
                   <span>{buyer.activityStatus || "warm"}</span>
                   <span>{buyer.fundingType || "Funding Unknown"}</span>
@@ -2507,11 +2559,16 @@ function sanitizeBuyers(value) {
       ...buyer,
       id: safeText(buyer.id) || `buyer-${Date.now()}-${index}`,
       name: safeText(buyer.name) || safeText(buyer.company) || "Unknown Buyer",
+      normalizedCompanyName: safeText(buyer.normalizedCompanyName),
       company: safeText(buyer.company),
+      buyerType: safeText(buyer.buyerType) || "unknown",
       phone: safeText(buyer.phone),
       phones: Array.isArray(buyer.phones) ? buyer.phones.map(safeText).filter(Boolean) : [],
       email: safeText(buyer.email),
       website: safeText(buyer.website),
+      linkedinUrl: safeText(buyer.linkedinUrl),
+      facebookUrl: safeText(buyer.facebookUrl),
+      contactFormUrl: safeText(buyer.contactFormUrl),
       socialLinks: Array.isArray(buyer.socialLinks) ? buyer.socialLinks.map(safeText).filter(Boolean) : [],
       counties: Array.isArray(buyer.counties) ? buyer.counties.map(safeText).filter(Boolean) : splitInputValues(buyer.counties),
       zipCodes: Array.isArray(buyer.zipCodes) ? buyer.zipCodes.map(safeText).filter(Boolean) : splitInputValues(buyer.zipCodes),
@@ -2522,10 +2579,21 @@ function sanitizeBuyers(value) {
       builderType: safeText(buyer.builderType),
       activityStatus: safeText(buyer.activityStatus) || "warm",
       relationshipTier: safeText(buyer.relationshipTier) || "C",
+      mailingAddress: safeText(buyer.mailingAddress),
+      registeredAgent: safeText(buyer.registeredAgent),
       pastDealsBought: safeText(buyer.pastDealsBought),
+      propertyCount: Number(buyer.propertyCount) || 0,
+      vacantLotCount: Number(buyer.vacantLotCount) || 0,
+      averageLandValue: safeText(buyer.averageLandValue),
+      averagePurchasePrice: safeText(buyer.averagePurchasePrice),
+      lastPurchaseDate: safeText(buyer.lastPurchaseDate),
+      estimatedBuyBox: safeText(buyer.estimatedBuyBox),
+      confidenceScore: Number(buyer.confidenceScore) || 0,
+      builderScore: Number(buyer.builderScore) || 0,
       assignmentFeeTolerance: safeText(buyer.assignmentFeeTolerance),
       notes: safeText(buyer.notes),
-      source: safeText(buyer.source) || "Imported"
+      source: safeText(buyer.source) || "Imported",
+      sourceUrls: Array.isArray(buyer.sourceUrls) ? buyer.sourceUrls.map(safeText).filter(Boolean) : []
     }));
 }
 
@@ -2718,6 +2786,28 @@ async function importBuyerCsv(file, token) {
 
   const result = await response.json();
   return {
+    buyers: sanitizeBuyers(result.buyers),
+    warnings: Array.isArray(result.warnings) ? result.warnings : []
+  };
+}
+
+async function importDallasCadZip(file, token) {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const response = await fetch(`${apiBaseUrl}/buyers/import-dcad`, {
+    method: "POST",
+    headers: authHeaders(token),
+    body: formData
+  });
+
+  if (!response.ok) {
+    throw new Error("Dallas CAD import failed");
+  }
+
+  const result = await response.json();
+  return {
+    ...result,
     buyers: sanitizeBuyers(result.buyers),
     warnings: Array.isArray(result.warnings) ? result.warnings : []
   };
@@ -3241,13 +3331,26 @@ function exportLeadsCsv(leads) {
 function exportBuyersCsv(buyers) {
   const headers = [
     "Name",
+    "Normalized Company",
     "Company",
+    "Buyer Type",
+    "Builder Score",
+    "Confidence Score",
     "Phone Numbers",
     "Email",
     "Website",
+    "LinkedIn",
+    "Facebook",
+    "Contact Form",
     "Social Links",
     "Counties",
     "ZIP Codes",
+    "Property Count",
+    "Vacant Lot Count",
+    "Average Land Value",
+    "Average Purchase Price",
+    "Last Purchase Date",
+    "Estimated Buy Box",
     "Price Min",
     "Price Max",
     "Property Types",
@@ -3255,20 +3358,36 @@ function exportBuyersCsv(buyers) {
     "Builder Type",
     "Activity Status",
     "Relationship Tier",
+    "Mailing Address",
+    "Registered Agent",
     "Past Deals Bought",
     "Assignment Fee Tolerance",
     "Notes",
-    "Source"
+    "Source",
+    "Source URLs"
   ];
   const rows = sanitizeBuyers(buyers).map((buyer) => [
     buyer.name,
+    buyer.normalizedCompanyName,
     buyer.company,
+    buyer.buyerType,
+    buyer.builderScore,
+    buyer.confidenceScore,
     formatBuyerPhoneList(buyer),
     buyer.email,
     buyer.website,
+    buyer.linkedinUrl,
+    buyer.facebookUrl,
+    buyer.contactFormUrl,
     buyer.socialLinks.join(", "),
     buyer.counties.join(", "),
     buyer.zipCodes.join(", "),
+    buyer.propertyCount,
+    buyer.vacantLotCount,
+    buyer.averageLandValue,
+    buyer.averagePurchasePrice,
+    buyer.lastPurchaseDate,
+    buyer.estimatedBuyBox,
     buyer.priceMin,
     buyer.priceMax,
     buyer.propertyTypes.join(", "),
@@ -3276,10 +3395,13 @@ function exportBuyersCsv(buyers) {
     buyer.builderType,
     buyer.activityStatus,
     buyer.relationshipTier,
+    buyer.mailingAddress,
+    buyer.registeredAgent,
     buyer.pastDealsBought,
     buyer.assignmentFeeTolerance,
     buyer.notes,
-    buyer.source
+    buyer.source,
+    buyer.sourceUrls.join(", ")
   ]);
   const csv = [headers, ...rows].map((row) => row.map(escapeCsvValue).join(",")).join("\n");
   const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
