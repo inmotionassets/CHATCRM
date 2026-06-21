@@ -90,7 +90,7 @@ const contactStatuses = [
   { value: "left-voicemail", label: "Left Voicemail", color: "blue" },
   { value: "follow-up", label: "Follow Up", color: "yellow" }
 ];
-const mainViews = ["Leads", "Pipeline", "Buyer Network", "Imports", "Analytics", "Training"];
+const mainViews = ["Leads", "Pipeline", "Property Intelligence", "Buyer Network", "Imports", "Analytics", "Training"];
 const callScript = {
   objective: "Verify ownership, determine interest, gather good contact notes, and schedule the right follow-up. Do not make offers on the first call.",
   opening: "Hello, is this {ownerName}? My name is [AGENT NAME], and I am calling about {propertyAddress}. Did I catch you at a bad time?",
@@ -896,6 +896,10 @@ export function App() {
             <PipelineView leads={leads} onViewLead={setSelectedLeadId} />
           ) : null}
 
+          {activeView === "Property Intelligence" ? (
+            <PropertyIntelligenceView authToken={authToken} buyers={buyers} leads={leads} />
+          ) : null}
+
           {activeView === "Buyer Network" ? (
             <BuyerNetworkView
               authToken={authToken}
@@ -1137,6 +1141,171 @@ function PipelineView({ leads, onViewLead }) {
           );
         })}
       </div>
+    </div>
+  );
+}
+
+function PropertyIntelligenceView({ authToken, buyers, leads }) {
+  const [dashboards, setDashboards] = React.useState([]);
+  const [selectedCountyId, setSelectedCountyId] = React.useState("tx-dallas");
+  const [message, setMessage] = React.useState("Loading county registry...");
+
+  React.useEffect(() => {
+    let cancelled = false;
+
+    async function hydrateCounties() {
+      try {
+        const result = await fetchCountyDashboards(authToken);
+        if (cancelled) return;
+        setDashboards(result);
+        if (result.length && !result.some((item) => item.county.id === selectedCountyId)) {
+          setSelectedCountyId(result[0].county.id);
+        }
+        setMessage("");
+      } catch {
+        if (!cancelled) setMessage("County registry will load once the backend responds.");
+      }
+    }
+
+    hydrateCounties();
+    return () => {
+      cancelled = true;
+    };
+  }, [authToken]);
+
+  const selected = dashboards.find((item) => item.county.id === selectedCountyId) || dashboards[0];
+  const selectedCounty = selected?.county;
+  const selectedCountyKey = normalizeCountyName(selectedCounty?.countyName || "");
+  const countyLeads = leads
+    .filter((lead) => normalizeCountyName(lead.county) === selectedCountyKey)
+    .slice(0, 14);
+  const countyBuyers = buyers.filter((buyer) =>
+    (buyer.counties || []).some((county) => normalizeCountyName(county) === selectedCountyKey)
+  );
+  const groupedDashboards = groupCountyDashboards(dashboards);
+
+  return (
+    <div className="panel wide-panel property-intelligence-view">
+      <div className="panel-header">
+        <div>
+          <p className="eyebrow">Property Intelligence</p>
+          <h2>County Intelligence Module</h2>
+        </div>
+      </div>
+
+      {message ? <p className="import-status">{message}</p> : null}
+
+      <section className="county-intelligence-grid">
+        <aside className="county-menu">
+          {Object.entries(groupedDashboards).map(([market, items]) => (
+            <div key={market}>
+              <p className="eyebrow">{market}</p>
+              {items.map((item) => (
+                <button
+                  className={item.county.id === selectedCountyId ? "active" : ""}
+                  key={item.county.id}
+                  onClick={() => setSelectedCountyId(item.county.id)}
+                >
+                  {item.county.countyName}
+                  <span>{item.buyerMatches} buyers</span>
+                </button>
+              ))}
+            </div>
+          ))}
+        </aside>
+
+        {selectedCounty ? (
+          <section className="county-dashboard">
+            <div className="county-hero">
+              <div>
+                <p className="eyebrow">{selectedCounty.market}</p>
+                <h3>{selectedCounty.countyName}</h3>
+                <p>CAD, GIS, tax, parcel lookup, builder detection, and buyer matching rules are tracked here.</p>
+              </div>
+              <div className="county-source-actions">
+                <a href={selectedCounty.cadUrl} rel="noreferrer" target="_blank">CAD</a>
+                <a href={selectedCounty.gisUrl} rel="noreferrer" target="_blank">GIS</a>
+                <a href={selectedCounty.taxUrl} rel="noreferrer" target="_blank">Tax</a>
+                <a href={selectedCounty.parcelUrl} rel="noreferrer" target="_blank">Parcel</a>
+              </div>
+            </div>
+
+            <div className="county-stat-grid">
+              <Stat label="Leads" value={selected.leadCount} />
+              <Stat label="Parcel Found" value={selected.parcelFound} />
+              <Stat label="Buyer Matches" value={selected.buyerMatches || countyBuyers.length} />
+              <Stat label="Avg Builder Score" value={selected.avgBuilderScore || "-"} />
+            </div>
+
+            <div className="county-readiness-grid">
+              <CountyReadiness label="Parcel Lookup" ready={selectedCounty.supportsParcelLookup} />
+              <CountyReadiness label="GIS" ready={selected.gisReady} />
+              <CountyReadiness label="Tax Data" ready={selected.taxReady} />
+              <CountyReadiness label="Public Enrichment" ready />
+            </div>
+
+            <section className="county-rules">
+              <CountyRuleList title="Buyer Import Rules" items={selectedCounty.buyerImportRules} />
+              <CountyRuleList title="Builder Detection" items={selectedCounty.builderDetectionRules} />
+              <CountyRuleList title="Parcel Mapping" items={selectedCounty.parcelMapping} />
+            </section>
+
+            <section className="county-lead-snapshot">
+              <div className="section-heading">
+                <p className="eyebrow">Lead Snapshot</p>
+                <h3>{selectedCounty.countyName} leads</h3>
+              </div>
+
+              {countyLeads.length > 0 ? (
+                <div className="county-lead-list">
+                  {countyLeads.map((lead) => (
+                    <article className="county-lead-row" key={lead.id}>
+                      <div>
+                        <h3>{lead.address || "Missing address"}</h3>
+                        <p>{getDisplayOwnerName(lead) || "Owner needed"}</p>
+                      </div>
+                      <span>{lead.parcelNumber ? "Parcel: Found" : "Parcel: Needed"}</span>
+                      <span>{selected.gisReady ? "GIS: Ready" : "GIS: Manual"}</span>
+                      <span>{lead.assessedValue ? "Tax Data: Found" : "Tax Data: Needed"}</span>
+                      <span>{selected.buyerMatches || countyBuyers.length} buyer matches</span>
+                    </article>
+                  ))}
+                </div>
+              ) : (
+                <div className="mini-empty">
+                  <p>No leads in this county yet.</p>
+                </div>
+              )}
+            </section>
+          </section>
+        ) : (
+          <div className="empty-state">
+            <h3>No counties loaded</h3>
+            <p>County registry is waiting on the backend.</p>
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function CountyReadiness({ label, ready }) {
+  return (
+    <div className="county-readiness">
+      <span className={`status-dot ${ready ? "green" : "orange"}`} />
+      <strong>{label}</strong>
+      <small>{ready ? "Ready" : "Needs setup"}</small>
+    </div>
+  );
+}
+
+function CountyRuleList({ title, items = [] }) {
+  return (
+    <div className="county-rule-card">
+      <h3>{title}</h3>
+      {items.map((item) => (
+        <span key={item}>{item}</span>
+      ))}
     </div>
   );
 }
@@ -3200,6 +3369,19 @@ async function fetchParcelIntelligence(leadId, token) {
   return sanitizeParcelRecord(await response.json());
 }
 
+async function fetchCountyDashboards(token) {
+  const response = await fetch(`${apiBaseUrl}/counties/dashboard`, {
+    headers: authHeaders(token)
+  });
+
+  if (!response.ok) {
+    throw new Error("County dashboard fetch failed");
+  }
+
+  const result = await response.json();
+  return Array.isArray(result) ? result : [];
+}
+
 async function saveParcelIntelligence(parcel, token) {
   const response = await fetch(`${apiBaseUrl}/parcels/${encodeURIComponent(parcel.leadId)}`, {
     method: "PUT",
@@ -3219,6 +3401,20 @@ async function saveParcelIntelligence(parcel, token) {
 
 function authHeaders(token) {
   return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+function normalizeCountyName(value = "") {
+  return safeText(value).toLowerCase().replace("county", "").trim();
+}
+
+function groupCountyDashboards(dashboards = []) {
+  return dashboards.reduce((groups, item) => {
+    const market = item?.county?.market || "Other";
+    return {
+      ...groups,
+      [market]: [...(groups[market] || []), item]
+    };
+  }, {});
 }
 
 function clampScore(score) {

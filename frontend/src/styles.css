@@ -1445,6 +1445,181 @@ textarea::placeholder {
   color: var(--muted);
 }
 
+.property-intelligence-view {
+  display: grid;
+  gap: 16px;
+}
+
+.county-intelligence-grid {
+  align-items: start;
+  display: grid;
+  gap: 16px;
+  grid-template-columns: 280px minmax(0, 1fr);
+}
+
+.county-menu {
+  background: var(--panel-soft);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  display: grid;
+  gap: 16px;
+  padding: 14px;
+}
+
+.county-menu button {
+  align-items: center;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  color: var(--text);
+  cursor: pointer;
+  display: flex;
+  font-size: 0.86rem;
+  font-weight: 800;
+  justify-content: space-between;
+  margin-bottom: 7px;
+  min-height: 38px;
+  padding: 8px 10px;
+  text-align: left;
+  width: 100%;
+}
+
+.county-menu button.active {
+  border-color: rgba(31, 143, 122, 0.46);
+  box-shadow: 0 0 0 2px rgba(31, 143, 122, 0.12);
+}
+
+.county-menu span {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.county-dashboard {
+  display: grid;
+  gap: 14px;
+}
+
+.county-hero,
+.county-rules,
+.county-lead-snapshot {
+  background: var(--panel-soft);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 14px;
+}
+
+.county-hero {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.county-hero h3 {
+  font-size: 1.2rem;
+}
+
+.county-hero p {
+  color: var(--muted-strong);
+  margin-bottom: 0;
+}
+
+.county-source-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.county-source-actions a {
+  align-items: center;
+  background: #17202c;
+  border-radius: 7px;
+  color: #ffffff;
+  display: inline-flex;
+  font-size: 0.82rem;
+  font-weight: 850;
+  min-height: 36px;
+  padding: 0 12px;
+  text-decoration: none;
+}
+
+.county-stat-grid,
+.county-readiness-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.county-readiness {
+  align-items: center;
+  background: var(--panel-soft);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  display: grid;
+  gap: 3px 8px;
+  grid-template-columns: 12px minmax(0, 1fr);
+  padding: 12px;
+}
+
+.county-readiness strong {
+  color: var(--text);
+  font-size: 0.86rem;
+}
+
+.county-readiness small {
+  color: var(--muted);
+  grid-column: 2;
+}
+
+.county-rules {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.county-rule-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  display: grid;
+  gap: 7px;
+  padding: 12px;
+}
+
+.county-rule-card span {
+  color: var(--muted-strong);
+  font-size: 0.82rem;
+}
+
+.county-lead-list {
+  display: grid;
+  gap: 8px;
+}
+
+.county-lead-row {
+  align-items: center;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(220px, 1fr) repeat(4, minmax(110px, 0.6fr));
+  padding: 10px;
+}
+
+.county-lead-row h3 {
+  margin-bottom: 2px;
+}
+
+.county-lead-row p,
+.county-lead-row span {
+  color: var(--muted);
+  font-size: 0.82rem;
+  margin-bottom: 0;
+}
+
 .buyer-network {
   display: grid;
   gap: 16px;
@@ -2190,6 +2365,11 @@ textarea::placeholder {
   .cad-preview-grid,
   .cad-stepper,
   .call-workspace,
+  .county-intelligence-grid,
+  .county-lead-row,
+  .county-readiness-grid,
+  .county-rules,
+  .county-stat-grid,
   .training-grid,
   .training-hero {
     grid-template-columns: 1fr;

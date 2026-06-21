@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .routers import agreements, auth, buyers, imports, leads, parcels
+from .routers import agreements, auth, buyers, counties, imports, leads, parcels
 
 app = FastAPI(title="ChatCRM API")
 BUILD_ID = "lead-postgres-diagnostics-1"
@@ -29,6 +29,7 @@ app.add_middleware(
 app.include_router(auth.router)
 app.include_router(leads.router)
 app.include_router(buyers.router)
+app.include_router(counties.router)
 app.include_router(imports.router)
 app.include_router(agreements.router)
 app.include_router(parcels.router)
