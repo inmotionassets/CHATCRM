@@ -673,25 +673,6 @@ export function App() {
     event.target.value = "";
   }
 
-  async function uploadDallasCadFiles(event) {
-    const file = Array.from(event.target.files || [])[0];
-    if (!file) return;
-
-    setBuyerMessage("Reading Dallas CAD ZIP. Large files may take a few minutes...");
-
-    try {
-      const result = await importDallasCadZip(file, authToken);
-      setBuyers(sanitizeBuyers(result.buyers));
-      setBuyerMessage(
-        `Dallas CAD import complete: ${result.newBuyers} new buyers/builders, ${result.duplicatesSkipped} duplicates skipped, ${result.highScoreCount} high-score candidates.`
-      );
-    } catch {
-      setBuyerMessage("Dallas CAD import failed. Upload the official DCAD ZIP file and try again.");
-    }
-
-    event.target.value = "";
-  }
-
   async function saveBuyerProfile(buyer) {
     const savedBuyer = await saveBuyerToBackend(buyer, authToken);
     setBuyers((current) => mergeBuyerProfiles(current, [savedBuyer]));
@@ -924,8 +905,8 @@ export function App() {
               cadFileInputRef={cadFileInputRef}
               leads={leads}
               onDeleteBuyer={deleteBuyerProfile}
+              onBuyerListUpdated={setBuyers}
               onSaveBuyer={saveBuyerProfile}
-              onUploadDallasCad={uploadDallasCadFiles}
               onUploadBuyers={uploadBuyerFiles}
               setBuyerMessage={setBuyerMessage}
             />
@@ -1160,6 +1141,33 @@ function PipelineView({ leads, onViewLead }) {
   );
 }
 
+const cadWizardSteps = [
+  "Upload CSV",
+  "Preview columns",
+  "Map columns",
+  "Detect buyers",
+  "Score records",
+  "Enrich contacts",
+  "Review results",
+  "Import selected"
+];
+
+function createCadWizardState() {
+  return {
+    step: 0,
+    fileName: "",
+    isRunning: false,
+    preview: null,
+    selectedCandidateIds: [],
+    controls: {
+      enrichmentEnabled: true,
+      maxRecords: 500,
+      minBuilderScore: 20,
+      rateLimitMs: 750
+    }
+  };
+}
+
 function BuyerNetworkView({
   authToken,
   buyerFileInputRef,
@@ -1167,9 +1175,9 @@ function BuyerNetworkView({
   buyers,
   cadFileInputRef,
   leads,
+  onBuyerListUpdated,
   onDeleteBuyer,
   onSaveBuyer,
-  onUploadDallasCad,
   onUploadBuyers,
   setBuyerMessage
 }) {
@@ -1181,6 +1189,7 @@ function BuyerNetworkView({
   const [matches, setMatches] = React.useState([]);
   const [isMatching, setIsMatching] = React.useState(false);
   const [isSavingBuyer, setIsSavingBuyer] = React.useState(false);
+  const [cadWizard, setCadWizard] = React.useState(() => createCadWizardState());
 
   const hotBuyers = buyers.filter((buyer) => normalizeText(buyer.activityStatus) === "hot").length;
   const tierABuyers = buyers.filter((buyer) => safeText(buyer.relationshipTier).toUpperCase() === "A").length;
@@ -1256,6 +1265,132 @@ function BuyerNetworkView({
     }
   }
 
+  function updateCadControl(field, value) {
+    setCadWizard((current) => ({
+      ...current,
+      controls: {
+        ...current.controls,
+        [field]: field === "enrichmentEnabled" ? Boolean(value) : value
+      }
+    }));
+  }
+
+  function setCadStep(step) {
+    setCadWizard((current) => ({ ...current, step }));
+  }
+
+  async function uploadDallasCadFiles(event) {
+    const file = Array.from(event.target.files || [])[0];
+    if (!file) return;
+
+    setBuyerMessage("Reading Dallas CAD file...");
+    setCadWizard((current) => ({ ...current, fileName: file.name, isRunning: true, step: 3 }));
+
+    try {
+      const result = await previewDallasCadUpload(file, cadWizard.controls, authToken);
+      const candidates = sanitizeBuyers(result.buyers);
+      const selectedIds = candidates
+        .filter((buyer) => Number(buyer.builderScore) >= Number(cadWizard.controls.minBuilderScore || 0))
+        .map((buyer) => buyer.id);
+
+      setCadWizard((current) => ({
+        ...current,
+        fileName: file.name,
+        isRunning: false,
+        preview: { ...result, buyers: candidates },
+        selectedCandidateIds: selectedIds,
+        step: 6
+      }));
+      setBuyerMessage(`${candidates.length} Dallas CAD buyer/builder candidate${candidates.length === 1 ? "" : "s"} ready to review.`);
+    } catch {
+      setCadWizard((current) => ({ ...current, isRunning: false, step: 0 }));
+      setBuyerMessage("Dallas CAD preview failed. Upload the official DCAD ZIP or CSV and try again.");
+    }
+
+    event.target.value = "";
+  }
+
+  function toggleCadCandidate(id) {
+    setCadWizard((current) => {
+      const selected = new Set(current.selectedCandidateIds);
+      if (selected.has(id)) {
+        selected.delete(id);
+      } else {
+        selected.add(id);
+      }
+      return { ...current, selectedCandidateIds: Array.from(selected) };
+    });
+  }
+
+  function selectAllCadCandidates() {
+    setCadWizard((current) => ({
+      ...current,
+      selectedCandidateIds: sanitizeBuyers(current.preview?.buyers || []).map((buyer) => buyer.id)
+    }));
+  }
+
+  function clearCadCandidates() {
+    setCadWizard((current) => ({ ...current, selectedCandidateIds: [] }));
+  }
+
+  async function refreshCadEnrichment() {
+    if (!cadWizard.preview?.jobId) return;
+
+    setBuyerMessage("Refreshing public contact sources...");
+    setCadWizard((current) => ({ ...current, isRunning: true, step: 5 }));
+
+    try {
+      const result = await refreshDallasCadEnrichment(
+        cadWizard.preview.jobId,
+        cadWizard.selectedCandidateIds,
+        cadWizard.controls,
+        authToken
+      );
+      setCadWizard((current) => ({
+        ...current,
+        isRunning: false,
+        preview: { ...current.preview, ...result, buyers: sanitizeBuyers(result.buyers) },
+        step: 6
+      }));
+      setBuyerMessage("Public contact sources refreshed.");
+    } catch {
+      setCadWizard((current) => ({ ...current, isRunning: false, step: 6 }));
+      setBuyerMessage("Could not refresh contact sources. You can still review and import the candidates.");
+    }
+  }
+
+  async function importSelectedCadBuyers() {
+    if (!cadWizard.preview?.jobId || cadWizard.selectedCandidateIds.length === 0) {
+      setBuyerMessage("Select at least one CAD candidate to import.");
+      return;
+    }
+
+    setBuyerMessage("Importing selected buyers/builders...");
+    setCadWizard((current) => ({ ...current, isRunning: true, step: 7 }));
+
+    try {
+      const result = await importDallasCadSelection(cadWizard.preview.jobId, cadWizard.selectedCandidateIds, authToken);
+      const nextBuyers = sanitizeBuyers(result.buyers);
+      onBuyerListUpdated(nextBuyers);
+      setCadWizard((current) => ({
+        ...current,
+        isRunning: false,
+        preview: { ...current.preview, ...result },
+        step: 7
+      }));
+      setBuyerMessage(
+        `Imported ${result.newBuyers} buyer/builder profile${result.newBuyers === 1 ? "" : "s"}. ${result.duplicatesSkipped} duplicate${result.duplicatesSkipped === 1 ? "" : "s"} skipped.`
+      );
+    } catch {
+      setCadWizard((current) => ({ ...current, isRunning: false, step: 6 }));
+      setBuyerMessage("CAD import failed. Try again or lower the selected count.");
+    }
+  }
+
+  const cadCandidates = sanitizeBuyers(cadWizard.preview?.buyers || []);
+  const selectedCadCount = cadWizard.selectedCandidateIds.length;
+  const cadSelectedSet = new Set(cadWizard.selectedCandidateIds);
+
   return (
     <div className="panel wide-panel buyer-network">
       <div className="panel-header">
@@ -1273,9 +1408,9 @@ function BuyerNetworkView({
             type="file"
           />
           <input
-            accept=".zip,application/zip,application/x-zip-compressed"
+            accept=".zip,.csv,text/csv,application/zip,application/x-zip-compressed"
             className="file-input"
-            onChange={onUploadDallasCad}
+            onChange={uploadDallasCadFiles}
             ref={cadFileInputRef}
             type="file"
           />
@@ -1296,18 +1431,149 @@ function BuyerNetworkView({
       {buyerMessage ? <p className="import-status">{buyerMessage}</p> : null}
 
       <section className="cad-import-wizard">
-        <div>
-          <p className="eyebrow">Dallas CAD Wizard</p>
-          <h3>Import Dallas CAD buyers/builders.</h3>
-          <p>
-            Upload the official DCAD ZIP. ChatCRM scores public ownership records, skips duplicates,
-            and adds likely buyers/builders to Buyer Network.
-          </p>
+        <div className="cad-wizard-top">
+          <div>
+            <p className="eyebrow">Dallas CAD Wizard</p>
+            <h3>Import Dallas CAD buyers/builders.</h3>
+            <p>Upload DCAD ZIP/CSV, review the scores, then import only the buyers you choose.</p>
+          </div>
+          <button className="primary-button" disabled={cadWizard.isRunning} onClick={() => cadFileInputRef.current?.click()}>
+            <Upload size={18} />
+            {cadWizard.isRunning ? "Working..." : "Upload DCAD File"}
+          </button>
         </div>
-        <button className="primary-button" onClick={() => cadFileInputRef.current?.click()}>
-          <Upload size={18} />
-          Import DCAD ZIP
-        </button>
+
+        <div className="cad-stepper">
+          {cadWizardSteps.map((step, index) => (
+            <button
+              className={index <= cadWizard.step ? "active" : ""}
+              key={step}
+              onClick={() => setCadStep(index)}
+              type="button"
+            >
+              <span>{index + 1}</span>
+              {step}
+            </button>
+          ))}
+        </div>
+
+        <div className="cad-admin-controls">
+          <label className="toggle-row">
+            <input
+              checked={cadWizard.controls.enrichmentEnabled}
+              onChange={(event) => updateCadControl("enrichmentEnabled", event.target.checked)}
+              type="checkbox"
+            />
+            Public enrichment
+          </label>
+          <label>
+            Max records
+            <input
+              min="25"
+              onChange={(event) => updateCadControl("maxRecords", event.target.value)}
+              type="number"
+              value={cadWizard.controls.maxRecords}
+            />
+          </label>
+          <label>
+            Min score
+            <input
+              min="0"
+              max="100"
+              onChange={(event) => updateCadControl("minBuilderScore", event.target.value)}
+              type="number"
+              value={cadWizard.controls.minBuilderScore}
+            />
+          </label>
+          <label>
+            Rate limit ms
+            <input
+              min="0"
+              onChange={(event) => updateCadControl("rateLimitMs", event.target.value)}
+              type="number"
+              value={cadWizard.controls.rateLimitMs}
+            />
+          </label>
+          <button className="secondary-button" disabled={!cadWizard.preview?.jobId || cadWizard.isRunning} onClick={refreshCadEnrichment}>
+            Refresh Contact Data
+          </button>
+        </div>
+
+        {cadWizard.preview ? (
+          <div className="cad-preview-grid">
+            <section>
+              <div className="section-heading">
+                <p className="eyebrow">Preview Columns</p>
+                <h3>{cadWizard.fileName || cadWizard.preview.fileName}</h3>
+              </div>
+              <div className="cad-column-list">
+                {(cadWizard.preview.columns || []).slice(0, 18).map((column) => (
+                  <span key={column}>{column}</span>
+                ))}
+              </div>
+            </section>
+
+            <section>
+              <div className="section-heading">
+                <p className="eyebrow">Map Columns</p>
+                <h3>Auto-mapped fields</h3>
+              </div>
+              <div className="cad-map-list">
+                {Object.entries(cadWizard.preview.mappedColumns || {}).slice(0, 10).map(([field, column]) => (
+                  <span key={field}>
+                    <b>{field}</b>
+                    {column || "Not found"}
+                  </span>
+                ))}
+              </div>
+            </section>
+          </div>
+        ) : (
+          <div className="mini-empty">
+            <p>No CAD file loaded yet.</p>
+          </div>
+        )}
+
+        {cadCandidates.length > 0 ? (
+          <section className="cad-results">
+            <div className="cad-results-header">
+              <div>
+                <p className="eyebrow">Review Results</p>
+                <h3>{cadCandidates.length} candidates / {selectedCadCount} selected</h3>
+              </div>
+              <div className="lead-filters">
+                <button className="secondary-button" onClick={selectAllCadCandidates}>Select All</button>
+                <button className="secondary-button" onClick={clearCadCandidates}>Clear</button>
+                <button className="secondary-button" onClick={() => exportBuyersCsv(cadCandidates)}>Export Enriched CSV</button>
+                <button className="primary-button" disabled={cadWizard.isRunning || selectedCadCount === 0} onClick={importSelectedCadBuyers}>
+                  Import Selected
+                </button>
+              </div>
+            </div>
+
+            <div className="cad-candidate-list">
+              {cadCandidates.slice(0, 80).map((buyer) => (
+                <article className="cad-candidate-row" key={buyer.id}>
+                  <input
+                    checked={cadSelectedSet.has(buyer.id)}
+                    onChange={() => toggleCadCandidate(buyer.id)}
+                    type="checkbox"
+                  />
+                  <BuyerScore score={buyer.builderScore || 0} />
+                  <div>
+                    <h3>{buyer.company || buyer.name}</h3>
+                    <p>{buyer.buyerType || "unknown"} / {buyer.propertyCount || 0} properties / {buyer.vacantLotCount || 0} vacant lots</p>
+                    <small>{formatBuyerPhoneList(buyer) || "Public phone not found yet"}</small>
+                  </div>
+                  <div className="buyer-buybox">
+                    <b>{buyer.estimatedBuyBox || formatBuyBox(buyer)}</b>
+                    <small>{[buyer.counties?.join(", "), buyer.zipCodes?.join(", ")].filter(Boolean).join(" / ") || "No geography"}</small>
+                  </div>
+                </article>
+              ))}
+            </div>
+          </section>
+        ) : null}
       </section>
 
       <div className="buyer-stats">
@@ -2791,14 +3057,68 @@ async function importBuyerCsv(file, token) {
   };
 }
 
-async function importDallasCadZip(file, token) {
+async function previewDallasCadUpload(file, controls, token) {
   const formData = new FormData();
   formData.append("file", file);
+  formData.append("enrichmentEnabled", controls.enrichmentEnabled ? "true" : "false");
+  formData.append("maxRecords", String(controls.maxRecords || 500));
+  formData.append("minBuilderScore", String(controls.minBuilderScore || 20));
+  formData.append("rateLimitMs", String(controls.rateLimitMs || 750));
 
-  const response = await fetch(`${apiBaseUrl}/buyers/import-dcad`, {
+  const response = await fetch(`${apiBaseUrl}/buyers/import-dcad/preview`, {
     method: "POST",
     headers: authHeaders(token),
     body: formData
+  });
+
+  if (!response.ok) {
+    throw new Error("Dallas CAD import failed");
+  }
+
+  const result = await response.json();
+  return {
+    ...result,
+    buyers: sanitizeBuyers(result.buyers),
+    warnings: Array.isArray(result.warnings) ? result.warnings : []
+  };
+}
+
+async function refreshDallasCadEnrichment(jobId, selectedBuyerIds, controls, token) {
+  const response = await fetch(`${apiBaseUrl}/buyers/import-dcad/enrich`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...authHeaders(token)
+    },
+    body: JSON.stringify({
+      jobId,
+      selectedBuyerIds,
+      enrichmentEnabled: Boolean(controls.enrichmentEnabled),
+      minBuilderScore: Number(controls.minBuilderScore) || 20,
+      rateLimitMs: Number(controls.rateLimitMs) || 750
+    })
+  });
+
+  if (!response.ok) {
+    throw new Error("Dallas CAD enrichment failed");
+  }
+
+  const result = await response.json();
+  return {
+    ...result,
+    buyers: sanitizeBuyers(result.buyers),
+    warnings: Array.isArray(result.warnings) ? result.warnings : []
+  };
+}
+
+async function importDallasCadSelection(jobId, selectedBuyerIds, token) {
+  const response = await fetch(`${apiBaseUrl}/buyers/import-dcad/import`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...authHeaders(token)
+    },
+    body: JSON.stringify({ jobId, selectedBuyerIds })
   });
 
   if (!response.ok) {

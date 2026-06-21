@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from statistics import mean
 from uuid import uuid4
 
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 
 from ..auth import CurrentUser
@@ -63,13 +63,40 @@ class BuyerImportResult(BaseModel):
 
 
 class DallasCadImportResult(BaseModel):
+    jobId: str = ""
+    fileName: str = ""
+    status: str = "preview"
     buyers: list[BuyerProfile]
     newBuyers: int = 0
     duplicatesSkipped: int = 0
     candidatesFound: int = 0
     propertyRowsRead: int = 0
     highScoreCount: int = 0
+    columns: list[str] = Field(default_factory=list)
+    mappedColumns: dict[str, str] = Field(default_factory=dict)
+    rowPreview: list[dict[str, str]] = Field(default_factory=list)
+    settings: dict[str, str | int | bool] = Field(default_factory=dict)
     warnings: list[str] = Field(default_factory=list)
+
+
+class DallasCadApplyRequest(BaseModel):
+    jobId: str
+    selectedBuyerIds: list[str] = Field(default_factory=list)
+
+
+class DallasCadEnrichmentRequest(BaseModel):
+    jobId: str
+    selectedBuyerIds: list[str] = Field(default_factory=list)
+    enrichmentEnabled: bool = True
+    minBuilderScore: int = 50
+    rateLimitMs: int = 750
+
+
+class DallasCadSettings(BaseModel):
+    enrichmentEnabled: bool = True
+    maxRecords: int = 500
+    minBuilderScore: int = 20
+    rateLimitMs: int = 750
 
 
 class DealMatchRequest(BaseModel):
@@ -162,6 +189,108 @@ def ensure_buyer_tables(connection) -> None:
             )
             """
         )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS cad_import_jobs (
+                id TEXT PRIMARY KEY,
+                source TEXT NOT NULL,
+                status TEXT NOT NULL,
+                settings TEXT NOT NULL DEFAULT '{}',
+                columns TEXT NOT NULL DEFAULT '[]',
+                mapped_columns TEXT NOT NULL DEFAULT '{}',
+                row_count INTEGER NOT NULL DEFAULT 0,
+                candidate_count INTEGER NOT NULL DEFAULT 0,
+                imported_count INTEGER NOT NULL DEFAULT 0,
+                payload TEXT NOT NULL DEFAULT '{}',
+                created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS cad_import_rows (
+                id TEXT PRIMARY KEY,
+                job_id TEXT NOT NULL,
+                row_index INTEGER NOT NULL DEFAULT 0,
+                account_num TEXT NOT NULL DEFAULT '',
+                owner_name TEXT NOT NULL DEFAULT '',
+                company_name TEXT NOT NULL DEFAULT '',
+                mailing_address TEXT NOT NULL DEFAULT '',
+                property_address TEXT NOT NULL DEFAULT '',
+                payload TEXT NOT NULL DEFAULT '{}',
+                created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS buyer_builder_candidates (
+                id TEXT PRIMARY KEY,
+                job_id TEXT NOT NULL,
+                buyer_id TEXT NOT NULL,
+                score INTEGER NOT NULL DEFAULT 0,
+                selected BOOLEAN NOT NULL DEFAULT false,
+                imported BOOLEAN NOT NULL DEFAULT false,
+                payload TEXT NOT NULL DEFAULT '{}',
+                created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS buyer_profiles (
+                buyer_id TEXT PRIMARY KEY,
+                normalized_company TEXT NOT NULL DEFAULT '',
+                buyer_type TEXT NOT NULL DEFAULT '',
+                builder_score INTEGER NOT NULL DEFAULT 0,
+                confidence_score INTEGER NOT NULL DEFAULT 0,
+                source TEXT NOT NULL DEFAULT '',
+                payload TEXT NOT NULL DEFAULT '{}',
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS buyer_contact_sources (
+                id TEXT PRIMARY KEY,
+                buyer_id TEXT NOT NULL,
+                source_name TEXT NOT NULL DEFAULT '',
+                source_url TEXT NOT NULL DEFAULT '',
+                value_type TEXT NOT NULL DEFAULT '',
+                value TEXT NOT NULL DEFAULT '',
+                confidence INTEGER NOT NULL DEFAULT 0,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS buyer_enrichment_results (
+                id TEXT PRIMARY KEY,
+                job_id TEXT NOT NULL,
+                buyer_id TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT '',
+                payload TEXT NOT NULL DEFAULT '{}',
+                created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS parcel_gis_matches (
+                id TEXT PRIMARY KEY,
+                job_id TEXT NOT NULL,
+                account_num TEXT NOT NULL DEFAULT '',
+                parcel_id TEXT NOT NULL DEFAULT '',
+                property_address TEXT NOT NULL DEFAULT '',
+                match_confidence INTEGER NOT NULL DEFAULT 0,
+                payload TEXT NOT NULL DEFAULT '{}',
+                created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+            )
+            """
+        )
         return
 
     connection.execute(
@@ -169,6 +298,108 @@ def ensure_buyer_tables(connection) -> None:
         CREATE TABLE IF NOT EXISTS buyers (
             id TEXT PRIMARY KEY,
             payload TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS cad_import_jobs (
+            id TEXT PRIMARY KEY,
+            source TEXT NOT NULL,
+            status TEXT NOT NULL,
+            settings TEXT NOT NULL DEFAULT '{}',
+            columns TEXT NOT NULL DEFAULT '[]',
+            mapped_columns TEXT NOT NULL DEFAULT '{}',
+            row_count INTEGER NOT NULL DEFAULT 0,
+            candidate_count INTEGER NOT NULL DEFAULT 0,
+            imported_count INTEGER NOT NULL DEFAULT 0,
+            payload TEXT NOT NULL DEFAULT '{}',
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS cad_import_rows (
+            id TEXT PRIMARY KEY,
+            job_id TEXT NOT NULL,
+            row_index INTEGER NOT NULL DEFAULT 0,
+            account_num TEXT NOT NULL DEFAULT '',
+            owner_name TEXT NOT NULL DEFAULT '',
+            company_name TEXT NOT NULL DEFAULT '',
+            mailing_address TEXT NOT NULL DEFAULT '',
+            property_address TEXT NOT NULL DEFAULT '',
+            payload TEXT NOT NULL DEFAULT '{}',
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS buyer_builder_candidates (
+            id TEXT PRIMARY KEY,
+            job_id TEXT NOT NULL,
+            buyer_id TEXT NOT NULL,
+            score INTEGER NOT NULL DEFAULT 0,
+            selected INTEGER NOT NULL DEFAULT 0,
+            imported INTEGER NOT NULL DEFAULT 0,
+            payload TEXT NOT NULL DEFAULT '{}',
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS buyer_profiles (
+            buyer_id TEXT PRIMARY KEY,
+            normalized_company TEXT NOT NULL DEFAULT '',
+            buyer_type TEXT NOT NULL DEFAULT '',
+            builder_score INTEGER NOT NULL DEFAULT 0,
+            confidence_score INTEGER NOT NULL DEFAULT 0,
+            source TEXT NOT NULL DEFAULT '',
+            payload TEXT NOT NULL DEFAULT '{}',
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS buyer_contact_sources (
+            id TEXT PRIMARY KEY,
+            buyer_id TEXT NOT NULL,
+            source_name TEXT NOT NULL DEFAULT '',
+            source_url TEXT NOT NULL DEFAULT '',
+            value_type TEXT NOT NULL DEFAULT '',
+            value TEXT NOT NULL DEFAULT '',
+            confidence INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS buyer_enrichment_results (
+            id TEXT PRIMARY KEY,
+            job_id TEXT NOT NULL,
+            buyer_id TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT '',
+            payload TEXT NOT NULL DEFAULT '{}',
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS parcel_gis_matches (
+            id TEXT PRIMARY KEY,
+            job_id TEXT NOT NULL,
+            account_num TEXT NOT NULL DEFAULT '',
+            parcel_id TEXT NOT NULL DEFAULT '',
+            property_address TEXT NOT NULL DEFAULT '',
+            match_confidence INTEGER NOT NULL DEFAULT 0,
+            payload TEXT NOT NULL DEFAULT '{}',
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )
         """
@@ -257,12 +488,14 @@ def save_buyer(buyer: BuyerProfile) -> BuyerProfile:
                 (clean_buyer.id, clean_buyer.model_dump_json()),
             )
             upsert_buyer_side_tables(connection, clean_buyer, "%s")
+            upsert_buyer_profile_tables(connection, clean_buyer, "%s")
         else:
             connection.execute(
                 "INSERT OR REPLACE INTO buyers (id, payload) VALUES (?, ?)",
                 (clean_buyer.id, clean_buyer.model_dump_json()),
             )
             upsert_buyer_side_tables(connection, clean_buyer, "?")
+            upsert_buyer_profile_tables(connection, clean_buyer, "?")
 
     return clean_buyer
 
@@ -278,6 +511,7 @@ def replace_saved_buyers(buyers: list[BuyerProfile]) -> list[BuyerProfile]:
             "buyer_contacts",
             "buyer_criteria",
             "buyer_locations",
+            "buyer_profiles",
             "buyers",
         ]:
             connection.execute(f"DELETE FROM {table}")
@@ -289,12 +523,14 @@ def replace_saved_buyers(buyers: list[BuyerProfile]) -> list[BuyerProfile]:
                     (buyer.id, buyer.model_dump_json()),
                 )
                 upsert_buyer_side_tables(connection, buyer, "%s")
+                upsert_buyer_profile_tables(connection, buyer, "%s")
             else:
                 connection.execute(
                     "INSERT INTO buyers (id, payload) VALUES (?, ?)",
                     (buyer.id, buyer.model_dump_json()),
                 )
                 upsert_buyer_side_tables(connection, buyer, "?")
+                upsert_buyer_profile_tables(connection, buyer, "?")
 
     return clean_buyers
 
@@ -401,13 +637,62 @@ def upsert_buyer_side_tables(connection, buyer: BuyerProfile, placeholder: str) 
     )
 
 
+def upsert_buyer_profile_tables(connection, buyer: BuyerProfile, placeholder: str) -> None:
+    if placeholder == "%s":
+        connection.execute(
+            """
+            INSERT INTO buyer_profiles (
+                buyer_id, normalized_company, buyer_type, builder_score, confidence_score, source, payload, updated_at
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, now())
+            ON CONFLICT (buyer_id) DO UPDATE SET
+                normalized_company = EXCLUDED.normalized_company,
+                buyer_type = EXCLUDED.buyer_type,
+                builder_score = EXCLUDED.builder_score,
+                confidence_score = EXCLUDED.confidence_score,
+                source = EXCLUDED.source,
+                payload = EXCLUDED.payload,
+                updated_at = now()
+            """,
+            (
+                buyer.id,
+                buyer.normalizedCompanyName,
+                buyer.buyerType,
+                buyer.builderScore,
+                buyer.confidenceScore,
+                buyer.source,
+                buyer.model_dump_json(),
+            ),
+        )
+        return
+
+    connection.execute(
+        """
+        INSERT OR REPLACE INTO buyer_profiles (
+            buyer_id, normalized_company, buyer_type, builder_score, confidence_score, source, payload, updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        """,
+        (
+            buyer.id,
+            buyer.normalizedCompanyName,
+            buyer.buyerType,
+            buyer.builderScore,
+            buyer.confidenceScore,
+            buyer.source,
+            buyer.model_dump_json(),
+        ),
+    )
+
+
 def remove_buyer(buyer_id: str) -> None:
     with get_connection() as connection:
         ensure_buyer_tables(connection)
         placeholder = "%s" if lead_store.USE_POSTGRES else "?"
-        for table in ["deal_buyer_matches", "buyer_activity", "buyer_contacts", "buyer_criteria", "buyer_locations"]:
+        for table in ["deal_buyer_matches", "buyer_activity", "buyer_contacts", "buyer_criteria", "buyer_locations", "buyer_profiles"]:
             column = "buyer_id"
             connection.execute(f"DELETE FROM {table} WHERE {column} = {placeholder}", (buyer_id,))
+        connection.execute(f"DELETE FROM buyer_contact_sources WHERE buyer_id = {placeholder}", (buyer_id,))
         connection.execute(f"DELETE FROM buyers WHERE id = {placeholder}", (buyer_id,))
 
 
@@ -522,11 +807,19 @@ ENTITY_KEYWORDS = {
 VACANT_TERMS = {"vacant", "unimproved", "land", "lot", "acreage"}
 
 
-def import_buyers_from_dcad_zip(file_obj, source: str) -> DallasCadImportResult:
+def import_buyers_from_dcad_zip(
+    file_obj,
+    source: str,
+    settings: DallasCadSettings | None = None,
+) -> DallasCadImportResult:
+    settings = normalize_dcad_settings(settings)
     warnings: list[str] = []
     groups: dict[str, dict] = {}
     account_to_group: dict[str, str] = {}
     property_rows_read = 0
+    row_preview: list[dict[str, str]] = []
+    columns: list[str] = []
+    mapped_columns: dict[str, str] = {}
 
     with zipfile.ZipFile(file_obj) as archive:
         account_entry = find_zip_entry(archive, "ACCOUNT_INFO.CSV")
@@ -539,8 +832,18 @@ def import_buyers_from_dcad_zip(file_obj, source: str) -> DallasCadImportResult:
                 warnings=["ACCOUNT_INFO.CSV was not found in the Dallas CAD ZIP."],
             )
 
+        columns = read_zip_csv_headers(archive, account_entry)
+        mapped_columns = infer_dcad_column_map(columns)
+
         for row in iter_zip_csv(archive, account_entry):
+            if property_rows_read >= settings.maxRecords:
+                warnings.append(f"Stopped at the admin max of {settings.maxRecords} account rows.")
+                break
+
             property_rows_read += 1
+            if len(row_preview) < 8:
+                row_preview.append(compact_dcad_preview_row(row))
+
             account = clean_text(row.get("ACCOUNT_NUM"))
             owner_name = first_present(row.get("BIZ_NAME", ""), row.get("OWNER_NAME1", ""), row.get("OWNER_NAME2", ""))
             company_name = first_present(row.get("BIZ_NAME", ""), owner_name)
@@ -648,22 +951,526 @@ def import_buyers_from_dcad_zip(file_obj, source: str) -> DallasCadImportResult:
                     group["vacant_accounts"].add(account)
 
     cad_buyers = [buyer_from_dcad_group(group, source) for group in groups.values()]
-    cad_buyers = [buyer for buyer in cad_buyers if buyer.builderScore >= 20]
+    cad_buyers = [buyer for buyer in cad_buyers if buyer.builderScore >= settings.minBuilderScore]
+    if settings.enrichmentEnabled:
+        cad_buyers = [apply_public_candidate_enrichment(buyer, settings) for buyer in cad_buyers]
     cad_buyers.sort(key=lambda buyer: buyer.builderScore, reverse=True)
 
-    existing_buyers = list_saved_buyers()
-    merged_buyers, new_count, duplicates_skipped = merge_dcad_buyers(existing_buyers, cad_buyers)
-    if new_count:
-        replace_saved_buyers(merged_buyers)
-
     return DallasCadImportResult(
-        buyers=merged_buyers,
-        newBuyers=new_count,
-        duplicatesSkipped=duplicates_skipped,
+        jobId=f"cad-{uuid4().hex[:12]}",
+        fileName=source,
+        status="preview",
+        buyers=cad_buyers,
         candidatesFound=len(cad_buyers),
         propertyRowsRead=property_rows_read,
         highScoreCount=sum(1 for buyer in cad_buyers if buyer.builderScore >= 70),
+        columns=columns,
+        mappedColumns=mapped_columns,
+        rowPreview=row_preview,
+        settings=settings.model_dump(),
         warnings=warnings,
+    )
+
+
+def import_buyers_from_dcad_csv(
+    contents: bytes,
+    source: str,
+    settings: DallasCadSettings | None = None,
+) -> DallasCadImportResult:
+    settings = normalize_dcad_settings(settings)
+    text = decode_csv(contents)
+    lines = [line for line in text.splitlines() if line.strip()]
+    if not lines:
+        return DallasCadImportResult(fileName=source, buyers=[], warnings=["The Dallas CAD CSV was empty."])
+
+    reader = csv.DictReader(lines)
+    columns = list(reader.fieldnames or [])
+    mapped_columns = infer_dcad_column_map(columns)
+    groups: dict[str, dict] = {}
+    account_to_group: dict[str, str] = {}
+    row_preview: list[dict[str, str]] = []
+    property_rows_read = 0
+    warnings: list[str] = []
+
+    for row in reader:
+        if property_rows_read >= settings.maxRecords:
+            warnings.append(f"Stopped at the admin max of {settings.maxRecords} account rows.")
+            break
+
+        property_rows_read += 1
+        if len(row_preview) < 8:
+            row_preview.append(compact_dcad_preview_row(row))
+
+        account = clean_text(row.get("ACCOUNT_NUM") or row.get("account_num") or row.get("Account Number"))
+        owner_name = first_present(
+            row.get("BIZ_NAME", ""),
+            row.get("OWNER_NAME1", ""),
+            row.get("OWNER_NAME2", ""),
+            row.get("Owner Name", ""),
+            row.get("owner", ""),
+        )
+        company_name = first_present(row.get("BIZ_NAME", ""), row.get("Company", ""), row.get("company", ""), owner_name)
+        normalized = normalize_company_name(company_name)
+        mailing_address = build_mailing_address(row)
+
+        if not account:
+            account = f"row-{property_rows_read}"
+        if not normalized:
+            continue
+
+        keyword_match = keyword_matches(company_name)
+        is_business = bool(keyword_match) or looks_like_business_owner(company_name)
+        if not is_business:
+            continue
+
+        group = groups.setdefault(
+            normalized,
+            {
+                "name": owner_name,
+                "company": company_name,
+                "normalized": normalized,
+                "mailing": mailing_address,
+                "accounts": set(),
+                "phones": set(),
+                "property_zips": Counter(),
+                "counties": Counter(),
+                "property_types": Counter(),
+                "builder_keywords": Counter(),
+                "mailing_addresses": Counter(),
+                "land_values": [],
+                "market_values": [],
+                "purchase_dates": [],
+                "vacant_accounts": set(),
+                "improved_accounts": set(),
+                "zoning": Counter(),
+                "sample_addresses": [],
+            },
+        )
+
+        group["accounts"].add(account)
+        account_to_group[account] = normalized
+        if row.get("PHONE_NUM") or row.get("Phone"):
+            group["phones"].update(unique_phones([row.get("PHONE_NUM", ""), row.get("Phone", "")]))
+        if row.get("PROPERTY_ZIPCODE") or row.get("ZIP"):
+            group["property_zips"].update(unique_zips([row.get("PROPERTY_ZIPCODE", ""), row.get("ZIP", "")]))
+        group["counties"].update([clean_text(row.get("COUNTY") or row.get("County") or "Dallas")])
+        property_type = first_present(
+            row.get("DIVISION_CD", ""),
+            row.get("PROPERTY_CLASS_DESC", ""),
+            row.get("STATE_CD_DESC", ""),
+            row.get("Land Use", ""),
+            row.get("Property Type", ""),
+        )
+        if property_type:
+            group["property_types"].update([property_type])
+        for keyword in keyword_match:
+            group["builder_keywords"].update([keyword])
+        if mailing_address:
+            group["mailing_addresses"].update([mailing_address])
+        purchase_date = parse_date(row.get("DEED_TXFR_DATE", "") or row.get("Last Sale Date", ""))
+        if purchase_date:
+            group["purchase_dates"].append(purchase_date)
+        property_address = build_property_address(row)
+        if property_address and len(group["sample_addresses"]) < 5:
+            group["sample_addresses"].append(property_address)
+
+        land_value = money_number(row.get("LAND_VAL", "") or row.get("VAL_AMT", "") or row.get("Land Value", ""))
+        market_value = money_number(row.get("TOT_VAL", "") or row.get("Market Value", ""))
+        improvement_value = money_number(row.get("IMPR_VAL", "") or row.get("Improvement Value", ""))
+        if land_value:
+            group["land_values"].append(land_value)
+        if market_value:
+            group["market_values"].append(market_value)
+        if improvement_value:
+            group["improved_accounts"].add(account)
+        if any(term in normalize_key(property_type) for term in VACANT_TERMS) or (land_value and improvement_value == 0):
+            group["vacant_accounts"].add(account)
+
+    cad_buyers = [buyer_from_dcad_group(group, source) for group in groups.values()]
+    cad_buyers = [buyer for buyer in cad_buyers if buyer.builderScore >= settings.minBuilderScore]
+    if settings.enrichmentEnabled:
+        cad_buyers = [apply_public_candidate_enrichment(buyer, settings) for buyer in cad_buyers]
+    cad_buyers.sort(key=lambda buyer: buyer.builderScore, reverse=True)
+
+    return DallasCadImportResult(
+        jobId=f"cad-{uuid4().hex[:12]}",
+        fileName=source,
+        status="preview",
+        buyers=cad_buyers,
+        candidatesFound=len(cad_buyers),
+        propertyRowsRead=property_rows_read,
+        highScoreCount=sum(1 for buyer in cad_buyers if buyer.builderScore >= 70),
+        columns=columns,
+        mappedColumns=mapped_columns,
+        rowPreview=row_preview,
+        settings=settings.model_dump(),
+        warnings=warnings,
+    )
+
+
+def preview_buyers_from_dcad_upload(contents: bytes, source: str, settings: DallasCadSettings) -> DallasCadImportResult:
+    file_obj = io.BytesIO(contents)
+    if zipfile.is_zipfile(file_obj):
+        file_obj.seek(0)
+        return import_buyers_from_dcad_zip(file_obj, source, settings)
+    return import_buyers_from_dcad_csv(contents, source, settings)
+
+
+def normalize_dcad_settings(settings: DallasCadSettings | None = None) -> DallasCadSettings:
+    settings = settings or DallasCadSettings()
+    return DallasCadSettings(
+        enrichmentEnabled=bool(settings.enrichmentEnabled),
+        maxRecords=min(25000, max(25, int_number(str(settings.maxRecords)) or 500)),
+        minBuilderScore=min(100, max(0, int_number(str(settings.minBuilderScore)))),
+        rateLimitMs=min(10000, max(0, int_number(str(settings.rateLimitMs)))),
+    )
+
+
+def read_zip_csv_headers(archive: zipfile.ZipFile, entry) -> list[str]:
+    with archive.open(entry) as raw_file:
+        text_file = io.TextIOWrapper(raw_file, encoding="utf-8-sig", errors="ignore", newline="")
+        reader = csv.DictReader(text_file)
+        return list(reader.fieldnames or [])
+
+
+def infer_dcad_column_map(columns: list[str]) -> dict[str, str]:
+    wanted = {
+        "owner name": ["OWNER_NAME1", "OWNER_NAME2", "Owner Name", "owner"],
+        "company name": ["BIZ_NAME", "Company", "company"],
+        "mailing address": ["OWNER_ADDRESS_LINE1", "Mailing Address", "mailing"],
+        "property address": ["FULL_STREET_NAME", "Property Address", "Situs Address"],
+        "account number": ["ACCOUNT_NUM", "Account Number"],
+        "parcel id": ["GIS_PARCEL_ID", "APN", "Parcel ID"],
+        "city": ["PROPERTY_CITY", "City"],
+        "zip code": ["PROPERTY_ZIPCODE", "ZIP", "Zip"],
+        "legal description": ["LEGAL1", "Legal Description"],
+        "land value": ["LAND_VAL", "VAL_AMT", "Land Value"],
+        "market value": ["TOT_VAL", "Market Value"],
+        "property type": ["DIVISION_CD", "PROPERTY_CLASS_DESC", "Property Type"],
+        "last sale date": ["DEED_TXFR_DATE", "Last Sale Date"],
+        "phone": ["PHONE_NUM", "Phone"],
+    }
+    lower_lookup = {normalize_key(column): column for column in columns}
+    mapped: dict[str, str] = {}
+    for label, options in wanted.items():
+        for option in options:
+            direct = next((column for column in columns if column == option), "")
+            if direct:
+                mapped[label] = direct
+                break
+            normalized = normalize_key(option)
+            if normalized in lower_lookup:
+                mapped[label] = lower_lookup[normalized]
+                break
+        mapped.setdefault(label, "")
+    return mapped
+
+
+def compact_dcad_preview_row(row: dict[str, str]) -> dict[str, str]:
+    keys = [
+        "ACCOUNT_NUM",
+        "BIZ_NAME",
+        "OWNER_NAME1",
+        "OWNER_ADDRESS_LINE1",
+        "PROPERTY_CITY",
+        "PROPERTY_ZIPCODE",
+        "FULL_STREET_NAME",
+        "LAND_VAL",
+        "TOT_VAL",
+        "PHONE_NUM",
+    ]
+    return {key: clean_text(row.get(key, "")) for key in keys if clean_text(row.get(key, ""))}
+
+
+def apply_public_candidate_enrichment(buyer: BuyerProfile, settings: DallasCadSettings) -> BuyerProfile:
+    source_urls = clean_list(
+        [
+            *buyer.sourceUrls,
+            "https://www.dallascad.org/SearchOwner.aspx",
+            "https://www.dallasact.com/act_webdev/dallas/index.jsp",
+        ]
+    )
+    confidence = buyer.confidenceScore
+    if buyer.phones:
+        confidence = max(confidence, 70)
+    if buyer.website or buyer.contactFormUrl:
+        confidence = max(confidence, 80)
+
+    notes = buyer.notes
+    if "Public enrichment" not in notes:
+        notes = f"{notes}\nPublic enrichment: CAD phone/source links only. No paid skip tracing or private personal lookup.".strip()
+
+    return sanitize_buyer(
+        buyer.model_copy(
+            update={
+                "confidenceScore": confidence,
+                "notes": notes,
+                "sourceUrls": source_urls,
+            }
+        )
+    )
+
+
+def save_cad_import_preview(result: DallasCadImportResult) -> DallasCadImportResult:
+    with get_connection() as connection:
+        ensure_buyer_tables(connection)
+        placeholder = "%s" if lead_store.USE_POSTGRES else "?"
+
+        if lead_store.USE_POSTGRES:
+            connection.execute(
+                """
+                INSERT INTO cad_import_jobs (
+                    id, source, status, settings, columns, mapped_columns, row_count, candidate_count, payload, updated_at
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, now())
+                ON CONFLICT (id) DO UPDATE SET
+                    status = EXCLUDED.status,
+                    settings = EXCLUDED.settings,
+                    columns = EXCLUDED.columns,
+                    mapped_columns = EXCLUDED.mapped_columns,
+                    row_count = EXCLUDED.row_count,
+                    candidate_count = EXCLUDED.candidate_count,
+                    payload = EXCLUDED.payload,
+                    updated_at = now()
+                """,
+                (
+                    result.jobId,
+                    result.fileName,
+                    result.status,
+                    json.dumps(result.settings),
+                    json.dumps(result.columns),
+                    json.dumps(result.mappedColumns),
+                    result.propertyRowsRead,
+                    result.candidatesFound,
+                    result.model_dump_json(),
+                ),
+            )
+        else:
+            connection.execute(
+                """
+                INSERT OR REPLACE INTO cad_import_jobs (
+                    id, source, status, settings, columns, mapped_columns, row_count, candidate_count, payload, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                """,
+                (
+                    result.jobId,
+                    result.fileName,
+                    result.status,
+                    json.dumps(result.settings),
+                    json.dumps(result.columns),
+                    json.dumps(result.mappedColumns),
+                    result.propertyRowsRead,
+                    result.candidatesFound,
+                    result.model_dump_json(),
+                ),
+            )
+
+        connection.execute(f"DELETE FROM cad_import_rows WHERE job_id = {placeholder}", (result.jobId,))
+        connection.execute(f"DELETE FROM buyer_builder_candidates WHERE job_id = {placeholder}", (result.jobId,))
+        connection.execute(f"DELETE FROM buyer_enrichment_results WHERE job_id = {placeholder}", (result.jobId,))
+        connection.execute(f"DELETE FROM parcel_gis_matches WHERE job_id = {placeholder}", (result.jobId,))
+
+        for index, row in enumerate(result.rowPreview):
+            row_id = f"cadrow-{uuid4().hex[:12]}"
+            values = (
+                row_id,
+                result.jobId,
+                index,
+                row.get("ACCOUNT_NUM", ""),
+                first_present(row.get("OWNER_NAME1", ""), row.get("BIZ_NAME", "")),
+                row.get("BIZ_NAME", ""),
+                row.get("OWNER_ADDRESS_LINE1", ""),
+                " ".join(part for part in [row.get("FULL_STREET_NAME", ""), row.get("PROPERTY_CITY", ""), row.get("PROPERTY_ZIPCODE", "")] if part),
+                json.dumps(row),
+            )
+            if lead_store.USE_POSTGRES:
+                connection.execute(
+                    """
+                    INSERT INTO cad_import_rows (
+                        id, job_id, row_index, account_num, owner_name, company_name, mailing_address, property_address, payload
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    """,
+                    values,
+                )
+            else:
+                connection.execute(
+                    """
+                    INSERT INTO cad_import_rows (
+                        id, job_id, row_index, account_num, owner_name, company_name, mailing_address, property_address, payload
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    values,
+                )
+
+        for buyer in result.buyers:
+            save_cad_candidate(connection, result.jobId, buyer, imported=False)
+            save_candidate_contact_sources(connection, result.jobId, buyer)
+
+    return result
+
+
+def save_cad_candidate(connection, job_id: str, buyer: BuyerProfile, imported: bool = False) -> None:
+    candidate_id = f"cand-{job_id}-{buyer.id}"
+    values = (
+        candidate_id,
+        job_id,
+        buyer.id,
+        buyer.builderScore,
+        False,
+        imported,
+        buyer.model_dump_json(),
+    )
+    if lead_store.USE_POSTGRES:
+        connection.execute(
+            """
+            INSERT INTO buyer_builder_candidates (id, job_id, buyer_id, score, selected, imported, payload)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (id) DO UPDATE SET
+                score = EXCLUDED.score,
+                selected = EXCLUDED.selected,
+                imported = EXCLUDED.imported,
+                payload = EXCLUDED.payload
+            """,
+            values,
+        )
+        return
+
+    connection.execute(
+        """
+        INSERT OR REPLACE INTO buyer_builder_candidates (id, job_id, buyer_id, score, selected, imported, payload)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        values,
+    )
+
+
+def save_candidate_contact_sources(connection, job_id: str, buyer: BuyerProfile) -> None:
+    placeholder = "%s" if lead_store.USE_POSTGRES else "?"
+    connection.execute(f"DELETE FROM buyer_contact_sources WHERE buyer_id = {placeholder}", (buyer.id,))
+
+    sources: list[tuple[str, str, str, str, int]] = []
+    for url in buyer.sourceUrls:
+        sources.append(("Public Source", url, "url", url, buyer.confidenceScore))
+    for phone in buyer.phones:
+        sources.append(("Dallas CAD", "https://www.dallascad.org/SearchOwner.aspx", "phone", phone, buyer.confidenceScore))
+
+    for source_name, source_url, value_type, value, confidence in sources[:12]:
+        source_id = f"source-{uuid4().hex[:12]}"
+        values = (source_id, buyer.id, source_name, source_url, value_type, value, confidence)
+        if lead_store.USE_POSTGRES:
+            connection.execute(
+                """
+                INSERT INTO buyer_contact_sources (
+                    id, buyer_id, source_name, source_url, value_type, value, confidence
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                """,
+                values,
+            )
+        else:
+            connection.execute(
+                """
+                INSERT INTO buyer_contact_sources (
+                    id, buyer_id, source_name, source_url, value_type, value, confidence
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                values,
+            )
+
+    enrichment_id = f"enrich-{uuid4().hex[:12]}"
+    payload = json.dumps({"sourceCount": len(sources), "confidenceScore": buyer.confidenceScore})
+    values = (enrichment_id, job_id, buyer.id, "public-source-links", payload)
+    if lead_store.USE_POSTGRES:
+        connection.execute(
+            """
+            INSERT INTO buyer_enrichment_results (id, job_id, buyer_id, status, payload)
+            VALUES (%s, %s, %s, %s, %s)
+            """,
+            values,
+        )
+        return
+
+    connection.execute(
+        """
+        INSERT INTO buyer_enrichment_results (id, job_id, buyer_id, status, payload)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        values,
+    )
+
+
+def list_cad_job_candidates(job_id: str) -> list[BuyerProfile]:
+    with get_connection() as connection:
+        ensure_buyer_tables(connection)
+        placeholder = "%s" if lead_store.USE_POSTGRES else "?"
+        rows = connection.execute(
+            f"SELECT payload FROM buyer_builder_candidates WHERE job_id = {placeholder} ORDER BY score DESC",
+            (job_id,),
+        ).fetchall()
+
+    return [BuyerProfile.model_validate(lead_store.parse_saved_payload(row[0])) for row in rows]
+
+
+def import_selected_cad_buyers(job_id: str, selected_buyer_ids: list[str]) -> DallasCadImportResult:
+    candidates = list_cad_job_candidates(job_id)
+    if not candidates:
+        raise HTTPException(status_code=404, detail="CAD import job was not found or has no candidates.")
+
+    selected_ids = set(clean_list(selected_buyer_ids))
+    selected = [buyer for buyer in candidates if not selected_ids or buyer.id in selected_ids]
+    existing_buyers = list_saved_buyers()
+    existing_keys = set()
+    for buyer in existing_buyers:
+        existing_keys.update(duplicate_keys_for_buyer(buyer))
+    imported_buyer_ids: set[str] = set()
+    for buyer in selected:
+        buyer_keys = duplicate_keys_for_buyer(buyer)
+        if not buyer_keys & existing_keys:
+            imported_buyer_ids.add(buyer.id)
+            existing_keys.update(buyer_keys)
+
+    merged_buyers, new_count, duplicates_skipped = merge_dcad_buyers(existing_buyers, selected)
+    if new_count:
+        replace_saved_buyers(merged_buyers)
+
+    with get_connection() as connection:
+        ensure_buyer_tables(connection)
+        placeholder = "%s" if lead_store.USE_POSTGRES else "?"
+        for buyer in selected:
+            imported = buyer.id in imported_buyer_ids
+            if lead_store.USE_POSTGRES:
+                connection.execute(
+                    f"UPDATE buyer_builder_candidates SET selected = true, imported = %s WHERE job_id = {placeholder} AND buyer_id = %s",
+                    (imported, job_id, buyer.id),
+                )
+            else:
+                connection.execute(
+                    f"UPDATE buyer_builder_candidates SET selected = 1, imported = ? WHERE job_id = {placeholder} AND buyer_id = ?",
+                    (1 if imported else 0, job_id, buyer.id),
+                )
+        if lead_store.USE_POSTGRES:
+            connection.execute(
+                "UPDATE cad_import_jobs SET status = %s, imported_count = %s, updated_at = now() WHERE id = %s",
+                ("imported", new_count, job_id),
+            )
+        else:
+            connection.execute(
+                "UPDATE cad_import_jobs SET status = ?, imported_count = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                ("imported", new_count, job_id),
+            )
+
+    return DallasCadImportResult(
+        jobId=job_id,
+        status="imported",
+        buyers=merged_buyers,
+        newBuyers=new_count,
+        duplicatesSkipped=duplicates_skipped,
+        candidatesFound=len(candidates),
+        highScoreCount=sum(1 for buyer in candidates if buyer.builderScore >= 70),
     )
 
 
@@ -1122,13 +1929,107 @@ async def import_buyer_csv(current_user: CurrentUser, file: UploadFile = File(..
     return BuyerImportResult(buyers=merged_buyers, warnings=result.warnings)
 
 
+@router.post("/import-dcad/preview", response_model=DallasCadImportResult)
+async def preview_dallas_cad(
+    current_user: CurrentUser,
+    file: UploadFile = File(...),
+    enrichmentEnabled: bool = Form(True),
+    maxRecords: int = Form(500),
+    minBuilderScore: int = Form(20),
+    rateLimitMs: int = Form(750),
+):
+    settings = normalize_dcad_settings(
+        DallasCadSettings(
+            enrichmentEnabled=enrichmentEnabled,
+            maxRecords=maxRecords,
+            minBuilderScore=minBuilderScore,
+            rateLimitMs=rateLimitMs,
+        )
+    )
+    contents = await file.read()
+    try:
+        result = preview_buyers_from_dcad_upload(contents, file.filename or "Dallas CAD Import", settings)
+    except zipfile.BadZipFile as exc:
+        raise HTTPException(status_code=400, detail="Upload a valid Dallas CAD ZIP or CSV file.") from exc
+
+    return save_cad_import_preview(result)
+
+
+@router.post("/import-dcad/enrich", response_model=DallasCadImportResult)
+def refresh_dallas_cad_enrichment(request: DallasCadEnrichmentRequest, current_user: CurrentUser):
+    candidates = list_cad_job_candidates(request.jobId)
+    if not candidates:
+        raise HTTPException(status_code=404, detail="CAD import job was not found or has no candidates.")
+
+    settings = normalize_dcad_settings(
+        DallasCadSettings(
+            enrichmentEnabled=request.enrichmentEnabled,
+            minBuilderScore=request.minBuilderScore,
+            rateLimitMs=request.rateLimitMs,
+        )
+    )
+    selected_ids = set(clean_list(request.selectedBuyerIds))
+    updated = [
+        apply_public_candidate_enrichment(buyer, settings) if not selected_ids or buyer.id in selected_ids else buyer
+        for buyer in candidates
+    ]
+    with get_connection() as connection:
+        ensure_buyer_tables(connection)
+        for buyer in updated:
+            save_cad_candidate(connection, request.jobId, buyer, imported=False)
+            save_candidate_contact_sources(connection, request.jobId, buyer)
+        if lead_store.USE_POSTGRES:
+            connection.execute(
+                "UPDATE cad_import_jobs SET status = %s, updated_at = now() WHERE id = %s",
+                ("enriched", request.jobId),
+            )
+        else:
+            connection.execute(
+                "UPDATE cad_import_jobs SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                ("enriched", request.jobId),
+            )
+
+    result = DallasCadImportResult(
+        jobId=request.jobId,
+        status="enriched",
+        buyers=updated,
+        candidatesFound=len(updated),
+        highScoreCount=sum(1 for buyer in updated if buyer.builderScore >= 70),
+        settings=settings.model_dump(),
+    )
+    return result
+
+
+@router.post("/import-dcad/import", response_model=DallasCadImportResult)
+def import_selected_dallas_cad(request: DallasCadApplyRequest, current_user: CurrentUser):
+    return import_selected_cad_buyers(request.jobId, request.selectedBuyerIds)
+
+
 @router.post("/import-dcad", response_model=DallasCadImportResult)
 async def import_dallas_cad(current_user: CurrentUser, file: UploadFile = File(...)):
-    await file.seek(0)
+    contents = await file.read()
     try:
-        return import_buyers_from_dcad_zip(file.file, file.filename or "Dallas CAD ZIP")
+        preview = preview_buyers_from_dcad_upload(
+            contents,
+            file.filename or "Dallas CAD Import",
+            normalize_dcad_settings(DallasCadSettings()),
+        )
     except zipfile.BadZipFile as exc:
-        raise HTTPException(status_code=400, detail="Upload a valid Dallas CAD ZIP file.") from exc
+        raise HTTPException(status_code=400, detail="Upload a valid Dallas CAD ZIP or CSV file.") from exc
+
+    existing_buyers = list_saved_buyers()
+    merged_buyers, new_count, duplicates_skipped = merge_dcad_buyers(existing_buyers, preview.buyers)
+    if new_count:
+        replace_saved_buyers(merged_buyers)
+
+    return preview.model_copy(
+        update={
+            "status": "imported",
+            "buyers": merged_buyers,
+            "newBuyers": new_count,
+            "duplicatesSkipped": duplicates_skipped,
+        }
+    )
 
 
 @router.post("/match", response_model=list[BuyerMatch])
