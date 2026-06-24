@@ -2271,6 +2271,9 @@ function LeadDetail({
   const [parcel, setParcel] = React.useState(() => createEmptyParcelRecord(lead));
   const [parcelMessage, setParcelMessage] = React.useState("");
   const [isParcelSaving, setIsParcelSaving] = React.useState(false);
+  const [buyerMatches, setBuyerMatches] = React.useState([]);
+  const [buyerMatchMessage, setBuyerMatchMessage] = React.useState("");
+  const [isFindingBuyers, setIsFindingBuyers] = React.useState(false);
   const ownerPlaceholder =
     rawOwnerName && rawOwnerName !== "Unknown Owner"
       ? "Replace parsed text with owner name"
@@ -2303,6 +2306,12 @@ function LeadDetail({
       cancelled = true;
     };
   }, [authToken, lead.id]);
+
+  React.useEffect(() => {
+    setBuyerMatches([]);
+    setBuyerMatchMessage("");
+    setIsFindingBuyers(false);
+  }, [lead.id]);
 
   function saveMyMapsUrl(value) {
     setMyMapsUrl(value);
@@ -2340,6 +2349,21 @@ function LeadDetail({
       setParcelMessage("Could not save Parcel Intelligence yet.");
     } finally {
       setIsParcelSaving(false);
+    }
+  }
+
+  async function findBuyersForProperty() {
+    setIsFindingBuyers(true);
+    setBuyerMatchMessage("Finding best buyers for this property...");
+
+    try {
+      const result = await matchDealToBuyers(createDealDraft(lead), authToken);
+      setBuyerMatches(result);
+      setBuyerMatchMessage(`${result.length} buyer match${result.length === 1 ? "" : "es"} found.`);
+    } catch {
+      setBuyerMatchMessage("Could not match buyers yet. Confirm the backend is online.");
+    } finally {
+      setIsFindingBuyers(false);
     }
   }
 
@@ -2621,6 +2645,35 @@ function LeadDetail({
         </section>
       </details>
 
+      <section className="property-buyer-panel">
+        <div className="panel-header compact-header">
+          <div>
+            <p className="eyebrow">Disposition</p>
+            <h2>Find Buyers</h2>
+          </div>
+          <button className="primary-button" disabled={isFindingBuyers} onClick={findBuyersForProperty} type="button">
+            {isFindingBuyers ? "Matching..." : "Find Best Buyers"}
+          </button>
+        </div>
+
+        <p className="buyer-match-help">
+          Matches use county, ZIP, property type, price, buyer activity, and builder score.
+        </p>
+        {buyerMatchMessage ? <p className="parcel-message">{buyerMatchMessage}</p> : null}
+
+        {buyerMatches.length > 0 ? (
+          <div className="property-buyer-list">
+            {buyerMatches.slice(0, 8).map((match) => (
+              <PropertyBuyerMatch match={match} key={match.buyer.id} />
+            ))}
+          </div>
+        ) : (
+          <div className="mini-empty">
+            <p>No buyer match run yet.</p>
+          </div>
+        )}
+      </section>
+
       {showMap ? (
         <section className="map-panel" aria-label="Embedded map">
           <iframe
@@ -2699,6 +2752,35 @@ function LeadDetail({
         <button className="secondary-button" onClick={onEdit}>Edit Full Lead</button>
       </div>
     </section>
+  );
+}
+
+function PropertyBuyerMatch({ match }) {
+  const buyer = match?.buyer || {};
+  const phones = getBuyerPhones(buyer);
+  const primaryPhone = phones[0] || "";
+  const phoneHref = primaryPhone ? `tel:${primaryPhone.replace(/[^\d+]/g, "")}` : "";
+  const buyerName = buyer.company || buyer.name || "Buyer name needed";
+
+  return (
+    <article className="property-buyer-row">
+      <BuyerScore score={match.score || 0} />
+      <div className="property-buyer-main">
+        <h3>{buyerName}</h3>
+        <p>{buyer.buyerType || "buyer"} / {buyer.propertyCount || 0} properties / {buyer.relationshipTier || "C"} tier</p>
+        <small>{formatBuyerPhoneList(buyer) || buyer.email || "Phone not found yet"}</small>
+        <div className="reason-list">
+          {(match.reasons || []).slice(0, 4).map((reason) => <span key={reason}>{reason}</span>)}
+        </div>
+      </div>
+      <div className="property-buyer-actions">
+        {primaryPhone ? <a href={phoneHref}>Call</a> : <a href={buildBuyerContactSearchUrl(buyer)} rel="noreferrer" target="_blank">Research Phone</a>}
+        {primaryPhone ? <a href={buildGoogleVoiceUrl(primaryPhone)} rel="noreferrer" target="_blank">Voice</a> : null}
+        {buyer.email ? <a href={`mailto:${buyer.email}`}>Email</a> : null}
+        {buyer.website ? <a href={buyer.website} rel="noreferrer" target="_blank">Website</a> : null}
+        <a href={buildBuyerContactSearchUrl(buyer)} rel="noreferrer" target="_blank">Public Search</a>
+      </div>
+    </article>
   );
 }
 
@@ -3999,6 +4081,13 @@ function buildGoogleVoiceUrl(phone = "") {
   const digits = normalizePhone(phone);
   const dialNumber = digits.length === 10 ? `1${digits}` : digits;
   return dialNumber ? `https://voice.google.com/u/0/calls?a=nc,%2B${dialNumber}` : "https://voice.google.com/u/0/calls";
+}
+
+function buildBuyerContactSearchUrl(buyer = {}) {
+  const company = buyer.company || buyer.name || "";
+  const county = (buyer.counties || ["Dallas"])[0] || "Dallas";
+  const query = [company, county, "phone contact website"].filter(Boolean).join(" ");
+  return `https://www.google.com/search?q=${encodeURIComponent(query)}`;
 }
 
 function calculateOffer(lead) {
