@@ -785,7 +785,7 @@ export function App() {
           <Stat label="PDF Imports" value={imports.length} />
         </section>
 
-        <section className="content-grid">
+        <section className={`content-grid ${activeView === "Leads" || isFormOpen ? "" : "single-column"}`}>
           {activeView === "Leads" ? (
           <div className="panel">
             <div className="panel-header">
@@ -928,6 +928,7 @@ export function App() {
             <TrainingView />
           ) : null}
 
+          {activeView === "Leads" || isFormOpen ? (
           <aside className="panel side-panel">
             {isFormOpen ? (
               <LeadForm
@@ -957,6 +958,7 @@ export function App() {
               </>
             )}
           </aside>
+          ) : null}
         </section>
 
         {selectedLead ? (
@@ -1612,7 +1614,13 @@ function BuyerNetworkView({
           </button>
         </div>
 
-        <div className="cad-stepper">
+        <details className="cad-advanced-tools" open={Boolean(cadWizard.preview)}>
+          <summary>
+            <span>Import setup</span>
+            <small>Preview columns, settings, and results</small>
+          </summary>
+
+          <div className="cad-stepper">
           {cadWizardSteps.map((step, index) => (
             <button
               className={index <= cadWizard.step ? "active" : ""}
@@ -1743,6 +1751,7 @@ function BuyerNetworkView({
             </div>
           </section>
         ) : null}
+        </details>
       </section>
 
       <div className="buyer-stats">
@@ -1752,7 +1761,12 @@ function BuyerNetworkView({
         <Stat label="ZIP Coverage" value={coveredZips} />
       </div>
 
-      <section className="buyer-workbench">
+      <details className="buyer-tools-drawer">
+        <summary>
+          <span>Buyer tools</span>
+          <small>Add buyers or run a manual deal match when needed</small>
+        </summary>
+        <section className="buyer-workbench">
         <form className="buyer-card buyer-form" onSubmit={submitBuyer}>
           <div className="section-heading">
             <p className="eyebrow">Add Buyer</p>
@@ -1858,7 +1872,8 @@ function BuyerNetworkView({
             )}
           </div>
         </section>
-      </section>
+              </section>
+      </details>
 
       <section className="buyer-list-section">
         <div className="panel-header compact-header">
