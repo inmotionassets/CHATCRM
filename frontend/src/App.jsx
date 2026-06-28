@@ -1360,6 +1360,7 @@ function BuyerNetworkView({
   const [matches, setMatches] = React.useState([]);
   const [isMatching, setIsMatching] = React.useState(false);
   const [isSavingBuyer, setIsSavingBuyer] = React.useState(false);
+  const [isFindingBuyerPhones, setIsFindingBuyerPhones] = React.useState(false);
   const [cadWizard, setCadWizard] = React.useState(() => createCadWizardState());
 
   const hotBuyers = buyers.filter((buyer) => normalizeText(buyer.activityStatus) === "hot").length;
@@ -1436,6 +1437,27 @@ function BuyerNetworkView({
     }
   }
 
+  async function findMissingBuyerPhones() {
+    if (buyers.length === 0) {
+      setBuyerMessage("Add buyers first, then run public phone search.");
+      return;
+    }
+
+    setIsFindingBuyerPhones(true);
+    setBuyerMessage("Searching public business pages for missing buyer phone numbers...");
+    try {
+      const result = await enrichPublicBuyerContacts(authToken);
+      const nextBuyers = sanitizeBuyers(result.buyers);
+      onBuyerListUpdated(nextBuyers);
+      setBuyerMessage(
+        `Public phone search checked ${result.checkedCount || 0} buyer${result.checkedCount === 1 ? "" : "s"} and found ${result.phonesFound || 0} phone number${result.phonesFound === 1 ? "" : "s"}.`
+      );
+    } catch {
+      setBuyerMessage("Could not finish public phone search. Try again with fewer buyers or refresh later.");
+    } finally {
+      setIsFindingBuyerPhones(false);
+    }
+  }
   function updateCadControl(field, value) {
     setCadWizard((current) => ({
       ...current,
@@ -1592,6 +1614,9 @@ function BuyerNetworkView({
           <button className="secondary-button" onClick={() => cadFileInputRef.current?.click()}>
             <Upload size={18} />
             Dallas CAD Import
+          </button>
+          <button className="secondary-button" disabled={isFindingBuyerPhones || buyers.length === 0} onClick={findMissingBuyerPhones}>
+            {isFindingBuyerPhones ? "Finding..." : "Find Buyer Phones"}
           </button>
           <button className="secondary-button" onClick={() => exportBuyersCsv(buyers)}>
             Export Buyers
@@ -3377,6 +3402,29 @@ async function refreshDallasCadEnrichment(jobId, selectedBuyerIds, controls, tok
   };
 }
 
+async function enrichPublicBuyerContacts(token) {
+  const response = await fetch(`${apiBaseUrl}/buyers/enrich-public`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...authHeaders(token)
+    },
+    body: JSON.stringify({ maxBuyers: 40, minBuilderScore: 0, rateLimitMs: 750 })
+  });
+
+  if (!response.ok) {
+    throw new Error("Buyer public enrichment failed");
+  }
+
+  const result = await response.json();
+  return {
+    ...result,
+    buyers: sanitizeBuyers(result.buyers),
+    checkedCount: Number(result.checkedCount) || 0,
+    updatedCount: Number(result.updatedCount) || 0,
+    phonesFound: Number(result.phonesFound) || 0
+  };
+}
 async function importDallasCadSelection(jobId, selectedBuyerIds, token) {
   const response = await fetch(`${apiBaseUrl}/buyers/import-dcad/import`, {
     method: "POST",

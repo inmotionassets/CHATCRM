@@ -2,7 +2,12 @@ import csv
 import io
 import json
 import re
+import time
 import zipfile
+from html import unescape
+from urllib.error import HTTPError, URLError
+from urllib.parse import parse_qs, quote_plus, unquote, urljoin, urlparse
+from urllib.request import Request, urlopen
 from collections import Counter
 from datetime import datetime, timedelta
 from statistics import mean
@@ -90,6 +95,20 @@ class DallasCadEnrichmentRequest(BaseModel):
     enrichmentEnabled: bool = True
     minBuilderScore: int = 50
     rateLimitMs: int = 750
+
+
+class BuyerPublicEnrichmentRequest(BaseModel):
+    selectedBuyerIds: list[str] = Field(default_factory=list)
+    maxBuyers: int = 40
+    minBuilderScore: int = 0
+    rateLimitMs: int = 750
+
+
+class BuyerPublicEnrichmentResult(BaseModel):
+    buyers: list[BuyerProfile]
+    checkedCount: int = 0
+    updatedCount: int = 0
+    phonesFound: int = 0
 
 
 class DallasCadSettings(BaseModel):
@@ -953,7 +972,7 @@ def import_buyers_from_dcad_zip(
     cad_buyers = [buyer_from_dcad_group(group, source) for group in groups.values()]
     cad_buyers = [buyer for buyer in cad_buyers if buyer.builderScore >= settings.minBuilderScore]
     if settings.enrichmentEnabled:
-        cad_buyers = [apply_public_candidate_enrichment(buyer, settings) for buyer in cad_buyers]
+        cad_buyers = apply_public_enrichment_to_candidates(cad_buyers, settings, max_public_lookups=20)
     cad_buyers.sort(key=lambda buyer: buyer.builderScore, reverse=True)
 
     return DallasCadImportResult(
@@ -1089,7 +1108,7 @@ def import_buyers_from_dcad_csv(
     cad_buyers = [buyer_from_dcad_group(group, source) for group in groups.values()]
     cad_buyers = [buyer for buyer in cad_buyers if buyer.builderScore >= settings.minBuilderScore]
     if settings.enrichmentEnabled:
-        cad_buyers = [apply_public_candidate_enrichment(buyer, settings) for buyer in cad_buyers]
+        cad_buyers = apply_public_enrichment_to_candidates(cad_buyers, settings, max_public_lookups=20)
     cad_buyers.sort(key=lambda buyer: buyer.builderScore, reverse=True)
 
     return DallasCadImportResult(
@@ -1182,7 +1201,48 @@ def compact_dcad_preview_row(row: dict[str, str]) -> dict[str, str]:
     return {key: clean_text(row.get(key, "")) for key in keys if clean_text(row.get(key, ""))}
 
 
-def apply_public_candidate_enrichment(buyer: BuyerProfile, settings: DallasCadSettings) -> BuyerProfile:
+PUBLIC_LOOKUP_TIMEOUT_SECONDS = 7
+PUBLIC_LOOKUP_MAX_BYTES = 350_000
+PUBLIC_LOOKUP_PREVIEW_LIMIT = 20
+PUBLIC_LOOKUP_REFRESH_LIMIT = 75
+PUBLIC_LOOKUP_USER_AGENT = "Mozilla/5.0 (compatible; ChatCRM Public Business Contact Enrichment)"
+SEARCH_RESULT_BLOCKLIST = {
+    "bing.com",
+    "dallasact.com",
+    "dallascad.org",
+    "duckduckgo.com",
+    "google.com",
+    "search.yahoo.com",
+    "yahoo.com",
+}
+PRIVATE_HOST_TERMS = {"localhost", "127.0.0.1", "0.0.0.0"}
+CONTACT_PATH_WORDS = ("contact", "about", "team", "locations")
+
+
+def apply_public_enrichment_to_candidates(
+    buyers: list[BuyerProfile],
+    settings: DallasCadSettings,
+    selected_ids: set[str] | None = None,
+    max_public_lookups: int = PUBLIC_LOOKUP_PREVIEW_LIMIT,
+) -> list[BuyerProfile]:
+    enriched: list[BuyerProfile] = []
+    lookup_count = 0
+
+    for buyer in buyers:
+        selected = selected_ids is None or buyer.id in selected_ids
+        allow_web_lookup = selected and lookup_count < max_public_lookups and not buyer.phones and is_public_business_candidate(buyer)
+        if allow_web_lookup:
+            lookup_count += 1
+        enriched.append(apply_public_candidate_enrichment(buyer, settings, allow_web_lookup=allow_web_lookup))
+
+    return enriched
+
+
+def apply_public_candidate_enrichment(
+    buyer: BuyerProfile,
+    settings: DallasCadSettings,
+    allow_web_lookup: bool = True,
+) -> BuyerProfile:
     source_urls = clean_list(
         [
             *buyer.sourceUrls,
@@ -1191,24 +1251,259 @@ def apply_public_candidate_enrichment(buyer: BuyerProfile, settings: DallasCadSe
         ]
     )
     confidence = buyer.confidenceScore
-    if buyer.phones:
-        confidence = max(confidence, 70)
-    if buyer.website or buyer.contactFormUrl:
-        confidence = max(confidence, 80)
-
+    phones = list(buyer.phones)
+    email = buyer.email
+    website = buyer.website
+    contact_form_url = buyer.contactFormUrl
+    linkedin_url = buyer.linkedinUrl
+    facebook_url = buyer.facebookUrl
     notes = buyer.notes
-    if "Public enrichment" not in notes:
-        notes = f"{notes}\nPublic enrichment: CAD phone/source links only. No paid skip tracing or private personal lookup.".strip()
+    enrichment_note = "Public enrichment: checked CAD/source links only. No paid skip tracing or private personal lookup."
+
+    if allow_web_lookup and settings.enrichmentEnabled:
+        result = lookup_public_business_contact(buyer)
+        phones = unique_phones([*phones, *result["phones"]])
+        email = email or first_present(*result["emails"])
+        website = website or result["website"]
+        contact_form_url = contact_form_url or result["contactFormUrl"]
+        linkedin_url = linkedin_url or result["linkedinUrl"]
+        facebook_url = facebook_url or result["facebookUrl"]
+        source_urls = clean_list([*source_urls, *result["sourceUrls"]])
+        if result["phones"]:
+            enrichment_note = f"Public enrichment: found {len(result['phones'])} public business phone(s) from {', '.join(result['domains'][:3])}."
+        elif result["sourceUrls"]:
+            enrichment_note = "Public enrichment: checked public business pages, but no phone was found."
+
+        if settings.rateLimitMs:
+            time.sleep(min(settings.rateLimitMs, 2000) / 1000)
+
+    if phones:
+        confidence = max(confidence, 82 if allow_web_lookup else 70)
+    if website or contact_form_url or email:
+        confidence = max(confidence, 76)
+
+    if "Public enrichment:" not in notes:
+        notes = f"{notes}\n{enrichment_note}".strip()
+    elif enrichment_note not in notes and "found" in enrichment_note:
+        notes = f"{notes}\n{enrichment_note}".strip()
 
     return sanitize_buyer(
         buyer.model_copy(
             update={
+                "phone": phones[0] if phones else buyer.phone,
+                "phones": phones,
+                "email": email,
+                "website": website,
+                "contactFormUrl": contact_form_url,
+                "linkedinUrl": linkedin_url,
+                "facebookUrl": facebook_url,
+                "socialLinks": clean_list([*buyer.socialLinks, linkedin_url, facebook_url]),
                 "confidenceScore": confidence,
                 "notes": notes,
                 "sourceUrls": source_urls,
             }
         )
     )
+
+
+def lookup_public_business_contact(buyer: BuyerProfile) -> dict:
+    company = clean_text(buyer.company or buyer.name)
+    if not company:
+        return empty_public_contact_result()
+
+    query_parts = [company, "Dallas TX", "phone", "contact"]
+    search_url = f"https://duckduckgo.com/html/?q={quote_plus(' '.join(query_parts))}"
+    urls: list[str] = []
+    source_urls = [search_url]
+
+    if buyer.website and is_safe_public_url(buyer.website):
+        urls.append(buyer.website)
+
+    search_html = fetch_public_page(search_url)
+    urls.extend(extract_search_result_urls(search_html))
+    urls = [url for url in clean_list(urls) if is_safe_public_url(url)]
+
+    phones: list[str] = []
+    emails: list[str] = []
+    domains: list[str] = []
+    website = buyer.website
+    contact_form_url = buyer.contactFormUrl
+    linkedin_url = buyer.linkedinUrl
+    facebook_url = buyer.facebookUrl
+
+    for url in urls[:5]:
+        page_html = fetch_public_page(url)
+        if not page_html:
+            continue
+
+        page_text = html_to_searchable_text(page_html)
+        if not is_relevant_business_page(buyer, page_text, url):
+            continue
+
+        source_urls.append(url)
+        domain = website_domain(url)
+        if domain:
+            domains.append(domain)
+        if not website and is_likely_company_website(url):
+            website = public_site_root(url)
+        if "linkedin.com" in domain and not linkedin_url:
+            linkedin_url = url
+        if "facebook.com" in domain and not facebook_url:
+            facebook_url = url
+
+        found_phones = unique_phones([page_text])
+        if found_phones:
+            phones = unique_phones([*phones, *found_phones])
+        emails = clean_list([*emails, *extract_public_emails(page_text)])
+
+        for contact_url in extract_contact_links(url, page_html)[:2]:
+            if contact_form_url:
+                break
+            contact_html = fetch_public_page(contact_url)
+            contact_text = html_to_searchable_text(contact_html)
+            if not contact_text or not is_relevant_business_page(buyer, contact_text, contact_url):
+                continue
+            source_urls.append(contact_url)
+            contact_form_url = contact_url
+            phones = unique_phones([*phones, *unique_phones([contact_text])])
+            emails = clean_list([*emails, *extract_public_emails(contact_text)])
+
+        if phones and (website or contact_form_url):
+            break
+
+    return {
+        "phones": phones[:4],
+        "emails": emails[:2],
+        "website": website,
+        "contactFormUrl": contact_form_url,
+        "linkedinUrl": linkedin_url,
+        "facebookUrl": facebook_url,
+        "sourceUrls": source_urls[:10],
+        "domains": clean_list(domains),
+    }
+
+
+def empty_public_contact_result() -> dict:
+    return {
+        "phones": [],
+        "emails": [],
+        "website": "",
+        "contactFormUrl": "",
+        "linkedinUrl": "",
+        "facebookUrl": "",
+        "sourceUrls": [],
+        "domains": [],
+    }
+
+
+def fetch_public_page(url: str) -> str:
+    if not is_safe_public_url(url):
+        return ""
+    try:
+        request = Request(url, headers={"User-Agent": PUBLIC_LOOKUP_USER_AGENT, "Accept": "text/html,text/plain;q=0.9,*/*;q=0.1"})
+        with urlopen(request, timeout=PUBLIC_LOOKUP_TIMEOUT_SECONDS) as response:
+            content_type = response.headers.get("Content-Type", "")
+            if "text/html" not in content_type and "text/plain" not in content_type:
+                return ""
+            charset = response.headers.get_content_charset() or "utf-8"
+            return response.read(PUBLIC_LOOKUP_MAX_BYTES).decode(charset, errors="ignore")
+    except (HTTPError, URLError, TimeoutError, ValueError):
+        return ""
+
+
+def extract_search_result_urls(page_html: str) -> list[str]:
+    urls: list[str] = []
+    for href in re.findall(r"href=[\"']([^\"']+)[\"']", page_html or "", flags=re.IGNORECASE):
+        href = unescape(href)
+        if "uddg=" in href:
+            parsed = urlparse(urljoin("https://duckduckgo.com", href))
+            target = first_present(*parse_qs(parsed.query).get("uddg", []))
+            href = unquote(target)
+        elif href.startswith("//"):
+            href = f"https:{href}"
+        elif href.startswith("/"):
+            continue
+
+        if not href.startswith(("http://", "https://")):
+            continue
+        domain = website_domain(href)
+        if any(domain == blocked or domain.endswith(f".{blocked}") for blocked in SEARCH_RESULT_BLOCKLIST):
+            continue
+        urls.append(href)
+
+    return clean_list(urls)[:8]
+
+
+def html_to_searchable_text(page_html: str) -> str:
+    text = re.sub(r"(?is)<(script|style|noscript).*?</\1>", " ", page_html or "")
+    text = re.sub(r"(?is)<br\s*/?>", " ", text)
+    text = re.sub(r"(?is)<[^>]+>", " ", text)
+    text = unescape(text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def extract_contact_links(base_url: str, page_html: str) -> list[str]:
+    links: list[str] = []
+    for href in re.findall(r"href=[\"']([^\"']+)[\"']", page_html or "", flags=re.IGNORECASE):
+        href = unescape(href).strip()
+        if not href or href.startswith(("mailto:", "tel:", "javascript:")):
+            continue
+        absolute = urljoin(base_url, href)
+        path = urlparse(absolute).path.lower()
+        if any(word in path for word in CONTACT_PATH_WORDS) and is_safe_public_url(absolute):
+            links.append(absolute)
+    return clean_list(links)
+
+
+def extract_public_emails(text: str) -> list[str]:
+    emails = re.findall(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", text or "", flags=re.IGNORECASE)
+    return clean_list([email for email in emails if not re.search(r"\.(png|jpg|jpeg|gif|webp|svg)$", email, re.IGNORECASE)])
+
+
+def is_public_business_candidate(buyer: BuyerProfile) -> bool:
+    text = normalize_key(" ".join([buyer.company, buyer.name, buyer.normalizedCompanyName, buyer.builderType, buyer.buyerType]))
+    return looks_like_business_owner(text) or any(keyword in text for keyword in BUILDER_KEYWORDS)
+
+
+def is_relevant_business_page(buyer: BuyerProfile, page_text: str, url: str) -> bool:
+    company = buyer.company or buyer.name or buyer.normalizedCompanyName
+    tokens = significant_company_tokens(company)
+    if not tokens:
+        return False
+    normalized_page = normalize_key(page_text)[:12000]
+    domain = normalize_key(website_domain(url))
+    hits = sum(1 for token in tokens if token in normalized_page or token in domain)
+    return hits >= min(2, len(tokens)) or normalize_company_name(company)[:12] in normalized_page
+
+
+def significant_company_tokens(value: str) -> list[str]:
+    blocked = BUILDER_KEYWORDS | ENTITY_KEYWORDS | {"the", "and", "of", "tx", "texas", "dallas"}
+    tokens = re.findall(r"[a-z0-9]+", clean_text(value).lower())
+    return [token for token in tokens if len(token) >= 3 and token not in blocked][:5]
+
+
+def is_safe_public_url(url: str) -> bool:
+    parsed = urlparse(clean_text(url))
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        return False
+    host = parsed.hostname or ""
+    if host in PRIVATE_HOST_TERMS or host.endswith(".local"):
+        return False
+    if re.fullmatch(r"(?:\d{1,3}\.){3}\d{1,3}", host):
+        return not (host.startswith("10.") or host.startswith("127.") or host.startswith("192.168.") or host.startswith("172.16."))
+    return True
+
+
+def is_likely_company_website(url: str) -> bool:
+    domain = website_domain(url)
+    blocked = {"facebook.com", "linkedin.com", "instagram.com", "youtube.com", "x.com", "twitter.com"}
+    directory_terms = ("bbb.org", "manta.com", "chamberofcommerce.com", "buildzoom.com", "bizapedia.com", "opencorporates.com")
+    return bool(domain) and not any(domain == blocked_domain or domain.endswith(f".{blocked_domain}") for blocked_domain in blocked) and not any(term in domain for term in directory_terms)
+
+
+def public_site_root(url: str) -> str:
+    parsed = urlparse(url)
+    return f"{parsed.scheme}://{parsed.netloc}" if parsed.scheme and parsed.netloc else ""
 
 
 def save_cad_import_preview(result: DallasCadImportResult) -> DallasCadImportResult:
@@ -1354,8 +1649,11 @@ def save_candidate_contact_sources(connection, job_id: str, buyer: BuyerProfile)
     sources: list[tuple[str, str, str, str, int]] = []
     for url in buyer.sourceUrls:
         sources.append(("Public Source", url, "url", url, buyer.confidenceScore))
+    public_contact_url = first_public_contact_source_url(buyer.sourceUrls)
+    phone_source_name = "Public Business Contact" if public_contact_url else "Dallas CAD"
+    phone_source_url = public_contact_url or "https://www.dallascad.org/SearchOwner.aspx"
     for phone in buyer.phones:
-        sources.append(("Dallas CAD", "https://www.dallascad.org/SearchOwner.aspx", "phone", phone, buyer.confidenceScore))
+        sources.append((phone_source_name, phone_source_url, "phone", phone, buyer.confidenceScore))
 
     for source_name, source_url, value_type, value, confidence in sources[:12]:
         source_id = f"source-{uuid4().hex[:12]}"
@@ -1402,6 +1700,13 @@ def save_candidate_contact_sources(connection, job_id: str, buyer: BuyerProfile)
         values,
     )
 
+
+def first_public_contact_source_url(source_urls: list[str]) -> str:
+    for url in source_urls:
+        domain = website_domain(url)
+        if domain and not any(term in domain for term in ["dallascad.org", "dallasact.com", "google.com", "duckduckgo.com"]):
+            return url
+    return ""
 
 def list_cad_job_candidates(job_id: str) -> list[BuyerProfile]:
     with get_connection() as connection:
@@ -1969,10 +2274,12 @@ def refresh_dallas_cad_enrichment(request: DallasCadEnrichmentRequest, current_u
         )
     )
     selected_ids = set(clean_list(request.selectedBuyerIds))
-    updated = [
-        apply_public_candidate_enrichment(buyer, settings) if not selected_ids or buyer.id in selected_ids else buyer
-        for buyer in candidates
-    ]
+    updated = apply_public_enrichment_to_candidates(
+        candidates,
+        settings,
+        selected_ids=selected_ids if selected_ids else None,
+        max_public_lookups=PUBLIC_LOOKUP_REFRESH_LIMIT,
+    )
     with get_connection() as connection:
         ensure_buyer_tables(connection)
         for buyer in updated:
@@ -2032,6 +2339,58 @@ async def import_dallas_cad(current_user: CurrentUser, file: UploadFile = File(.
     )
 
 
+@router.post("/enrich-public", response_model=BuyerPublicEnrichmentResult)
+def enrich_saved_buyer_contacts(request: BuyerPublicEnrichmentRequest, current_user: CurrentUser):
+    buyers = list_saved_buyers()
+    selected_ids = set(clean_list(request.selectedBuyerIds))
+    max_buyers = min(100, max(1, int_number(str(request.maxBuyers)) or 40))
+    min_score = min(100, max(0, int_number(str(request.minBuilderScore))))
+    settings = normalize_dcad_settings(
+        DallasCadSettings(
+            enrichmentEnabled=True,
+            maxRecords=max_buyers,
+            minBuilderScore=min_score,
+            rateLimitMs=request.rateLimitMs,
+        )
+    )
+
+    checked_count = 0
+    updated_count = 0
+    phones_found = 0
+    enriched_buyers: list[BuyerProfile] = []
+
+    for buyer in buyers:
+        should_check = (
+            checked_count < max_buyers
+            and not buyer.phones
+            and (not selected_ids or buyer.id in selected_ids)
+            and buyer.builderScore >= min_score
+            and is_public_business_candidate(buyer)
+        )
+        if not should_check:
+            enriched_buyers.append(buyer)
+            continue
+
+        checked_count += 1
+        before_phones = set(buyer.phones)
+        enriched = apply_public_candidate_enrichment(buyer, settings, allow_web_lookup=True)
+        new_phones = set(enriched.phones) - before_phones
+        if enriched.model_dump() != buyer.model_dump():
+            updated_count += 1
+        phones_found += len(new_phones)
+        enriched_buyers.append(enriched)
+
+    if checked_count:
+        replace_saved_buyers(enriched_buyers)
+
+    return BuyerPublicEnrichmentResult(
+        buyers=enriched_buyers,
+        checkedCount=checked_count,
+        updatedCount=updated_count,
+        phonesFound=phones_found,
+    )
+
+
 @router.post("/match", response_model=list[BuyerMatch])
 def match_buyers(deal: DealMatchRequest, current_user: CurrentUser):
     buyers = list_saved_buyers()
@@ -2060,7 +2419,10 @@ def merge_buyers(existing_buyers: list[BuyerProfile], imported_buyers: list[Buye
                     "phones": unique_phones([*current.phones, *buyer.phones]),
                     "email": current.email or buyer.email,
                     "website": current.website or buyer.website,
-                    "socialLinks": clean_list([*current.socialLinks, *buyer.socialLinks]),
+                    "linkedinUrl": current.linkedinUrl or buyer.linkedinUrl,
+                    "facebookUrl": current.facebookUrl or buyer.facebookUrl,
+                    "contactFormUrl": current.contactFormUrl or buyer.contactFormUrl,
+                    "socialLinks": clean_list([*current.socialLinks, *buyer.socialLinks, buyer.linkedinUrl, buyer.facebookUrl]),
                     "counties": clean_list([*current.counties, *buyer.counties]),
                     "zipCodes": unique_zips([*current.zipCodes, *buyer.zipCodes]),
                     "propertyTypes": clean_list([*current.propertyTypes, *buyer.propertyTypes]),
@@ -2072,8 +2434,12 @@ def merge_buyers(existing_buyers: list[BuyerProfile], imported_buyers: list[Buye
                     "relationshipTier": current.relationshipTier or buyer.relationshipTier,
                     "pastDealsBought": current.pastDealsBought or buyer.pastDealsBought,
                     "assignmentFeeTolerance": current.assignmentFeeTolerance or buyer.assignmentFeeTolerance,
+                    "mailingAddress": current.mailingAddress or buyer.mailingAddress,
+                    "registeredAgent": current.registeredAgent or buyer.registeredAgent,
+                    "confidenceScore": max(current.confidenceScore, buyer.confidenceScore),
                     "notes": current.notes or buyer.notes,
                     "source": current.source or buyer.source,
+                    "sourceUrls": clean_list([*current.sourceUrls, *buyer.sourceUrls]),
                 }
             )
         )
