@@ -1361,6 +1361,7 @@ function BuyerNetworkView({
   const [isMatching, setIsMatching] = React.useState(false);
   const [isSavingBuyer, setIsSavingBuyer] = React.useState(false);
   const [isFindingBuyerPhones, setIsFindingBuyerPhones] = React.useState(false);
+  const autoPhoneSearchRanRef = React.useRef(false);
   const [cadWizard, setCadWizard] = React.useState(() => createCadWizardState());
 
   const hotBuyers = buyers.filter((buyer) => normalizeText(buyer.activityStatus) === "hot").length;
@@ -1386,6 +1387,42 @@ function BuyerNetworkView({
 
     return haystack.includes(buyerSearch.toLowerCase());
   });
+
+
+  const missingPublicPhoneBuyers = buyers.filter(
+    (buyer) => getBuyerPhones(buyer).length === 0 && isLikelyPublicBusinessBuyer(buyer)
+  );
+
+  React.useEffect(() => {
+    if (autoPhoneSearchRanRef.current || isFindingBuyerPhones || !authToken || missingPublicPhoneBuyers.length === 0) {
+      return undefined;
+    }
+
+    autoPhoneSearchRanRef.current = true;
+    let cancelled = false;
+
+    async function runAutomaticPhoneSearch() {
+      setIsFindingBuyerPhones(true);
+      setBuyerMessage("Auto-searching public buyer phone numbers...");
+      try {
+        const result = await enrichPublicBuyerContacts(authToken, { maxBuyers: 25 });
+        if (cancelled) return;
+        onBuyerListUpdated(sanitizeBuyers(result.buyers));
+        setBuyerMessage(
+          `Auto phone search checked ${result.checkedCount || 0} buyer${result.checkedCount === 1 ? "" : "s"} and found ${result.phonesFound || 0} phone number${result.phonesFound === 1 ? "" : "s"}.`
+        );
+      } catch {
+        if (!cancelled) setBuyerMessage("Auto phone search paused. Use Find Buyer Phones to try again.");
+      } finally {
+        if (!cancelled) setIsFindingBuyerPhones(false);
+      }
+    }
+
+    runAutomaticPhoneSearch();
+    return () => {
+      cancelled = true;
+    };
+  }, [authToken, buyers.length]);
 
   function updateBuyerDraft(field, value) {
     const arrayFields = new Set(["phones", "socialLinks", "counties", "zipCodes", "propertyTypes"]);
@@ -1446,7 +1483,7 @@ function BuyerNetworkView({
     setIsFindingBuyerPhones(true);
     setBuyerMessage("Searching public business pages for missing buyer phone numbers...");
     try {
-      const result = await enrichPublicBuyerContacts(authToken);
+      const result = await enrichPublicBuyerContacts(authToken, { maxBuyers: 40 });
       const nextBuyers = sanitizeBuyers(result.buyers);
       onBuyerListUpdated(nextBuyers);
       setBuyerMessage(
@@ -3402,14 +3439,14 @@ async function refreshDallasCadEnrichment(jobId, selectedBuyerIds, controls, tok
   };
 }
 
-async function enrichPublicBuyerContacts(token) {
+async function enrichPublicBuyerContacts(token, options = {}) {
   const response = await fetch(`${apiBaseUrl}/buyers/enrich-public`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       ...authHeaders(token)
     },
-    body: JSON.stringify({ maxBuyers: 40, minBuilderScore: 0, rateLimitMs: 750 })
+    body: JSON.stringify({ maxBuyers: options.maxBuyers || 40, minBuilderScore: 0, rateLimitMs: 750 })
   });
 
   if (!response.ok) {
@@ -3903,6 +3940,14 @@ function mergeBuyerProfiles(currentBuyers, incomingBuyers) {
 
 function getBuyerMergeKey(buyer = {}) {
   return normalizeText(buyer.email || buyer.phone || buyer.company || buyer.name || buyer.id);
+}
+
+
+function isLikelyPublicBusinessBuyer(buyer = {}) {
+  const text = [buyer.company, buyer.name, buyer.normalizedCompanyName, buyer.builderType, buyer.buyerType]
+    .filter(Boolean)
+    .join(" ");
+  return /\b(llc|inc|corp|company|co\.?|builders?|homes?|construction|development|properties|investments|realty|land|capital|holdings|partners|ventures|group)\b/i.test(text);
 }
 
 function formatBuyBox(buyer = {}) {

@@ -1201,10 +1201,10 @@ def compact_dcad_preview_row(row: dict[str, str]) -> dict[str, str]:
     return {key: clean_text(row.get(key, "")) for key in keys if clean_text(row.get(key, ""))}
 
 
-PUBLIC_LOOKUP_TIMEOUT_SECONDS = 7
-PUBLIC_LOOKUP_MAX_BYTES = 350_000
+PUBLIC_LOOKUP_TIMEOUT_SECONDS = 4
+PUBLIC_LOOKUP_MAX_BYTES = 250_000
 PUBLIC_LOOKUP_PREVIEW_LIMIT = 20
-PUBLIC_LOOKUP_REFRESH_LIMIT = 75
+PUBLIC_LOOKUP_REFRESH_LIMIT = 40
 PUBLIC_LOOKUP_USER_AGENT = "Mozilla/5.0 (compatible; ChatCRM Public Business Contact Enrichment)"
 SEARCH_RESULT_BLOCKLIST = {
     "bing.com",
@@ -1727,6 +1727,7 @@ def import_selected_cad_buyers(job_id: str, selected_buyer_ids: list[str]) -> Da
 
     selected_ids = set(clean_list(selected_buyer_ids))
     selected = [buyer for buyer in candidates if not selected_ids or buyer.id in selected_ids]
+    selected = enrich_imported_buyers(selected, max_public_lookups=PUBLIC_LOOKUP_REFRESH_LIMIT)
     existing_buyers = list_saved_buyers()
     existing_keys = set()
     for buyer in existing_buyers:
@@ -2194,6 +2195,24 @@ def save_deal_matches(deal: DealMatchRequest, matches: list[BuyerMatch]) -> None
                 )
 
 
+def enrich_single_buyer_on_save(buyer: BuyerProfile) -> BuyerProfile:
+    clean_buyer = sanitize_buyer(buyer)
+    if clean_buyer.phones or not is_public_business_candidate(clean_buyer):
+        return clean_buyer
+    settings = normalize_dcad_settings(DallasCadSettings(enrichmentEnabled=True, maxRecords=1, minBuilderScore=0, rateLimitMs=250))
+    return apply_public_candidate_enrichment(clean_buyer, settings, allow_web_lookup=True)
+
+
+def enrich_imported_buyers(buyers: list[BuyerProfile], max_public_lookups: int = 15) -> list[BuyerProfile]:
+    settings = normalize_dcad_settings(
+        DallasCadSettings(enrichmentEnabled=True, maxRecords=max_public_lookups, minBuilderScore=0, rateLimitMs=350)
+    )
+    return apply_public_enrichment_to_candidates(
+        [sanitize_buyer(buyer) for buyer in buyers],
+        settings,
+        max_public_lookups=max_public_lookups,
+    )
+
 @router.get("", response_model=list[BuyerProfile])
 def list_buyers(current_user: CurrentUser):
     return list_saved_buyers()
@@ -2201,12 +2220,12 @@ def list_buyers(current_user: CurrentUser):
 
 @router.post("", response_model=BuyerProfile)
 def create_buyer(buyer: BuyerProfile, current_user: CurrentUser):
-    return save_buyer(buyer)
+    return save_buyer(enrich_single_buyer_on_save(buyer))
 
 
 @router.put("/{buyer_id}", response_model=BuyerProfile)
 def update_buyer(buyer_id: str, buyer: BuyerProfile, current_user: CurrentUser):
-    return save_buyer(buyer.model_copy(update={"id": buyer_id}))
+    return save_buyer(enrich_single_buyer_on_save(buyer.model_copy(update={"id": buyer_id})))
 
 
 @router.delete("/{buyer_id}")
@@ -2226,9 +2245,10 @@ def sync_buyers(buyers: list[BuyerProfile], current_user: CurrentUser):
 async def import_buyer_csv(current_user: CurrentUser, file: UploadFile = File(...)):
     contents = await file.read()
     result = import_buyers_from_csv(contents, file.filename or "Buyer CSV")
+    enriched_imports = enrich_imported_buyers(result.buyers, max_public_lookups=15)
 
     saved_buyers = list_saved_buyers()
-    merged_buyers = merge_buyers(saved_buyers, result.buyers)
+    merged_buyers = merge_buyers(saved_buyers, enriched_imports)
     replace_saved_buyers(merged_buyers)
 
     return BuyerImportResult(buyers=merged_buyers, warnings=result.warnings)
