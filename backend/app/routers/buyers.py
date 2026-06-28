@@ -2213,6 +2213,40 @@ def enrich_imported_buyers(buyers: list[BuyerProfile], max_public_lookups: int =
         max_public_lookups=max_public_lookups,
     )
 
+def enrich_top_buyer_matches(
+    matches: list[BuyerMatch],
+    saved_buyers: list[BuyerProfile],
+    max_public_lookups: int = 6,
+) -> tuple[list[BuyerMatch], list[BuyerProfile]]:
+    settings = normalize_dcad_settings(
+        DallasCadSettings(enrichmentEnabled=True, maxRecords=max_public_lookups, minBuilderScore=0, rateLimitMs=250)
+    )
+    updated_by_id: dict[str, BuyerProfile] = {}
+    lookup_count = 0
+
+    for match in matches[:12]:
+        if lookup_count >= max_public_lookups:
+            break
+
+        buyer = sanitize_buyer(match.buyer)
+        if buyer.phones or not is_public_business_candidate(buyer):
+            continue
+
+        lookup_count += 1
+        enriched = apply_public_candidate_enrichment(buyer, settings, allow_web_lookup=True)
+        if enriched.model_dump() != buyer.model_dump():
+            updated_by_id[buyer.id] = enriched
+
+    if not updated_by_id:
+        return matches, saved_buyers
+
+    updated_buyers = [updated_by_id.get(buyer.id, buyer) for buyer in saved_buyers]
+    updated_matches = [
+        match.model_copy(update={"buyer": updated_by_id.get(match.buyer.id, match.buyer)}) for match in matches
+    ]
+    replace_saved_buyers(updated_buyers)
+    return updated_matches, updated_buyers
+
 @router.get("", response_model=list[BuyerProfile])
 def list_buyers(current_user: CurrentUser):
     return list_saved_buyers()
@@ -2417,6 +2451,7 @@ def match_buyers(deal: DealMatchRequest, current_user: CurrentUser):
     matches = [score_buyer_for_deal(buyer, deal) for buyer in buyers]
     matches = [match for match in matches if match.score > 0]
     matches.sort(key=lambda match: match.score, reverse=True)
+    matches, buyers = enrich_top_buyer_matches(matches, buyers)
     save_deal_matches(deal, matches)
     return matches[:25]
 
