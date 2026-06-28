@@ -91,6 +91,18 @@ const contactStatuses = [
   { value: "follow-up", label: "Follow Up", color: "yellow" }
 ];
 const mainViews = ["Leads", "Pipeline", "Property Intelligence", "Buyer Network", "Imports", "Analytics", "Training"];
+const commissionTiers = [
+  { min: 0, max: 9999, rate: 0.15, label: "$0 - $9,999" },
+  { min: 10000, max: 19999, rate: 0.2, label: "$10,000 - $19,999" },
+  { min: 20000, max: 34999, rate: 0.225, label: "$20,000 - $34,999" },
+  { min: 35000, max: Infinity, rate: 0.25, label: "$35,000+" }
+];
+const partnerAgreementClauses = [
+  { title: "Confidentiality", detail: "Seller lists, buyer lists, lead data, training, scripts, processes, and ChatCRM information stay confidential and remain property of ChatCRM." },
+  { title: "Non-Circumvention", detail: "Team members may not bypass ChatCRM to work directly with sellers, buyers, investors, builders, or relationships introduced through the platform." },
+  { title: "Compensation", detail: "Commissions are paid after a successful closing and receipt of funds. ChatCRM handles compensation and applicable tax reporting requirements." },
+  { title: "Caller Responsibilities", detail: "Contact sellers, verify ownership, determine motivation, gather property details, update ChatCRM, and schedule follow-ups." }
+];
 const callScript = {
   objective: "Verify ownership, determine interest, gather good contact notes, and schedule the right follow-up. Do not make offers on the first call.",
   opening: "Hello, is this {ownerName}? My name is [AGENT NAME], and I am calling about {propertyAddress}. Did I catch you at a bad time?",
@@ -271,6 +283,7 @@ export function App() {
   const [selectedLeadIds, setSelectedLeadIds] = React.useState([]);
   const [agreementLead, setAgreementLead] = React.useState(null);
   const [buyerMessage, setBuyerMessage] = React.useState("");
+  const [onboardingMessage, setOnboardingMessage] = React.useState("");
   const fileInputRef = React.useRef(null);
   const buyerFileInputRef = React.useRef(null);
   const cadFileInputRef = React.useRef(null);
@@ -320,11 +333,55 @@ export function App() {
     safeStorageRemove("chatcrm.buyers");
   }
 
+  function updateStoredAuthUser(user) {
+    const nextAuth = { accessToken: authToken, user };
+    setAuth(nextAuth);
+    safeStorageSet(authStorageKey, JSON.stringify(nextAuth));
+  }
+
+  async function saveCallerProfile(profile) {
+    setOnboardingMessage("Saving your profile...");
+    const user = await saveOnboardingProfile(profile, authToken);
+    updateStoredAuthUser(user);
+    setOnboardingMessage("Profile saved. Review and sign your agreement next.");
+  }
+
+  async function signCallerAgreement(payload) {
+    setOnboardingMessage("Saving your signed agreement...");
+    const result = await signOnboardingAgreement(payload, authToken);
+    updateStoredAuthUser(result.user);
+    setOnboardingMessage("Signed agreement saved. Download started.");
+    await downloadSignedOnboardingAgreement(authToken);
+  }
+
+  async function downloadCallerAgreement() {
+    setOnboardingMessage("Preparing your signed agreement download...");
+    await downloadSignedOnboardingAgreement(authToken);
+    setOnboardingMessage("Download started.");
+  }
   React.useEffect(() => {
     document.documentElement.dataset.theme = theme;
     safeStorageSet("chatcrm.theme", theme);
   }, [theme]);
 
+  React.useEffect(() => {
+    let cancelled = false;
+
+    async function refreshUser() {
+      if (!authToken) return;
+      try {
+        const user = await fetchCurrentUser(authToken);
+        if (!cancelled) updateStoredAuthUser(user);
+      } catch {
+        // Keep the existing session; protected API calls will handle expired tokens.
+      }
+    }
+
+    refreshUser();
+    return () => {
+      cancelled = true;
+    };
+  }, [authToken]);
   React.useEffect(() => {
     safeStorageSet("chatcrm.leads", JSON.stringify(leads));
   }, [leads]);
@@ -403,6 +460,21 @@ export function App() {
     return <LoginPage error={loginError} onLogin={login} />;
   }
 
+  const needsCallerOnboarding =
+    auth?.user?.role === "Acquisition" && (!auth.user.profile_complete || !auth.user.agreement_signed);
+
+  if (needsCallerOnboarding) {
+    return (
+      <OnboardingPage
+        message={onboardingMessage}
+        onDownloadAgreement={downloadCallerAgreement}
+        onLogout={logout}
+        onSaveProfile={saveCallerProfile}
+        onSignAgreement={signCallerAgreement}
+        user={auth.user}
+      />
+    );
+  }
   const filteredLeads = leads.filter((lead) => {
     const searchText = `${lead.name} ${lead.address} ${getLeadPhones(lead).join(" ")} ${lead.email} ${lead.source}`.toLowerCase();
     const matchesQuery = searchText.includes(query.toLowerCase());
@@ -785,6 +857,10 @@ export function App() {
           <Stat label="PDF Imports" value={imports.length} />
         </section>
 
+        <section className="dashboard-support-grid" aria-label="Dashboard tools">
+          <CommissionDashboardCard />
+          <DailyQuoteCard authToken={authToken} />
+        </section>
         <section className={`content-grid ${activeView === "Leads" || isFormOpen ? "" : "single-column"}`}>
           {activeView === "Leads" ? (
           <div className="panel">
@@ -1000,6 +1076,183 @@ function Stat({ label, value }) {
   );
 }
 
+function OnboardingPage({ message, onDownloadAgreement, onLogout, onSaveProfile, onSignAgreement, user }) {
+  const [profile, setProfile] = React.useState({
+    name: user.profile_complete ? user.name || "" : "",
+    email: user.email || ""
+  });
+  const [signature, setSignature] = React.useState(user.profile_complete ? user.name || "" : "");
+  const [accepted, setAccepted] = React.useState(false);
+  const [localMessage, setLocalMessage] = React.useState("");
+  const [isSaving, setIsSaving] = React.useState(false);
+  const profileReady = Boolean(user.profile_complete);
+  const agreementReady = Boolean(user.agreement_signed);
+
+  function updateProfile(field, value) {
+    setProfile((current) => ({ ...current, [field]: value }));
+  }
+
+  async function submitProfile(event) {
+    event.preventDefault();
+    setIsSaving(true);
+    setLocalMessage("");
+    try {
+      await onSaveProfile(profile);
+    } catch {
+      setLocalMessage("Could not save your profile yet. Check your name and email.");
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  async function submitSignature(event) {
+    event.preventDefault();
+    setIsSaving(true);
+    setLocalMessage("");
+    try {
+      await onSignAgreement({ ...profile, signature, accepted });
+    } catch {
+      setLocalMessage("Could not save your signed agreement yet. Confirm every field is complete.");
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  return (
+    <main className="onboarding-shell">
+      <section className="onboarding-card">
+        <div className="brand-block">
+          <ChatCrmLogo />
+          <div>
+            <p className="eyebrow">ChatCRM Team Access</p>
+            <h1>Complete Your Caller Setup</h1>
+          </div>
+        </div>
+
+        <p className="onboarding-intro">
+          Your login password stays the same. Add your real name and email, sign the partner agreement, then ChatCRM opens automatically.
+        </p>
+
+        <div className="onboarding-steps">
+          <span className={profileReady ? "complete" : "active"}>1 Profile</span>
+          <span className={agreementReady ? "complete" : profileReady ? "active" : ""}>2 Agreement</span>
+          <span className={agreementReady ? "complete" : ""}>3 Download</span>
+        </div>
+
+        {!profileReady ? (
+          <form className="onboarding-form" onSubmit={submitProfile}>
+            <label>
+              Full Name
+              <input required value={profile.name} onChange={(event) => updateProfile("name", event.target.value)} />
+            </label>
+            <label>
+              Email
+              <input required type="email" value={profile.email} onChange={(event) => updateProfile("email", event.target.value)} />
+            </label>
+            <button className="primary-button" disabled={isSaving} type="submit">
+              {isSaving ? "Saving..." : "Save Profile"}
+            </button>
+          </form>
+        ) : (
+          <form className="onboarding-form" onSubmit={submitSignature}>
+            <div className="agreement-reader">
+              <h2>Partner & Acquisition Agreement</h2>
+              {partnerAgreementClauses.map((clause) => (
+                <article key={clause.title}>
+                  <h3>{clause.title}</h3>
+                  <p>{clause.detail}</p>
+                </article>
+              ))}
+              <div className="commission-line">
+                15% under $10k / 20% at $10k-$19,999 / 22.5% at $20k-$34,999 / 25% at $35k+
+              </div>
+            </div>
+
+            <label>
+              Electronic Signature
+              <input required value={signature} onChange={(event) => setSignature(event.target.value)} />
+            </label>
+            <label className="checkbox-line">
+              <input checked={accepted} onChange={(event) => setAccepted(event.target.checked)} type="checkbox" />
+              I have read and agree to the ChatCRM partner agreement.
+            </label>
+            <button className="primary-button" disabled={isSaving || !accepted} type="submit">
+              {isSaving ? "Saving..." : "Sign & Download"}
+            </button>
+          </form>
+        )}
+
+        {agreementReady ? <button className="secondary-button" onClick={onDownloadAgreement}>Download Signed Agreement</button> : null}
+        {message || localMessage ? <p className="import-status">{localMessage || message}</p> : null}
+        <button className="ghost-button" onClick={onLogout}>Logout</button>
+      </section>
+    </main>
+  );
+}
+
+function CommissionDashboardCard() {
+  const [assignmentFee, setAssignmentFee] = React.useState("25000");
+  const [closedDeals, setClosedDeals] = React.useState("0");
+  const commission = calculateCallerCommission(assignmentFee, closedDeals);
+
+  return (
+    <section className="dashboard-card commission-card">
+      <div>
+        <p className="eyebrow">Commission</p>
+        <h2>Real-Time Earnings</h2>
+      </div>
+      <div className="commission-inputs">
+        <label>
+          Assignment Fee
+          <input min="0" type="number" value={assignmentFee} onChange={(event) => setAssignmentFee(event.target.value)} />
+        </label>
+        <label>
+          Closed Deals
+          <input min="0" type="number" value={closedDeals} onChange={(event) => setClosedDeals(event.target.value)} />
+        </label>
+      </div>
+      <div className="commission-result">
+        <span>{commission.tierLabel}</span>
+        <strong>{formatMoney(commission.payout)}</strong>
+        <small>{formatPercent(commission.totalRate)} total rate including {formatPercent(commission.bonusRate)} retention bonus</small>
+      </div>
+    </section>
+  );
+}
+
+function DailyQuoteCard({ authToken }) {
+  const [quote, setQuote] = React.useState({ quote: "Loading today's quote...", author: "", source: "ZenQuotes" });
+
+  React.useEffect(() => {
+    let cancelled = false;
+
+    async function loadQuote() {
+      if (!authToken) return;
+      try {
+        const result = await fetchDailyQuote(authToken);
+        if (!cancelled) setQuote(result);
+      } catch {
+        if (!cancelled) setQuote({ quote: "Discipline turns opportunity into income.", author: "ChatCRM", source: "Fallback" });
+      }
+    }
+
+    loadQuote();
+    return () => {
+      cancelled = true;
+    };
+  }, [authToken]);
+
+  return (
+    <section className="dashboard-card quote-card">
+      <div>
+        <p className="eyebrow">Daily Quote</p>
+        <h2>Stay Sharp</h2>
+      </div>
+      <blockquote>{quote.quote}</blockquote>
+      <p>{quote.author ? `- ${quote.author}` : quote.source}</p>
+    </section>
+  );
+}
 function LoginPage({ error, onLogin }) {
   const [username, setUsername] = React.useState("");
   const [password, setPassword] = React.useState("");
@@ -3323,6 +3576,84 @@ async function parseImportFile(file, token) {
   return parsePdf(file, token);
 }
 
+async function fetchCurrentUser(token) {
+  const response = await fetch(`${apiBaseUrl}/auth/me`, {
+    headers: authHeaders(token)
+  });
+
+  if (!response.ok) {
+    throw new Error("User fetch failed");
+  }
+
+  return response.json();
+}
+
+async function saveOnboardingProfile(profile, token) {
+  const response = await fetch(`${apiBaseUrl}/auth/profile`, {
+    method: "PUT",
+    headers: {
+      ...authHeaders(token),
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(profile)
+  });
+
+  if (!response.ok) {
+    throw new Error("Profile save failed");
+  }
+
+  return response.json();
+}
+
+async function signOnboardingAgreement(payload, token) {
+  const response = await fetch(`${apiBaseUrl}/auth/onboarding/sign`, {
+    method: "POST",
+    headers: {
+      ...authHeaders(token),
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(payload)
+  });
+
+  if (!response.ok) {
+    throw new Error("Agreement signature failed");
+  }
+
+  return response.json();
+}
+
+async function downloadSignedOnboardingAgreement(token) {
+  const response = await fetch(`${apiBaseUrl}/auth/onboarding/agreement`, {
+    headers: authHeaders(token)
+  });
+
+  if (!response.ok) {
+    throw new Error("Agreement download failed");
+  }
+
+  const blob = await response.blob();
+  const url = window.URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "chatcrm-signed-partner-agreement.pdf";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => window.URL.revokeObjectURL(url), 500);
+}
+
+async function fetchDailyQuote(token) {
+  const response = await fetch(`${apiBaseUrl}/auth/quote/today`, {
+    headers: authHeaders(token)
+  });
+
+  if (!response.ok) {
+    throw new Error("Quote fetch failed");
+  }
+
+  return response.json();
+}
+
 async function fetchBackendLeads(token) {
   const response = await fetch(`${apiBaseUrl}/leads`, {
     headers: authHeaders(token)
@@ -3628,6 +3959,9 @@ function formatMoney(value) {
   }).format(value);
 }
 
+function formatPercent(value) {
+  return `${(Number(value || 0) * 100).toFixed(value % 1 ? 1 : 0)}%`;
+}
 function cleanSourceName(source = "") {
   try {
     return decodeURIComponent(source).replace(/^\d{10,}[_\s-]*/, "").replace(/[_-]+/g, " ").replace(/\.pdf$/i, "").trim();
@@ -4208,6 +4542,20 @@ function calculateOffer(lead) {
   return { maxOffer, spread };
 }
 
+function calculateCallerCommission(assignmentFee, closedDeals = 0) {
+  const fee = numberFromMoney(assignmentFee);
+  const dealCount = numberFromMoney(closedDeals);
+  const tier = commissionTiers.find((item) => fee >= item.min && fee <= item.max) || commissionTiers[0];
+  const bonusRate = dealCount >= 25 ? 0.05 : dealCount >= 10 ? 0.025 : 0;
+  const totalRate = tier.rate + bonusRate;
+  return {
+    baseRate: tier.rate,
+    bonusRate,
+    payout: Math.round(fee * totalRate),
+    tierLabel: tier.label,
+    totalRate
+  };
+}
 function numberFromMoney(value) {
   const number = Number(String(value || "").replace(/[$,\s]/g, ""));
   return Number.isFinite(number) ? number : 0;
