@@ -106,3 +106,73 @@ It should combine:
 - Add predictive analytics
 - Add advanced property intelligence
 - Expand into a full acquisitions platform
+
+## Priority HIGH - Call Activity Tracking & Anti-Duplicate Calling System
+
+Add a proper call activity log so team members do not double-call the same lead at the same time.
+
+Every lead call/update should record:
+
+- Lead ID
+- User ID
+- User full name or username
+- Action type
+- Call outcome
+- Notes
+- Timestamp
+- Follow-up date if added
+
+Create or update a LeadActivity / CallLog model with:
+
+- id
+- lead_id
+- user_id
+- user_name_snapshot
+- action_type
+- call_outcome
+- notes
+- created_at
+- follow_up_date
+
+Action types:
+
+- called
+- call_started
+- note_added
+- status_changed
+- follow_up_set
+- hot_lead_marked
+- not_interested
+- voicemail
+- wrong_number
+
+Frontend requirements:
+
+- Show an activity timeline on the Lead Detail page.
+- Each activity displays user name, action, outcome, note, and timestamp.
+- Add Last Contacted By and Last Contacted At to the lead list.
+- Warn if another user contacted the lead within the last 10 minutes.
+- Add a soft lead lock when a user opens/calls a lead.
+- Lock expires automatically after 10 minutes.
+- Admin can override.
+
+Backend requirements:
+
+- Create a LeadActivity row when a user updates call outcome.
+- Create a LeadActivity row when status/stage changes.
+- Create a LeadActivity row when notes are added.
+- Create a call_started row when a call button is clicked.
+- Return activity history from GET /leads/{lead_id}/activity.
+
+Admin dashboard:
+
+- Add recent team activity feed.
+- Add daily team call count by user.
+
+Manual tests:
+
+- User A calls lead, activity shows User A and timestamp.
+- User B opens same lead within 10 minutes, warning appears.
+- Admin can see all users' call activity.
+- Acquisition users only see activity related to leads they can access.
+- Last Contacted By/At updates after call outcome.

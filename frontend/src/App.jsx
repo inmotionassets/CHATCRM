@@ -223,7 +223,15 @@ const emptyLead = {
   repairBudget: "",
   maxOfferPercent: "70",
   assignmentFee: "",
-  followUpDate: ""
+  followUpDate: "",
+  contactStatus: "needs-review",
+  lastContactedUserId: "",
+  lastContactedBy: "",
+  lastContactedAt: "",
+  lastActivityAction: "",
+  lockedByUserId: "",
+  lockedByUserName: "",
+  lockedUntil: ""
 };
 
 const emptyBuyer = {
@@ -563,7 +571,7 @@ export function App() {
     updateLead(id, { needsReview: false, contactStatus: "confirmed" });
   }
 
-  function updateContactStatus(id, status) {
+  async function updateContactStatus(id, status) {
     const statusLabel = getContactStatus(status).label;
     const lead = leads.find((item) => item.id === id);
     const noteLine = `[${new Date().toLocaleString()}] ${statusLabel}`;
@@ -576,6 +584,25 @@ export function App() {
       notes: nextNotes,
       stage
     });
+
+    if (!authToken) return null;
+
+    try {
+      const activity = await recordLeadActivity(
+        id,
+        {
+          actionType: getActivityTypeForStatus(status),
+          callOutcome: statusLabel,
+          notes: statusLabel,
+          followUpDate: status === "follow-up" ? lead?.followUpDate || "" : ""
+        },
+        authToken
+      );
+      updateLead(id, applyActivityToLead(activity));
+      return activity;
+    } catch {
+      return null;
+    }
   }
 
   function moveSelectedLead(direction) {
@@ -640,6 +667,20 @@ export function App() {
         return { ...lead, contactStatus: status, needsReview: status === "needs-review", notes: nextNotes, stage };
       })
     );
+
+    if (authToken) {
+      selectedLeadIds.forEach((leadId) => {
+        recordLeadActivity(
+          leadId,
+          {
+            actionType: getActivityTypeForStatus(status),
+            callOutcome: statusLabel,
+            notes: `Bulk update: ${statusLabel}`
+          },
+          authToken
+        ).catch(() => {});
+      });
+    }
   }
 
   function applyBulkStage(stage) {
@@ -647,6 +688,20 @@ export function App() {
     setLeads((current) =>
       current.map((lead) => (selectedLeadIds.includes(lead.id) ? { ...lead, stage } : lead))
     );
+
+    if (authToken) {
+      selectedLeadIds.forEach((leadId) => {
+        recordLeadActivity(
+          leadId,
+          {
+            actionType: "status_changed",
+            callOutcome: `Stage: ${stage}`,
+            notes: `Bulk stage changed to ${stage}`
+          },
+          authToken
+        ).catch(() => {});
+      });
+    }
   }
 
   function deleteSelectedLeads() {
@@ -940,12 +995,19 @@ export function App() {
                       </h3>
                       <p>{getDisplayOwnerName(lead) || "Owner name needed"}</p>
                       <small>{formatPhoneList(lead) || "No phone yet"}</small>
+                      {isRecentlyContactedByAnother(lead, auth.user) ? (
+                        <small className="recent-contact-note">
+                          Recently contacted by {lead.lastContactedBy} at {formatActivityTime(lead.lastContactedAt)}
+                        </small>
+                      ) : null}
                     </button>
                     <div className="lead-meta-grid">
                       <span className="lead-meta"><b>Stage</b>{lead.stage}</span>
                       <span className="lead-meta"><b>Score</b>{lead.score}</span>
                       <span className="lead-meta"><b>Assigned To</b>{lead.owner || "Unassigned"}</span>
                       <span className="lead-meta"><b>Source</b>{cleanSourceName(lead.source)}</span>
+                      <span className="lead-meta"><b>Last By</b>{lead.lastContactedBy || "None"}</span>
+                      <span className="lead-meta"><b>Last At</b>{lead.lastContactedAt ? formatActivityTime(lead.lastContactedAt) : "None"}</span>
                     </div>
                     <div className="row-actions">
                       <button onClick={() => setSelectedLeadId(lead.id)}>View</button>
@@ -997,7 +1059,7 @@ export function App() {
           ) : null}
 
           {activeView === "Analytics" ? (
-            <AnalyticsView followUps={followUps} hotLeads={hotLeads} imports={imports} leads={leads} />
+            <AnalyticsView authToken={authToken} currentUser={auth.user} followUps={followUps} hotLeads={hotLeads} imports={imports} leads={leads} />
           ) : null}
 
           {activeView === "Training" ? (
@@ -1042,6 +1104,7 @@ export function App() {
             <button className="detail-backdrop" aria-label="Close lead details" onClick={() => setSelectedLeadId(null)} />
             <LeadDetail
               authToken={authToken}
+              currentUser={auth.user}
               lead={selectedLead}
               onClose={() => setSelectedLeadId(null)}
               onEdit={() => openEditForm(selectedLead)}
@@ -2276,16 +2339,45 @@ function ImportsView({ importMessage, imports }) {
   );
 }
 
-function AnalyticsView({ followUps, hotLeads, imports, leads }) {
+function AnalyticsView({ authToken, currentUser, followUps, hotLeads, imports, leads }) {
   const reviewed = leads.filter((lead) => !lead.needsReview).length;
   const reviewNeeded = leads.filter((lead) => lead.needsReview).length;
+  const [recentActivity, setRecentActivity] = React.useState([]);
+  const [dailyCalls, setDailyCalls] = React.useState([]);
+  const [activityMessage, setActivityMessage] = React.useState("");
+
+  React.useEffect(() => {
+    let cancelled = false;
+
+    async function hydrateActivityDashboard() {
+      if (!authToken) return;
+
+      try {
+        const [activityResult, countsResult] = await Promise.all([
+          fetchRecentTeamActivity(authToken),
+          fetchDailyCallCounts(authToken)
+        ]);
+        if (cancelled) return;
+        setRecentActivity(activityResult);
+        setDailyCalls(countsResult);
+        setActivityMessage("");
+      } catch {
+        if (!cancelled) setActivityMessage("Team activity will load once the backend responds.");
+      }
+    }
+
+    hydrateActivityDashboard();
+    return () => {
+      cancelled = true;
+    };
+  }, [authToken]);
 
   return (
     <div className="panel wide-panel">
       <div className="panel-header">
         <div>
           <p className="eyebrow">Analytics</p>
-          <h2>Snapshot</h2>
+          <h2>{currentUser?.role === "Admin" ? "Team Snapshot" : "My Snapshot"}</h2>
         </div>
       </div>
 
@@ -2296,6 +2388,58 @@ function AnalyticsView({ followUps, hotLeads, imports, leads }) {
         <Stat label="Follow-Ups" value={followUps} />
         <Stat label="Hot Leads" value={hotLeads} />
         <Stat label="PDF Imports" value={imports.length} />
+      </div>
+
+      <div className="team-activity-grid">
+        <section className="team-activity-card">
+          <div className="section-heading compact-heading">
+            <p className="eyebrow">Today</p>
+            <h2>Calls By User</h2>
+          </div>
+          {dailyCalls.length > 0 ? (
+            <div className="daily-call-list">
+              {dailyCalls.map((item) => (
+                <div key={item.userId}>
+                  <span>{item.userName}</span>
+                  <strong>{item.count}</strong>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="mini-empty">
+              <p>No calls logged today.</p>
+            </div>
+          )}
+        </section>
+
+        <section className="team-activity-card">
+          <div className="section-heading compact-heading">
+            <p className="eyebrow">Team Feed</p>
+            <h2>Recent Activity</h2>
+          </div>
+          {activityMessage ? <p className="parcel-message">{activityMessage}</p> : null}
+          {recentActivity.length > 0 ? (
+            <div className="activity-list compact-activity-list">
+              {recentActivity.slice(0, 10).map((activity) => (
+                <article className="activity-item" key={activity.id}>
+                  <div>
+                    <strong>{activity.userNameSnapshot}</strong>
+                    <span>{getActivityActionLabel(activity.actionType)}</span>
+                  </div>
+                  <p>
+                    {activity.leadAddress ? <b>{activity.leadAddress}</b> : null}
+                    {activity.callOutcome ? <span>{activity.callOutcome}</span> : null}
+                  </p>
+                  <small>{formatActivityTime(activity.createdAt)}</small>
+                </article>
+              ))}
+            </div>
+          ) : (
+            <div className="mini-empty">
+              <p>No team activity logged yet.</p>
+            </div>
+          )}
+        </section>
       </div>
     </div>
   );
@@ -2574,6 +2718,7 @@ function CallScriptPanel({ lead }) {
 
 function LeadDetail({
   authToken,
+  currentUser,
   lead,
   onClose,
   onEdit,
@@ -2604,6 +2749,10 @@ function LeadDetail({
   const [buyerMatches, setBuyerMatches] = React.useState([]);
   const [buyerMatchMessage, setBuyerMatchMessage] = React.useState("");
   const [isFindingBuyers, setIsFindingBuyers] = React.useState(false);
+  const [activities, setActivities] = React.useState([]);
+  const [leadLock, setLeadLock] = React.useState(null);
+  const [activityMessage, setActivityMessage] = React.useState("");
+  const notesSnapshotRef = React.useRef(lead.notes || "");
   const ownerPlaceholder =
     rawOwnerName && rawOwnerName !== "Unknown Owner"
       ? "Replace parsed text with owner name"
@@ -2641,7 +2790,44 @@ function LeadDetail({
     setBuyerMatches([]);
     setBuyerMatchMessage("");
     setIsFindingBuyers(false);
+    setActivities([]);
+    setLeadLock(null);
+    setActivityMessage("");
+    notesSnapshotRef.current = lead.notes || "";
   }, [lead.id]);
+
+  React.useEffect(() => {
+    let cancelled = false;
+
+    async function hydrateActivity() {
+      if (!authToken || !lead.id) return;
+
+      try {
+        const [activityResult, lockResult] = await Promise.all([
+          fetchLeadActivity(lead.id, authToken),
+          lockLeadForUser(lead.id, authToken)
+        ]);
+
+        if (cancelled) return;
+        setActivities(activityResult);
+        setLeadLock(lockResult);
+        if (lockResult?.lockedByUserId) {
+          onUpdate({
+            lockedByUserId: lockResult.lockedByUserId,
+            lockedByUserName: lockResult.lockedByUserName,
+            lockedUntil: lockResult.lockedUntil
+          });
+        }
+      } catch {
+        if (!cancelled) setActivityMessage("Activity timeline will load once the backend responds.");
+      }
+    }
+
+    hydrateActivity();
+    return () => {
+      cancelled = true;
+    };
+  }, [authToken, lead.id]);
 
   function saveMyMapsUrl(value) {
     setMyMapsUrl(value);
@@ -2713,6 +2899,13 @@ function LeadDetail({
         <button className="secondary-button" onClick={onNext}>Next</button>
       </div>
 
+      {isActiveLeadLock(leadLock) && leadLock.lockedByUserId !== currentUser?.username ? (
+        <div className="recent-contact-warning">
+          Recently opened by {leadLock.lockedByUserName} until {formatActivityTime(leadLock.lockedUntil)}.
+          Admin can continue if needed.
+        </div>
+      ) : null}
+
       <div className="detail-address">
         <label className="owner-name-field">
           Owner Name
@@ -2733,7 +2926,7 @@ function LeadDetail({
       </div>
 
       <div className="quick-actions">
-        <ContactLink disabled={!phoneHref} href={phoneHref} label="Call" />
+        <ContactLink disabled={!phoneHref} href={phoneHref} label="Call" onClick={() => handleCallClick(phones[0])} />
         <ContactLink disabled={!emailHref} href={emailHref} label="Email" />
         <ContactLink href={streetViewUrl} label="Street View" />
         <ContactLink href={mapUrl} label="Map" />
@@ -2746,8 +2939,8 @@ function LeadDetail({
             <div>
               {phones.map((phone) => (
                 <span className="phone-action-group" key={phone}>
-                  <a href={`tel:${phone.replace(/[^\d+]/g, "")}`}>{formatPhone(phone)}</a>
-                  <a href={buildGoogleVoiceUrl(phone)} rel="noreferrer" target="_blank">Voice</a>
+                  <a href={`tel:${phone.replace(/[^\d+]/g, "")}`} onClick={() => handleCallClick(phone)}>{formatPhone(phone)}</a>
+                  <a href={buildGoogleVoiceUrl(phone)} onClick={() => handleCallClick(phone)} rel="noreferrer" target="_blank">Voice</a>
                 </span>
               ))}
             </div>
@@ -3046,14 +3239,16 @@ function LeadDetail({
         <input
           type="date"
           value={lead.followUpDate || ""}
-          onChange={(event) => onUpdate({ followUpDate: event.target.value, stage: event.target.value ? "Follow Up" : lead.stage })}
+          onChange={(event) => handleFollowUpChange(event.target.value)}
         />
       </label>
 
       <label className="detail-field">
         Notes
-        <textarea value={lead.notes || ""} onChange={(event) => onUpdate({ notes: event.target.value })} />
+        <textarea value={lead.notes || ""} onBlur={handleNotesBlur} onChange={(event) => onUpdate({ notes: event.target.value })} />
       </label>
+
+      <ActivityTimeline activities={activities} message={activityMessage} />
 
       <div className="disposition-section">
         <p>Call Result</p>
@@ -3062,7 +3257,7 @@ function LeadDetail({
             <button
               className={`disposition-button ${getLeadContactStatus(lead).value === status.value ? "active" : ""}`}
               key={status.value}
-              onClick={() => onStatusChange(status.value)}
+              onClick={() => handleStatusChange(status.value)}
             >
               <span className={`status-dot ${status.color}`} />
               {status.label}
@@ -3075,8 +3270,8 @@ function LeadDetail({
         <button className="agreement-button" onClick={onStartAgreement}>Create Purchase Agreement</button>
         {lead.needsReview ? (
           <>
-            <button className="secondary-button" onClick={onMarkReviewed}>Mark Reviewed</button>
-            <button className="primary-button" onClick={onMarkReviewedAndNext}>Reviewed + Next</button>
+            <button className="secondary-button" onClick={handleMarkReviewed}>Mark Reviewed</button>
+            <button className="primary-button" onClick={handleMarkReviewedAndNext}>Reviewed + Next</button>
           </>
         ) : null}
         <button className="secondary-button" onClick={onEdit}>Edit Full Lead</button>
@@ -3203,6 +3398,41 @@ function AgreementForm({ authToken, lead, onClose }) {
   );
 }
 
+function ActivityTimeline({ activities, message }) {
+  return (
+    <section className="activity-timeline" aria-label="Lead activity timeline">
+      <div className="section-heading compact-heading">
+        <p className="eyebrow">Activity</p>
+        <h2>Call Timeline</h2>
+      </div>
+
+      {message ? <p className="parcel-message">{message}</p> : null}
+
+      {activities.length > 0 ? (
+        <div className="activity-list">
+          {activities.slice(0, 12).map((activity) => (
+            <article className="activity-item" key={activity.id}>
+              <div>
+                <strong>{activity.userNameSnapshot}</strong>
+                <span>{getActivityActionLabel(activity.actionType)}</span>
+              </div>
+              <p>
+                {activity.callOutcome ? <b>{activity.callOutcome}</b> : null}
+                {activity.notes ? <span>{activity.notes}</span> : null}
+              </p>
+              <small>{formatActivityTime(activity.createdAt)}</small>
+            </article>
+          ))}
+        </div>
+      ) : (
+        <div className="mini-empty">
+          <p>No activity logged yet.</p>
+        </div>
+      )}
+    </section>
+  );
+}
+
 function DetailItem({ label, value }) {
   return (
     <div className="detail-item">
@@ -3212,13 +3442,13 @@ function DetailItem({ label, value }) {
   );
 }
 
-function ContactLink({ disabled = false, href, label }) {
+function ContactLink({ disabled = false, href, label, onClick }) {
   if (disabled) {
     return <span className="quick-link disabled">{label}</span>;
   }
 
   return (
-    <a className="quick-link" href={href} rel="noreferrer" target={href?.startsWith("http") ? "_blank" : undefined}>
+    <a className="quick-link" href={href} onClick={onClick} rel="noreferrer" target={href?.startsWith("http") ? "_blank" : undefined}>
       {label}
     </a>
   );
@@ -3376,8 +3606,45 @@ function sanitizeLeads(value) {
       maxOfferPercent: safeText(lead.maxOfferPercent) || "70",
       assignmentFee: safeText(lead.assignmentFee),
       contactStatus: safeText(lead.contactStatus),
-      followUpDate: safeText(lead.followUpDate)
+      followUpDate: safeText(lead.followUpDate),
+      lastContactedUserId: safeText(lead.lastContactedUserId),
+      lastContactedBy: safeText(lead.lastContactedBy),
+      lastContactedAt: safeText(lead.lastContactedAt),
+      lastActivityAction: safeText(lead.lastActivityAction),
+      lockedByUserId: safeText(lead.lockedByUserId),
+      lockedByUserName: safeText(lead.lockedByUserName),
+      lockedUntil: safeText(lead.lockedUntil)
     }));
+}
+
+function sanitizeLeadActivities(value) {
+  if (!Array.isArray(value)) return [];
+
+  return value
+    .filter((item) => item && typeof item === "object")
+    .map((item, index) => ({
+      id: safeText(item.id) || `activity-${Date.now()}-${index}`,
+      leadId: safeText(item.leadId),
+      userId: safeText(item.userId),
+      userNameSnapshot: safeText(item.userNameSnapshot) || "Unknown User",
+      actionType: safeText(item.actionType) || "note_added",
+      callOutcome: safeText(item.callOutcome),
+      notes: safeText(item.notes),
+      createdAt: safeText(item.createdAt),
+      followUpDate: safeText(item.followUpDate),
+      leadAddress: safeText(item.leadAddress)
+    }));
+}
+
+function sanitizeLeadLock(value = {}) {
+  const lock = value && typeof value === "object" ? value : {};
+  return {
+    leadId: safeText(lock.leadId),
+    lockedByUserId: safeText(lock.lockedByUserId),
+    lockedByUserName: safeText(lock.lockedByUserName),
+    lockedUntil: safeText(lock.lockedUntil),
+    isActive: Boolean(lock.isActive)
+  };
 }
 
 function sanitizeImports(value) {
@@ -3585,6 +3852,81 @@ async function fetchCurrentUser(token) {
     throw new Error("User fetch failed");
   }
 
+  async function addLeadActivity(activity) {
+    if (!authToken || !lead.id) return null;
+
+    try {
+      const savedActivity = await recordLeadActivity(lead.id, activity, authToken);
+      setActivities((current) => [savedActivity, ...current.filter((item) => item.id !== savedActivity.id)]);
+      if (["called", "call_started", "voicemail", "not_interested", "wrong_number", "status_changed", "follow_up_set", "hot_lead_marked"].includes(savedActivity.actionType)) {
+        onUpdate(applyActivityToLead(savedActivity));
+      } else {
+        onUpdate({ lastActivityAction: savedActivity.actionType });
+      }
+      return savedActivity;
+    } catch {
+      setActivityMessage("Could not save activity yet.");
+      return null;
+    }
+  }
+
+  function handleCallClick(phone = "") {
+    addLeadActivity({
+      actionType: "call_started",
+      callOutcome: "Call started",
+      notes: phone ? `Clicked call for ${formatPhone(phone)}` : "Clicked call",
+      phoneNumber: phone
+    });
+  }
+
+  async function handleStatusChange(status) {
+    const activity = await onStatusChange(status);
+    if (activity) {
+      setActivities((current) => [activity, ...current.filter((item) => item.id !== activity.id)]);
+    }
+  }
+
+  function handleFollowUpChange(value) {
+    onUpdate({ followUpDate: value, stage: value ? "Follow Up" : lead.stage });
+    if (value) {
+      addLeadActivity({
+        actionType: "follow_up_set",
+        callOutcome: "Follow Up",
+        notes: `Follow-up set for ${value}`,
+        followUpDate: value
+      });
+    }
+  }
+
+  function handleNotesBlur() {
+    const currentNotes = lead.notes || "";
+    if (currentNotes === notesSnapshotRef.current) return;
+    notesSnapshotRef.current = currentNotes;
+    addLeadActivity({
+      actionType: "note_added",
+      callOutcome: "Note Updated",
+      notes: "Lead notes updated."
+    });
+  }
+
+  function handleMarkReviewed() {
+    onMarkReviewed();
+    addLeadActivity({
+      actionType: "status_changed",
+      callOutcome: "Reviewed",
+      notes: "Lead marked reviewed."
+    });
+  }
+
+  function handleMarkReviewedAndNext() {
+    addLeadActivity({
+      actionType: "status_changed",
+      callOutcome: "Reviewed",
+      notes: "Lead marked reviewed and moved to next lead."
+    });
+    onMarkReviewedAndNext();
+  }
+
   return response.json();
 }
 
@@ -3652,6 +3994,79 @@ async function fetchDailyQuote(token) {
   }
 
   return response.json();
+}
+
+async function fetchLeadActivity(leadId, token) {
+  const response = await fetch(`${apiBaseUrl}/leads/${encodeURIComponent(leadId)}/activity`, {
+    headers: authHeaders(token)
+  });
+
+  if (!response.ok) {
+    throw new Error("Lead activity fetch failed");
+  }
+
+  return sanitizeLeadActivities(await response.json());
+}
+
+async function recordLeadActivity(leadId, activity, token) {
+  const response = await fetch(`${apiBaseUrl}/leads/${encodeURIComponent(leadId)}/activity`, {
+    method: "POST",
+    headers: {
+      ...authHeaders(token),
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(activity)
+  });
+
+  if (!response.ok) {
+    throw new Error("Lead activity save failed");
+  }
+
+  return sanitizeLeadActivities([await response.json()])[0];
+}
+
+async function lockLeadForUser(leadId, token) {
+  const response = await fetch(`${apiBaseUrl}/leads/${encodeURIComponent(leadId)}/lock`, {
+    method: "POST",
+    headers: authHeaders(token)
+  });
+
+  if (!response.ok) {
+    throw new Error("Lead lock failed");
+  }
+
+  return sanitizeLeadLock(await response.json());
+}
+
+async function fetchRecentTeamActivity(token) {
+  const response = await fetch(`${apiBaseUrl}/leads/activity/recent`, {
+    headers: authHeaders(token)
+  });
+
+  if (!response.ok) {
+    throw new Error("Recent activity fetch failed");
+  }
+
+  return sanitizeLeadActivities(await response.json());
+}
+
+async function fetchDailyCallCounts(token) {
+  const response = await fetch(`${apiBaseUrl}/leads/activity/daily-counts`, {
+    headers: authHeaders(token)
+  });
+
+  if (!response.ok) {
+    throw new Error("Daily call counts fetch failed");
+  }
+
+  const result = await response.json();
+  return Array.isArray(result)
+    ? result.map((item) => ({
+        userId: safeText(item.userId),
+        userName: safeText(item.userName),
+        count: Number(item.count) || 0
+      }))
+    : [];
 }
 
 async function fetchBackendLeads(token) {
@@ -4102,6 +4517,84 @@ function getContactStatus(value) {
   return contactStatuses.find((status) => status.value === value) || contactStatuses[0];
 }
 
+function getActivityActionLabel(actionType = "") {
+  const labels = {
+    called: "called this lead",
+    call_started: "started a call",
+    note_added: "added a note",
+    status_changed: "changed status",
+    follow_up_set: "set a follow-up",
+    hot_lead_marked: "marked Hot Lead",
+    not_interested: "marked Not Interested",
+    voicemail: "left voicemail",
+    wrong_number: "marked Wrong Number"
+  };
+  return labels[actionType] || actionType.replace(/_/g, " ") || "updated this lead";
+}
+
+function getActivityTypeForStatus(status = "") {
+  if (status === "left-voicemail") return "voicemail";
+  if (status === "not-interested") return "not_interested";
+  if (status === "follow-up") return "follow_up_set";
+  if (status === "confirmed") return "called";
+  if (status === "no-answer") return "called";
+  return "status_changed";
+}
+
+function formatActivityTime(value = "") {
+  const timestamp = Date.parse(value);
+  if (!Number.isFinite(timestamp)) return "Time missing";
+
+  const date = new Date(timestamp);
+  const now = new Date();
+  const time = date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  if (date.toDateString() === now.toDateString()) return `Today at ${time}`;
+
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+  if (date.toDateString() === yesterday.toDateString()) return `Yesterday at ${time}`;
+
+  return `${date.toLocaleDateString()} at ${time}`;
+}
+
+function isRecentTimestamp(value = "", minutes = 10) {
+  const timestamp = Date.parse(value);
+  if (!Number.isFinite(timestamp)) return false;
+  return Date.now() - timestamp <= minutes * 60 * 1000;
+}
+
+function isRecentlyContactedByAnother(lead = {}, user = {}) {
+  return Boolean(
+    lead.lastContactedAt &&
+    lead.lastContactedUserId &&
+    lead.lastContactedUserId !== user?.username &&
+    isRecentTimestamp(lead.lastContactedAt, 10)
+  );
+}
+
+function isActiveLeadLock(lock = {}) {
+  const timestamp = Date.parse(lock.lockedUntil || "");
+  return Boolean(lock.isActive && Number.isFinite(timestamp) && timestamp > Date.now());
+}
+
+function applyActivityToLead(activity = {}) {
+  return {
+    lastContactedUserId: activity.userId || "",
+    lastContactedBy: activity.userNameSnapshot || "",
+    lastContactedAt: activity.createdAt || "",
+    lastActivityAction: activity.actionType || ""
+  };
+}
+
+function pickLatestLeadActivity(currentLead = {}, backendLead = {}) {
+  const currentTime = Date.parse(currentLead.lastContactedAt || "");
+  const backendTime = Date.parse(backendLead.lastContactedAt || "");
+  if (Number.isFinite(backendTime) && (!Number.isFinite(currentTime) || backendTime >= currentTime)) {
+    return backendLead;
+  }
+  return currentLead;
+}
+
 function mergeBackendLeads(currentLeads, backendLeads) {
   const byAddress = new Map();
 
@@ -4119,6 +4612,7 @@ function mergeBackendLeads(currentLeads, backendLeads) {
     }
 
     const phones = mergePhones(currentLead, backendLead);
+    const activityLead = pickLatestLeadActivity(currentLead, backendLead);
     byAddress.set(key, normalizeLeadPhones({
       ...currentLead,
       ...backendLead,
@@ -4126,7 +4620,14 @@ function mergeBackendLeads(currentLeads, backendLeads) {
       phone: phones[0] || backendLead.phone || currentLead.phone || "",
       notes: currentLead.notes || backendLead.notes || "",
       contactStatus: currentLead.contactStatus || backendLead.contactStatus,
-      followUpDate: currentLead.followUpDate || backendLead.followUpDate || ""
+      followUpDate: currentLead.followUpDate || backendLead.followUpDate || "",
+      lastContactedUserId: activityLead.lastContactedUserId || "",
+      lastContactedBy: activityLead.lastContactedBy || "",
+      lastContactedAt: activityLead.lastContactedAt || "",
+      lastActivityAction: activityLead.lastActivityAction || "",
+      lockedByUserId: backendLead.lockedByUserId || currentLead.lockedByUserId || "",
+      lockedByUserName: backendLead.lockedByUserName || currentLead.lockedByUserName || "",
+      lockedUntil: backendLead.lockedUntil || currentLead.lockedUntil || ""
     }));
   }
 
@@ -4323,6 +4824,9 @@ function exportLeadsCsv(leads) {
     "Assigned To",
     "Source",
     "Follow-Up Date",
+    "Last Contacted By",
+    "Last Contacted At",
+    "Last Activity",
     "Notes",
     "Review Status"
   ];
@@ -4351,6 +4855,9 @@ function exportLeadsCsv(leads) {
       lead.owner,
       cleanSourceName(lead.source),
       lead.followUpDate,
+      lead.lastContactedBy,
+      lead.lastContactedAt,
+      lead.lastActivityAction,
       lead.notes,
       lead.needsReview ? "Needs Review" : "Reviewed"
     ];
@@ -4587,7 +5094,14 @@ function createDraftLeadFromImport(item) {
     assignmentFee: "",
     needsReview: true,
     contactStatus: "needs-review",
-    followUpDate: ""
+    followUpDate: "",
+    lastContactedUserId: "",
+    lastContactedBy: "",
+    lastContactedAt: "",
+    lastActivityAction: "",
+    lockedByUserId: "",
+    lockedByUserName: "",
+    lockedUntil: ""
   };
 }
 
@@ -4617,7 +5131,14 @@ function createLeadFromParsedPdf(parsedLead, fileName, index) {
     assignmentFee: "",
     needsReview: true,
     contactStatus: "needs-review",
-    followUpDate: ""
+    followUpDate: "",
+    lastContactedUserId: "",
+    lastContactedBy: "",
+    lastContactedAt: "",
+    lastActivityAction: "",
+    lockedByUserId: "",
+    lockedByUserName: "",
+    lockedUntil: ""
   };
 }
 
