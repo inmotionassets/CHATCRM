@@ -4572,9 +4572,10 @@ function isRecentlyContactedByAnother(lead = {}, user = {}) {
   );
 }
 
-function isActiveLeadLock(lock = {}) {
-  const timestamp = Date.parse(lock.lockedUntil || "");
-  return Boolean(lock.isActive && Number.isFinite(timestamp) && timestamp > Date.now());
+function isActiveLeadLock(lock) {
+  const safeLock = lock && typeof lock === "object" ? lock : {};
+  const timestamp = Date.parse(safeLock.lockedUntil || "");
+  return Boolean(safeLock.isActive && Number.isFinite(timestamp) && timestamp > Date.now());
 }
 
 function applyActivityToLead(activity = {}) {
