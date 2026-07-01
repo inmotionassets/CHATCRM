@@ -2883,6 +2883,81 @@ function LeadDetail({
     }
   }
 
+  async function addLeadActivity(activity) {
+    if (!authToken || !lead.id) return null;
+
+    try {
+      const savedActivity = await recordLeadActivity(lead.id, activity, authToken);
+      setActivities((current) => [savedActivity, ...current.filter((item) => item.id !== savedActivity.id)]);
+      if (["called", "call_started", "voicemail", "not_interested", "wrong_number", "status_changed", "follow_up_set", "hot_lead_marked"].includes(savedActivity.actionType)) {
+        onUpdate(applyActivityToLead(savedActivity));
+      } else {
+        onUpdate({ lastActivityAction: savedActivity.actionType });
+      }
+      return savedActivity;
+    } catch {
+      setActivityMessage("Could not save activity yet.");
+      return null;
+    }
+  }
+
+  function handleCallClick(phone = "") {
+    addLeadActivity({
+      actionType: "call_started",
+      callOutcome: "Call started",
+      notes: phone ? `Clicked call for ${formatPhone(phone)}` : "Clicked call",
+      phoneNumber: phone
+    });
+  }
+
+  async function handleStatusChange(status) {
+    const activity = await onStatusChange(status);
+    if (activity) {
+      setActivities((current) => [activity, ...current.filter((item) => item.id !== activity.id)]);
+    }
+  }
+
+  function handleFollowUpChange(value) {
+    onUpdate({ followUpDate: value, stage: value ? "Follow Up" : lead.stage });
+    if (value) {
+      addLeadActivity({
+        actionType: "follow_up_set",
+        callOutcome: "Follow Up",
+        notes: `Follow-up set for ${value}`,
+        followUpDate: value
+      });
+    }
+  }
+
+  function handleNotesBlur() {
+    const currentNotes = lead.notes || "";
+    if (currentNotes === notesSnapshotRef.current) return;
+    notesSnapshotRef.current = currentNotes;
+    addLeadActivity({
+      actionType: "note_added",
+      callOutcome: "Note Updated",
+      notes: "Lead notes updated."
+    });
+  }
+
+  function handleMarkReviewed() {
+    onMarkReviewed();
+    addLeadActivity({
+      actionType: "status_changed",
+      callOutcome: "Reviewed",
+      notes: "Lead marked reviewed."
+    });
+  }
+
+  function handleMarkReviewedAndNext() {
+    addLeadActivity({
+      actionType: "status_changed",
+      callOutcome: "Reviewed",
+      notes: "Lead marked reviewed and moved to next lead."
+    });
+    onMarkReviewedAndNext();
+  }
+
   return (
     <section className="lead-detail" aria-label="Lead details">
       <div className="panel-header">
@@ -3850,81 +3925,6 @@ async function fetchCurrentUser(token) {
 
   if (!response.ok) {
     throw new Error("User fetch failed");
-  }
-
-  async function addLeadActivity(activity) {
-    if (!authToken || !lead.id) return null;
-
-    try {
-      const savedActivity = await recordLeadActivity(lead.id, activity, authToken);
-      setActivities((current) => [savedActivity, ...current.filter((item) => item.id !== savedActivity.id)]);
-      if (["called", "call_started", "voicemail", "not_interested", "wrong_number", "status_changed", "follow_up_set", "hot_lead_marked"].includes(savedActivity.actionType)) {
-        onUpdate(applyActivityToLead(savedActivity));
-      } else {
-        onUpdate({ lastActivityAction: savedActivity.actionType });
-      }
-      return savedActivity;
-    } catch {
-      setActivityMessage("Could not save activity yet.");
-      return null;
-    }
-  }
-
-  function handleCallClick(phone = "") {
-    addLeadActivity({
-      actionType: "call_started",
-      callOutcome: "Call started",
-      notes: phone ? `Clicked call for ${formatPhone(phone)}` : "Clicked call",
-      phoneNumber: phone
-    });
-  }
-
-  async function handleStatusChange(status) {
-    const activity = await onStatusChange(status);
-    if (activity) {
-      setActivities((current) => [activity, ...current.filter((item) => item.id !== activity.id)]);
-    }
-  }
-
-  function handleFollowUpChange(value) {
-    onUpdate({ followUpDate: value, stage: value ? "Follow Up" : lead.stage });
-    if (value) {
-      addLeadActivity({
-        actionType: "follow_up_set",
-        callOutcome: "Follow Up",
-        notes: `Follow-up set for ${value}`,
-        followUpDate: value
-      });
-    }
-  }
-
-  function handleNotesBlur() {
-    const currentNotes = lead.notes || "";
-    if (currentNotes === notesSnapshotRef.current) return;
-    notesSnapshotRef.current = currentNotes;
-    addLeadActivity({
-      actionType: "note_added",
-      callOutcome: "Note Updated",
-      notes: "Lead notes updated."
-    });
-  }
-
-  function handleMarkReviewed() {
-    onMarkReviewed();
-    addLeadActivity({
-      actionType: "status_changed",
-      callOutcome: "Reviewed",
-      notes: "Lead marked reviewed."
-    });
-  }
-
-  function handleMarkReviewedAndNext() {
-    addLeadActivity({
-      actionType: "status_changed",
-      callOutcome: "Reviewed",
-      notes: "Lead marked reviewed and moved to next lead."
-    });
-    onMarkReviewedAndNext();
   }
 
   return response.json();
