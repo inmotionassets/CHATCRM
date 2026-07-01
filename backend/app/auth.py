@@ -150,6 +150,14 @@ USERS = {
         "name": "Acquisition Caller 10",
         "role": "Acquisition",
     },
+    "acq-demo": {
+        "password_hash": "709cb6cd3879d510d374ec1bce1a39288311a01a59f17497fba6ae92132f5881",
+        "name": "Acquisition Demo",
+        "role": "Acquisition",
+        "email": "acq-demo@chatcrm.local",
+        "profile_complete": True,
+        "agreement_signed": True,
+    },
 }
 
 
@@ -267,14 +275,14 @@ def build_user(username: str) -> User | None:
 
     profile = load_profile(clean_username)
     is_admin = record["role"] == "Admin"
-    profile_complete = is_admin or bool(profile.name.strip() and profile.email.strip())
-    agreement_signed = is_admin or bool(profile.signature.strip() and profile.signed_at.strip())
+    profile_complete = is_admin or bool(record.get("profile_complete")) or bool(profile.name.strip() and profile.email.strip())
+    agreement_signed = is_admin or bool(record.get("agreement_signed")) or bool(profile.signature.strip() and profile.signed_at.strip())
 
     return User(
         username=clean_username,
         name=profile.name.strip() or record["name"],
         role=record["role"],
-        email=profile.email.strip(),
+        email=profile.email.strip() or str(record.get("email", "")),
         profile_complete=profile_complete,
         agreement_signed=agreement_signed,
     )
