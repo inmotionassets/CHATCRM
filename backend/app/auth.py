@@ -100,6 +100,11 @@ USERS = {
         "name": "Virgo Davis",
         "role": "Admin",
     },
+    "shawn": {
+        "password_hash": "be26741b2ba331681301031661dd7aed10503ac1614a3af9c16c1629a7a72b2f",
+        "name": "Shawn",
+        "role": "Admin",
+    },
     "acq-caller-01": {
         "password_hash": "00745463c0c84317cf5f325166e4fbf688417c7e7811bafccc212332151f39fa",
         "name": "Acquisition Caller 01",
