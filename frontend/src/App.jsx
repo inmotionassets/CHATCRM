@@ -945,18 +945,22 @@ export function App() {
           </div>
         </header>
 
-        <section className="stats-grid" aria-label="Lead stats">
-          <Stat label="Total Leads" value={leads.length} />
-          <Stat label="Needs Follow-Up" value={followUps} />
-          <Stat label="Hot Leads" value={hotLeads} />
-          <Stat label="Buyers" value={buyers.length} />
-          <Stat label="PDF Imports" value={imports.length} />
-        </section>
+        {activeView === "Leads" ? (
+          <>
+            <section className="stats-grid" aria-label="Lead stats">
+              <Stat label="Total Leads" value={leads.length} />
+              <Stat label="Needs Follow-Up" value={followUps} />
+              <Stat label="Hot Leads" value={hotLeads} />
+              <Stat label="Buyers" value={buyers.length} />
+              <Stat label="PDF Imports" value={imports.length} />
+            </section>
 
-        <section className="dashboard-support-grid" aria-label="Dashboard tools">
-          <CommissionDashboardCard />
-          <DailyQuoteCard authToken={authToken} />
-        </section>
+            <section className="dashboard-support-grid" aria-label="Dashboard tools">
+              <CommissionDashboardCard />
+              <DailyQuoteCard authToken={authToken} />
+            </section>
+          </>
+        ) : null}
         <section className={`content-grid ${activeView === "Leads" || isFormOpen ? "" : "single-column"}`}>
           {activeView === "Leads" ? (
           <div className="panel">
