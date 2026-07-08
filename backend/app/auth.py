@@ -88,6 +88,19 @@ class AgreementSignResponse(BaseModel):
     download_url: str
 
 
+class OnboardingStatus(BaseModel):
+    username: str
+    display_name: str
+    role: str
+    name: str = ""
+    email: str = ""
+    profile_complete: bool = False
+    agreement_signed: bool = False
+    signed_at: str = ""
+    agreement_version: str = ""
+    download_url: str = ""
+
+
 class DailyQuote(BaseModel):
     quote: str
     author: str = ""
@@ -364,6 +377,18 @@ def signed_agreement_path(username: str) -> Path:
     return CONTRACTS_PATH / f"chatcrm-signed-partner-agreement-{safe_username}.pdf"
 
 
+def get_or_build_signed_agreement(username: str) -> Path:
+    file_path = signed_agreement_path(username)
+    if file_path.exists():
+        return file_path
+
+    profile = load_profile(username)
+    if profile.signature.strip() and profile.signed_at.strip():
+        return build_signed_partner_pdf(profile)
+
+    return file_path
+
+
 def build_signed_partner_pdf(profile: UserProfile) -> Path:
     file_path = signed_agreement_path(profile.username)
     styles = getSampleStyleSheet()
@@ -435,6 +460,35 @@ def build_signed_partner_pdf(profile: UserProfile) -> Path:
     return file_path
 
 
+def list_onboarding_statuses() -> list[OnboardingStatus]:
+    statuses: list[OnboardingStatus] = []
+
+    for username, record in USERS.items():
+        profile = load_profile(username)
+        user = build_user(username)
+        signed_by_profile = bool(profile.signature.strip() and profile.signed_at.strip())
+        signed_by_record = bool(record.get("agreement_signed")) or record["role"] == "Admin"
+        agreement_signed = signed_by_profile or signed_by_record
+        has_download = signed_by_profile or signed_agreement_path(username).exists()
+
+        statuses.append(
+            OnboardingStatus(
+                username=username,
+                display_name=str(record["name"]),
+                role=str(record["role"]),
+                name=profile.name.strip(),
+                email=profile.email.strip() or str(record.get("email", "")),
+                profile_complete=bool(user.profile_complete if user else False),
+                agreement_signed=agreement_signed,
+                signed_at=profile.signed_at.strip(),
+                agreement_version=profile.agreement_version.strip() if signed_by_profile else "",
+                download_url=f"/auth/admin/onboarding/{username}/agreement" if has_download else "",
+            )
+        )
+
+    return statuses
+
+
 def get_daily_quote() -> DailyQuote:
     today = datetime.now(timezone.utc).date().isoformat()
     cached_quote = QUOTE_CACHE.get("quote")
@@ -504,3 +558,4 @@ def _b64encode(value: bytes) -> str:
 def _b64decode(value: str) -> str:
     padding = "=" * (-len(value) % 4)
     return base64.urlsafe_b64decode(value + padding).decode()
+

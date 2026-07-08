@@ -8,18 +8,26 @@ from ..auth import (
     DailyQuote,
     LoginRequest,
     LoginResponse,
+    OnboardingStatus,
     ProfileUpdate,
     User,
     authenticate_user,
     build_user,
     create_token,
     get_daily_quote,
+    get_or_build_signed_agreement,
+    list_onboarding_statuses,
     sign_partner_agreement,
-    signed_agreement_path,
     update_user_profile,
 )
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+
+def require_admin(current_user: User) -> None:
+    refreshed_user = build_user(current_user.username) or current_user
+    if refreshed_user.role != "Admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required")
 
 
 @router.post("/login", response_model=LoginResponse)
@@ -48,7 +56,26 @@ def sign_onboarding_agreement(payload: AgreementSignRequest, current_user: Curre
 
 @router.get("/onboarding/agreement")
 def download_signed_onboarding_agreement(current_user: CurrentUser):
-    file_path = signed_agreement_path(current_user.username)
+    file_path = get_or_build_signed_agreement(current_user.username)
+    if not file_path.exists():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Signed agreement not found")
+
+    return FileResponse(file_path, media_type="application/pdf", filename=file_path.name)
+
+
+@router.get("/admin/onboarding", response_model=list[OnboardingStatus])
+def admin_onboarding_tracker(current_user: CurrentUser):
+    require_admin(current_user)
+    return list_onboarding_statuses()
+
+
+@router.get("/admin/onboarding/{username}/agreement")
+def download_admin_signed_onboarding_agreement(username: str, current_user: CurrentUser):
+    require_admin(current_user)
+    if not build_user(username):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    file_path = get_or_build_signed_agreement(username)
     if not file_path.exists():
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Signed agreement not found")
 

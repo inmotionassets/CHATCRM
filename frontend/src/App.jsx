@@ -292,10 +292,13 @@ export function App() {
   const [agreementLead, setAgreementLead] = React.useState(null);
   const [buyerMessage, setBuyerMessage] = React.useState("");
   const [onboardingMessage, setOnboardingMessage] = React.useState("");
+  const [teamOnboardingRows, setTeamOnboardingRows] = React.useState([]);
+  const [teamOnboardingMessage, setTeamOnboardingMessage] = React.useState("");
   const fileInputRef = React.useRef(null);
   const buyerFileInputRef = React.useRef(null);
   const cadFileInputRef = React.useRef(null);
   const authToken = auth?.accessToken || "";
+  const visibleMainViews = auth?.user?.role === "Admin" ? [...mainViews, "Team"] : mainViews;
 
   async function login(username, password) {
     setLoginError("");
@@ -366,6 +369,19 @@ export function App() {
     setOnboardingMessage("Preparing your signed agreement download...");
     await downloadSignedOnboardingAgreement(authToken);
     setOnboardingMessage("Download started.");
+  }
+
+  async function refreshTeamOnboarding() {
+    if (!authToken || auth?.user?.role !== "Admin") return;
+
+    setTeamOnboardingMessage("Checking team onboarding...");
+    try {
+      const rows = await fetchAdminOnboardingStatuses(authToken);
+      setTeamOnboardingRows(rows);
+      setTeamOnboardingMessage("");
+    } catch {
+      setTeamOnboardingMessage("Could not load team onboarding yet.");
+    }
   }
   React.useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -445,6 +461,31 @@ export function App() {
     };
   }, [authToken]);
 
+  React.useEffect(() => {
+    let cancelled = false;
+
+    async function hydrateTeamOnboarding() {
+      if (!authToken || auth?.user?.role !== "Admin") {
+        setTeamOnboardingRows([]);
+        return;
+      }
+
+      try {
+        const rows = await fetchAdminOnboardingStatuses(authToken);
+        if (!cancelled) {
+          setTeamOnboardingRows(rows);
+          setTeamOnboardingMessage("");
+        }
+      } catch {
+        if (!cancelled) setTeamOnboardingMessage("Could not load team onboarding yet.");
+      }
+    }
+
+    hydrateTeamOnboarding();
+    return () => {
+      cancelled = true;
+    };
+  }, [authToken, auth?.user?.role]);
   React.useEffect(() => {
     if (!backendReady || !authToken || leads.length === 0) return undefined;
     setSaveStatus("Saving...");
@@ -825,7 +866,7 @@ export function App() {
         </div>
 
         <nav className="nav-list" aria-label="Main navigation">
-          {mainViews.map((view) => (
+          {visibleMainViews.map((view) => (
             <button
               className={`nav-item ${activeView === view ? "active" : ""}`}
               key={view}
@@ -1064,6 +1105,16 @@ export function App() {
 
           {activeView === "Training" ? (
             <TrainingView />
+          ) : null}
+
+
+          {activeView === "Team" && auth.user?.role === "Admin" ? (
+            <TeamOnboardingView
+              authToken={authToken}
+              message={teamOnboardingMessage}
+              onRefresh={refreshTeamOnboarding}
+              rows={teamOnboardingRows}
+            />
           ) : null}
 
           {activeView === "Leads" || isFormOpen ? (
@@ -2491,6 +2542,85 @@ function TrainingView() {
   );
 }
 
+function TeamOnboardingView({ authToken, message, onRefresh, rows }) {
+  const signedCount = rows.filter((row) => row.agreementSigned).length;
+  const profileCount = rows.filter((row) => row.profileComplete).length;
+  const missingNames = rows.filter((row) => !row.name && row.role !== "Admin").length;
+
+  async function downloadAgreement(row) {
+    try {
+      await downloadAdminSignedAgreement(row.username, authToken);
+    } catch {
+      window.alert("Signed agreement is not ready to download yet.");
+    }
+  }
+
+  return (
+    <div className="panel wide-panel team-onboarding">
+      <div className="panel-header">
+        <div>
+          <p className="eyebrow">Team</p>
+          <h2>Onboarding Tracker</h2>
+        </div>
+        <button className="secondary-button" onClick={onRefresh}>Refresh</button>
+      </div>
+
+      <p className="team-onboarding-note">
+        Watch each caller finish their first login, add their name and email, sign the agreement, and download the signed PDF.
+      </p>
+
+      <div className="team-summary-grid">
+        <Stat label="Total Accounts" value={rows.length} />
+        <Stat label="Profiles Done" value={profileCount} />
+        <Stat label="Agreements Signed" value={signedCount} />
+        <Stat label="Names Missing" value={missingNames} />
+      </div>
+
+      {message ? <div className="mini-empty"><p>{message}</p></div> : null}
+
+      <div className="onboarding-table-wrap">
+        <table className="onboarding-table">
+          <thead>
+            <tr>
+              <th>Login</th>
+              <th>Role</th>
+              <th>Name</th>
+              <th>Email</th>
+              <th>Profile</th>
+              <th>Agreement</th>
+              <th>Signed</th>
+              <th>PDF</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={row.username}>
+                <td><strong>{row.username}</strong><span>{row.displayName}</span></td>
+                <td>{row.role}</td>
+                <td>{row.name || "Waiting"}</td>
+                <td>{row.email || "Waiting"}</td>
+                <td><StatusPill good={row.profileComplete} label={row.profileComplete ? "Complete" : "Missing"} /></td>
+                <td><StatusPill good={row.agreementSigned} label={row.agreementSigned ? "Signed" : "Not signed"} /></td>
+                <td>{row.signedAt ? formatActivityTime(row.signedAt) : row.role === "Admin" ? "Admin" : "Waiting"}</td>
+                <td>
+                  {row.downloadUrl ? (
+                    <button className="mini-action-button" onClick={() => downloadAgreement(row)}>Download</button>
+                  ) : (
+                    <span className="muted-table-text">Not ready</span>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function StatusPill({ good, label }) {
+  return <span className={`status-pill ${good ? "good" : "warn"}`}>{label}</span>;
+}
 function LeadForm({ formLead, isEditing, onCancel, onChange, onSubmit }) {
   function updateField(field, value) {
     onChange({ ...formLead, [field]: value });
@@ -3722,6 +3852,30 @@ function sanitizeLeadLock(value = {}) {
   };
 }
 
+function sanitizeOnboardingStatuses(value) {
+  if (!Array.isArray(value)) return [];
+
+  return value
+    .filter((item) => item && typeof item === "object")
+    .map((item) => ({
+      username: safeText(item.username),
+      displayName: safeText(item.displayName || item.display_name),
+      role: safeText(item.role),
+      name: safeText(item.name),
+      email: safeText(item.email),
+      profileComplete: Boolean(item.profileComplete ?? item.profile_complete),
+      agreementSigned: Boolean(item.agreementSigned ?? item.agreement_signed),
+      signedAt: safeText(item.signedAt || item.signed_at),
+      agreementVersion: safeText(item.agreementVersion || item.agreement_version),
+      downloadUrl: safeText(item.downloadUrl || item.download_url)
+    }))
+    .filter((item) => item.username)
+    .sort((a, b) => {
+      if (a.role === "Admin" && b.role !== "Admin") return -1;
+      if (a.role !== "Admin" && b.role === "Admin") return 1;
+      return a.username.localeCompare(b.username);
+    });
+}
 function sanitizeImports(value) {
   if (!Array.isArray(value)) return [];
 
@@ -3984,6 +4138,37 @@ async function downloadSignedOnboardingAgreement(token) {
   window.setTimeout(() => window.URL.revokeObjectURL(url), 500);
 }
 
+async function fetchAdminOnboardingStatuses(token) {
+  const response = await fetch(`${apiBaseUrl}/auth/admin/onboarding`, {
+    headers: authHeaders(token)
+  });
+
+  if (!response.ok) {
+    throw new Error("Team onboarding fetch failed");
+  }
+
+  return sanitizeOnboardingStatuses(await response.json());
+}
+
+async function downloadAdminSignedAgreement(username, token) {
+  const response = await fetch(`${apiBaseUrl}/auth/admin/onboarding/${encodeURIComponent(username)}/agreement`, {
+    headers: authHeaders(token)
+  });
+
+  if (!response.ok) {
+    throw new Error("Admin agreement download failed");
+  }
+
+  const blob = await response.blob();
+  const url = window.URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `chatcrm-signed-agreement-${username}.pdf`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => window.URL.revokeObjectURL(url), 500);
+}
 async function fetchDailyQuote(token) {
   const response = await fetch(`${apiBaseUrl}/auth/quote/today`, {
     headers: authHeaders(token)
