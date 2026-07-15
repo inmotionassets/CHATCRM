@@ -1026,16 +1026,18 @@ export function App() {
               Showing {displayedLeads.length} of {filteredLeads.length} matching leads / {leads.length} total
             </p>
             <StatusLegend />
-            <BulkToolbar
-              allVisibleSelected={allVisibleSelected}
-              onApplyStage={applyBulkStage}
-              onApplyStatus={applyBulkStatus}
-              onClear={() => setSelectedLeadIds([])}
-              onDelete={deleteSelectedLeads}
-              onRemoveDuplicates={removeDuplicateLeads}
-              onToggleAll={toggleAllVisible}
-              selectedCount={selectedLeadIds.length}
-            />
+            {isAdmin ? (
+              <BulkToolbar
+                allVisibleSelected={allVisibleSelected}
+                onApplyStage={applyBulkStage}
+                onApplyStatus={applyBulkStatus}
+                onClear={() => setSelectedLeadIds([])}
+                onDelete={deleteSelectedLeads}
+                onRemoveDuplicates={removeDuplicateLeads}
+                onToggleAll={toggleAllVisible}
+                selectedCount={selectedLeadIds.length}
+              />
+            ) : null}
 
             <div className="lead-table">
               {displayedLeads.length > 0 ? (
@@ -1075,9 +1077,11 @@ export function App() {
                       <a href={buildGoogleMapsUrl(lead.address)} rel="noreferrer" target="_blank">Map</a>
                       <a href={buildStreetViewUrl(lead.address)} rel="noreferrer" target="_blank">Street</a>
                       <button onClick={() => openEditForm(lead)}>Edit</button>
-                      <button className="danger-button" onClick={() => deleteLead(lead.id)}>
-                        Delete
-                      </button>
+                      {isAdmin ? (
+                        <button className="danger-button" onClick={() => deleteLead(lead.id)}>
+                          Delete
+                        </button>
+                      ) : null}
                     </div>
                   </article>
                 ))
@@ -4872,7 +4876,7 @@ function pickLatestLeadActivity(currentLead = {}, backendLead = {}) {
 }
 
 function mergeBackendLeads(currentLeads, backendLeads) {
-  const byAddress = new Map();
+  const byAddress = new globalThis.Map();
 
   for (const lead of currentLeads) {
     byAddress.set(normalizeText(lead.address), lead);
@@ -5036,7 +5040,7 @@ function inferCountyFromAddress(address = "") {
 }
 
 function mergeBuyerProfiles(currentBuyers, incomingBuyers) {
-  const merged = new Map();
+  const merged = new globalThis.Map();
 
   for (const buyer of sanitizeBuyers(currentBuyers)) {
     merged.set(getBuyerMergeKey(buyer), buyer);
@@ -5326,7 +5330,7 @@ function calculateOffer(lead) {
 }
 
 function buildCallerLeaderboard(leads = []) {
-  const map = new Map();
+  const map = new globalThis.Map();
 
   for (const lead of leads) {
     const name = safeText(lead.lastContactedBy || lead.owner);
