@@ -91,6 +91,7 @@ const contactStatuses = [
   { value: "follow-up", label: "Follow Up", color: "yellow" }
 ];
 const mainViews = ["Leads", "Pipeline", "Property Intelligence", "Buyer Network", "Imports", "Analytics", "Training"];
+const callerViews = ["Dashboard", "Leads", "Training", "Leaderboard", "Profile"];
 const commissionTiers = [
   { min: 0, max: 9999, rate: 0.15, label: "$0 - $9,999" },
   { min: 10000, max: 19999, rate: 0.2, label: "$10,000 - $19,999" },
@@ -298,7 +299,14 @@ export function App() {
   const buyerFileInputRef = React.useRef(null);
   const cadFileInputRef = React.useRef(null);
   const authToken = auth?.accessToken || "";
-  const visibleMainViews = auth?.user?.role === "Admin" ? [...mainViews, "Team"] : mainViews;
+  const isAdmin = auth?.user?.role === "Admin";
+  const visibleMainViews = isAdmin ? [...mainViews, "Team"] : callerViews;
+
+  React.useEffect(() => {
+    if (!visibleMainViews.includes(activeView)) {
+      setActiveView(visibleMainViews[0] || "Leads");
+    }
+  }, [activeView, visibleMainViews.join("|")]);
 
   async function login(username, password) {
     setLoginError("");
@@ -906,6 +914,8 @@ export function App() {
           <div className="actions">
             <span className={`save-status ${saveStatus === "Saved" ? "saved" : ""}`}>{saveStatus}</span>
             <span className="user-badge">{auth.user?.role}</span>
+            {isAdmin ? (
+            <>
             <input
               accept="application/pdf,text/csv,.pdf,.csv"
               className="file-input"
@@ -932,6 +942,8 @@ export function App() {
             <button className="secondary-button" onClick={openReviewQueue}>
               Review Queue
             </button>
+            </>
+            ) : null}
             <button
               aria-label={theme === "dark" ? "Switch to Light Mode" : "Switch to Dark Mode"}
               className="secondary-button toolbar-theme-button"
@@ -945,14 +957,18 @@ export function App() {
           </div>
         </header>
 
-        {activeView === "Leads" ? (
+        {activeView === "Dashboard" || (isAdmin && activeView === "Leads") ? (
           <>
             <section className="stats-grid" aria-label="Lead stats">
               <Stat label="Total Leads" value={leads.length} />
               <Stat label="Needs Follow-Up" value={followUps} />
               <Stat label="Hot Leads" value={hotLeads} />
+              {isAdmin ? (
+              <>
               <Stat label="Buyers" value={buyers.length} />
               <Stat label="PDF Imports" value={imports.length} />
+              </>
+              ) : null}
             </section>
 
             <section className="dashboard-support-grid" aria-label="Dashboard tools">
@@ -961,7 +977,7 @@ export function App() {
             </section>
           </>
         ) : null}
-        <section className={`content-grid ${activeView === "Leads" || isFormOpen ? "" : "single-column"}`}>
+        <section className={`content-grid ${(isAdmin && activeView === "Leads") || isFormOpen ? "" : "single-column"}`}>
           {activeView === "Leads" ? (
           <div className="panel">
             <div className="panel-header">
@@ -1111,6 +1127,14 @@ export function App() {
             <TrainingView />
           ) : null}
 
+          {activeView === "Leaderboard" ? (
+            <LeaderboardView leads={leads} currentUser={auth.user} />
+          ) : null}
+
+          {activeView === "Profile" ? (
+            <CallerProfileView currentUser={auth.user} leads={leads} />
+          ) : null}
+
 
           {activeView === "Team" && auth.user?.role === "Admin" ? (
             <TeamOnboardingView
@@ -1121,7 +1145,7 @@ export function App() {
             />
           ) : null}
 
-          {activeView === "Leads" || isFormOpen ? (
+          {(isAdmin && activeView === "Leads") || isFormOpen ? (
           <aside className="panel side-panel">
             {isFormOpen ? (
               <LeadForm
@@ -1475,6 +1499,63 @@ function ImportList({ importMessage, imports }) {
         </div>
       )}
     </section>
+  );
+}
+
+function LeaderboardView({ leads, currentUser }) {
+  const rows = buildCallerLeaderboard(leads);
+  const myName = safeText(currentUser?.name || currentUser?.username);
+
+  return (
+    <div className="panel wide-panel">
+      <div className="panel-header">
+        <div>
+          <p className="eyebrow">Leaderboard</p>
+          <h2>Caller Activity</h2>
+        </div>
+      </div>
+
+      <div className="leaderboard-list">
+        {rows.length > 0 ? rows.map((row, index) => (
+          <article className={`leaderboard-row ${row.name === myName ? "active" : ""}`} key={row.name}>
+            <strong>#{index + 1}</strong>
+            <span>{row.name}</span>
+            <small>{row.calls} calls / {row.hotLeads} hot leads / {row.followUps} follow-ups</small>
+          </article>
+        )) : (
+          <div className="empty-state">
+            <h3>No activity yet</h3>
+            <p>Caller rankings will build automatically from call outcomes and lead updates.</p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function CallerProfileView({ currentUser, leads }) {
+  const myName = safeText(currentUser?.name || currentUser?.username);
+  const myLeads = leads.filter((lead) => safeText(lead.lastContactedBy) === myName || safeText(lead.owner) === myName);
+  const hotLeads = myLeads.filter((lead) => getLeadContactStatus(lead).value === "confirmed" || Number(lead.score) >= 80).length;
+
+  return (
+    <div className="panel wide-panel profile-panel">
+      <div className="panel-header">
+        <div>
+          <p className="eyebrow">Profile</p>
+          <h2>{myName || "Caller Profile"}</h2>
+        </div>
+      </div>
+
+      <div className="detail-grid">
+        <DetailItem label="Username" value={currentUser?.username || "Missing"} />
+        <DetailItem label="Role" value={currentUser?.role || "Acquisition"} />
+        <DetailItem label="Email" value={currentUser?.email || "Add during onboarding"} />
+        <DetailItem label="My Leads" value={myLeads.length} />
+        <DetailItem label="Hot Leads" value={hotLeads} />
+        <DetailItem label="Agreement" value={currentUser?.agreement_signed ? "Signed" : "Needs Signature"} />
+      </div>
+    </div>
   );
 }
 
@@ -3481,14 +3562,14 @@ function LeadDetail({
       </div>
 
       <div className="detail-actions">
-        <button className="agreement-button" onClick={onStartAgreement}>Create Purchase Agreement</button>
+        {canUseAdminDealTools ? <button className="agreement-button" onClick={onStartAgreement}>Create Purchase Agreement</button> : null}
         {lead.needsReview ? (
           <>
             <button className="secondary-button" onClick={handleMarkReviewed}>Mark Reviewed</button>
             <button className="primary-button" onClick={handleMarkReviewedAndNext}>Reviewed + Next</button>
           </>
         ) : null}
-        <button className="secondary-button" onClick={onEdit}>Edit Full Lead</button>
+        {canUseAdminDealTools ? <button className="secondary-button" onClick={onEdit}>Edit Full Lead</button> : null}
       </div>
     </section>
   );
@@ -5242,6 +5323,23 @@ function calculateOffer(lead) {
   const maxOffer = Math.max(0, Math.round(arv * percent - repairs - assignmentFee));
   const spread = Math.max(0, Math.round(arv - repairs - maxOffer));
   return { maxOffer, spread };
+}
+
+function buildCallerLeaderboard(leads = []) {
+  const map = new Map();
+
+  for (const lead of leads) {
+    const name = safeText(lead.lastContactedBy || lead.owner);
+    if (!name || name === "Import Review" || name === "Unassigned") continue;
+
+    const current = map.get(name) || { name, calls: 0, hotLeads: 0, followUps: 0 };
+    if (lead.lastContactedAt || lead.lastActivityAction) current.calls += 1;
+    if (getLeadContactStatus(lead).value === "confirmed" || Number(lead.score) >= 80) current.hotLeads += 1;
+    if (safeText(lead.stage) === "Follow Up" || lead.followUpDate) current.followUps += 1;
+    map.set(name, current);
+  }
+
+  return Array.from(map.values()).sort((a, b) => (b.calls + b.hotLeads * 3 + b.followUps) - (a.calls + a.hotLeads * 3 + a.followUps));
 }
 
 function calculateCallerCommission(assignmentFee, closedDeals = 0) {

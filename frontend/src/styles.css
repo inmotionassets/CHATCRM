@@ -3342,3 +3342,40 @@ textarea::placeholder {
     grid-column: 2;
   }
 }
+.leaderboard-list {
+  display: grid;
+  gap: 10px;
+}
+
+.leaderboard-row {
+  align-items: center;
+  background: var(--panel-soft);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 54px minmax(160px, 0.45fr) minmax(240px, 1fr);
+  padding: 14px;
+}
+
+.leaderboard-row strong {
+  color: var(--gold);
+  font-size: 1.05rem;
+}
+
+.leaderboard-row span {
+  font-weight: 850;
+}
+
+.leaderboard-row small {
+  color: var(--muted);
+}
+
+.leaderboard-row.active {
+  border-color: rgba(17, 156, 122, 0.42);
+  box-shadow: 0 14px 30px rgba(17, 156, 122, 0.12);
+}
+
+.profile-panel .detail-grid {
+  margin-top: 8px;
+}
