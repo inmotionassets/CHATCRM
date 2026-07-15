@@ -2891,6 +2891,7 @@ function LeadDetail({
     rawOwnerName && rawOwnerName !== "Unknown Owner"
       ? "Replace parsed text with owner name"
       : "Enter owner name";
+  const canUseAdminDealTools = currentUser?.role === "Admin";
 
   React.useEffect(() => {
     let cancelled = false;
@@ -2898,7 +2899,7 @@ function LeadDetail({
     setParcelMessage("Loading parcel research...");
 
     async function hydrateParcel() {
-      if (!authToken || !lead.id) {
+      if (!canUseAdminDealTools || !authToken || !lead.id) {
         setParcelMessage("");
         return;
       }
@@ -2918,7 +2919,7 @@ function LeadDetail({
     return () => {
       cancelled = true;
     };
-  }, [authToken, lead.id]);
+  }, [authToken, lead.id, canUseAdminDealTools]);
 
   React.useEffect(() => {
     setBuyerMatches([]);
@@ -3171,6 +3172,7 @@ function LeadDetail({
         <DetailItem label="Source" value={cleanSourceName(lead.source)} />
       </div>
 
+      {canUseAdminDealTools ? (
       <details className="tool-section" open>
         <summary>Property / Offer Tools</summary>
         <section className="parcel-intelligence-panel simple-parcel-panel">
@@ -3376,7 +3378,9 @@ function LeadDetail({
           </div>
         </section>
       </details>
+      ) : null}
 
+      {canUseAdminDealTools ? (
       <section className="property-buyer-panel">
         <div className="panel-header compact-header">
           <div>
@@ -3405,6 +3409,7 @@ function LeadDetail({
           </div>
         )}
       </section>
+      ) : null}
 
       {showMap ? (
         <section className="map-panel" aria-label="Embedded map">
