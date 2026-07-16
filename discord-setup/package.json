@@ -1,0 +1,19 @@
+{
+  "name": "chatcrm-discord-setup",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "One-time Discord server setup bot for the ChatCRM Team server.",
+  "scripts": {
+    "dry-run": "node index.js --dry-run",
+    "setup": "node index.js --setup",
+    "check": "node --check index.js"
+  },
+  "dependencies": {
+    "discord.js": "^14.16.3",
+    "dotenv": "^16.4.7"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
