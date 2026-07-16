@@ -101,6 +101,12 @@ class DailyCallCount(BaseModel):
     count: int
 
 
+class LeadResetResult(BaseModel):
+    updatedLeads: int
+    activitiesDeleted: int
+    locksCleared: int
+
+
 CONTACT_ACTIVITY_TYPES = {
     "called",
     "call_started",
@@ -421,6 +427,63 @@ def remove_lead(lead_id: str) -> None:
         connection.execute("DELETE FROM leads WHERE id = ?", (lead_id,))
 
 
+def reset_notes_and_followups() -> LeadResetResult:
+    leads = list_saved_leads()
+    reset_leads: list[Lead] = []
+
+    for lead in leads:
+        updates: dict[str, object] = {
+            "notes": "",
+            "followUpDate": "",
+            "lastContactedUserId": "",
+            "lastContactedBy": "",
+            "lastContactedAt": "",
+            "lastActivityAction": "",
+            "lockedByUserId": "",
+            "lockedByUserName": "",
+            "lockedUntil": "",
+        }
+
+        if lead.stage == "Follow Up":
+            updates["stage"] = "New Lead"
+        if lead.contactStatus in {"follow-up", "left-voicemail", "no-answer"}:
+            updates["contactStatus"] = "needs-review"
+            updates["needsReview"] = True
+
+        reset_leads.append(lead.model_copy(update=updates))
+
+    activities_deleted = 0
+    locks_cleared = 0
+
+    if USE_POSTGRES:
+        with get_postgres_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.executemany(
+                    "UPDATE leads SET payload = %s WHERE id = %s",
+                    [(lead.model_dump_json(), lead.id) for lead in reset_leads],
+                )
+            activities_cursor = connection.execute("DELETE FROM lead_activities")
+            locks_cursor = connection.execute("DELETE FROM lead_locks")
+            activities_deleted = max(activities_cursor.rowcount or 0, 0)
+            locks_cleared = max(locks_cursor.rowcount or 0, 0)
+    else:
+        with get_sqlite_connection() as connection:
+            connection.executemany(
+                "UPDATE leads SET payload = ? WHERE id = ?",
+                [(lead.model_dump_json(), lead.id) for lead in reset_leads],
+            )
+            activities_cursor = connection.execute("DELETE FROM lead_activities")
+            locks_cursor = connection.execute("DELETE FROM lead_locks")
+            activities_deleted = max(activities_cursor.rowcount or 0, 0)
+            locks_cleared = max(locks_cursor.rowcount or 0, 0)
+
+    return LeadResetResult(
+        updatedLeads=len(reset_leads),
+        activitiesDeleted=activities_deleted,
+        locksCleared=locks_cleared,
+    )
+
+
 def create_lead_activity(lead_id: str, activity: LeadActivityCreate, current_user: CurrentUser) -> LeadActivity:
     lead = get_saved_lead(lead_id)
     if not lead:
@@ -692,6 +755,14 @@ def lock_lead_for_user(lead_id: str, current_user: CurrentUser) -> LeadLock:
 @router.get("", response_model=list[Lead])
 def list_leads(current_user: CurrentUser):
     return list_saved_leads()
+
+
+@router.post("/reset/notes-followups", response_model=LeadResetResult)
+def reset_lead_notes_followups(current_user: CurrentUser):
+    if current_user.role != "Admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    return reset_notes_and_followups()
 
 
 @router.get("/activity/recent", response_model=list[LeadActivity])

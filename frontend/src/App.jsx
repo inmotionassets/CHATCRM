@@ -760,6 +760,32 @@ export function App() {
     setSelectedLeadId(null);
   }
 
+  async function resetNotesAndFollowUps() {
+    if (!isAdmin || !authToken) return;
+    const confirmed = window.confirm(
+      "Clear all notes, follow-up dates, call activity, and temporary lead locks? Leads will stay saved."
+    );
+    if (!confirmed) return;
+
+    setSaveStatus("Resetting...");
+
+    try {
+      const result = await resetLeadNotesFollowUps(authToken);
+      const refreshedLeads = await fetchBackendLeads(authToken);
+      setLeads(refreshedLeads);
+      setSelectedLeadIds([]);
+      setSelectedLeadId(null);
+      setStageFilter("All");
+      setReviewFilter("All");
+      setHotOnly(false);
+      setSaveStatus("Saved");
+      window.alert(`Reset complete. ${result.updatedLeads} leads kept. Notes, follow-ups, and activity were cleared.`);
+    } catch {
+      setSaveStatus("Saved");
+      window.alert("Could not reset notes and follow-ups yet. Confirm the backend is online and you are logged in as Admin.");
+    }
+  }
+
   function removeDuplicateLeads() {
     const seen = new Set();
     const uniqueLeads = [];
@@ -941,6 +967,9 @@ export function App() {
             </button>
             <button className="secondary-button" onClick={openReviewQueue}>
               Review Queue
+            </button>
+            <button className="secondary-button" onClick={resetNotesAndFollowUps}>
+              Reset Notes
             </button>
             </>
             ) : null}
@@ -3225,6 +3254,7 @@ function LeadDetail({
         <ContactLink disabled={!emailHref} href={emailHref} label="Email" />
         <ContactLink href={streetViewUrl} label="Street View" />
         <ContactLink href={mapUrl} label="Map" />
+        <ContactLink href={taxUrl} label="County Tax" />
       </div>
 
       <div className="call-workspace">
@@ -4377,6 +4407,18 @@ async function syncLeadsToBackend(leads, token) {
   return response.json();
 }
 
+async function resetLeadNotesFollowUps(token) {
+  const response = await fetch(`${apiBaseUrl}/leads/reset/notes-followups`, {
+    method: "POST",
+    headers: authHeaders(token)
+  });
+
+  if (!response.ok) {
+    throw new Error("Lead reset failed");
+  }
+
+  return response.json();
+}
 async function fetchBackendBuyers(token) {
   const response = await fetch(`${apiBaseUrl}/buyers`, {
     headers: authHeaders(token)
