@@ -900,7 +900,7 @@ export function App() {
         </div>
       </aside>
 
-      <section className="workspace">
+      <section className={`workspace ${isAdmin ? "admin-workspace" : "caller-workspace"}`}>
         <header className="topbar">
           <div className="search-box">
             <Search size={18} />
