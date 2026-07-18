@@ -28,6 +28,7 @@ export function DispositionIntelligenceView({ authToken, currentUser, leads }) {
   });
   const [workspace, setWorkspace] = React.useState(null);
   const [selectedSaleId, setSelectedSaleId] = React.useState("");
+  const [selectedBuyerKey, setSelectedBuyerKey] = React.useState("");
   const [message, setMessage] = React.useState("Loading Disposition Intelligence...");
   const [sourceMessage, setSourceMessage] = React.useState("");
   const [isRefreshing, setIsRefreshing] = React.useState(false);
@@ -38,6 +39,10 @@ export function DispositionIntelligenceView({ authToken, currentUser, leads }) {
   const selectedSale =
     workspace?.transactions?.find((transaction) => transaction.id === selectedSaleId) ||
     workspace?.transactions?.[0] ||
+    null;
+  const selectedBuyerFootprint =
+    workspace?.buyerFootprints?.[selectedBuyerKey] ||
+    workspace?.buyerFootprints?.[normalizeBuyerKey(selectedSale?.buyerName)] ||
     null;
 
   React.useEffect(() => {
@@ -62,6 +67,7 @@ export function DispositionIntelligenceView({ authToken, currentUser, leads }) {
         if (cancelled) return;
         setWorkspace(result);
         setSelectedSaleId(result.transactions?.[0]?.id || "");
+        setSelectedBuyerKey(result.buyerMatches?.[0]?.normalizedBuyerName || "");
         setMessage("");
       } catch (error) {
         if (!cancelled) {
@@ -96,6 +102,7 @@ export function DispositionIntelligenceView({ authToken, currentUser, leads }) {
     const result = await fetchDispositionWorkspace(selectedLead.id, nextFilters, authToken);
     setWorkspace(result);
     setSelectedSaleId(result.transactions?.[0]?.id || "");
+    setSelectedBuyerKey(result.buyerMatches?.[0]?.normalizedBuyerName || "");
     setMessage("");
   }
 
@@ -201,6 +208,7 @@ export function DispositionIntelligenceView({ authToken, currentUser, leads }) {
         <>
           <SourceStatusPanel source={workspace.source} />
           <DispositionOverview overview={workspace.overview} />
+          <DealIntelligenceCards items={workspace.dealIntelligenceSummary || []} />
 
           <div className="disposition-filter-row">
             <label>
@@ -233,12 +241,17 @@ export function DispositionIntelligenceView({ authToken, currentUser, leads }) {
             <SubjectPropertyPanel readiness={workspace.readiness} subject={workspace.subject} />
             <BuyerActivityMap
               filters={workspace.filters}
+              onSelectBuyer={setSelectedBuyerKey}
               onSelectSale={setSelectedSaleId}
+              selectedBuyerKey={selectedBuyerKey}
               selectedSale={selectedSale}
               subject={workspace.subject}
               transactions={workspace.transactions}
             />
-            <RankedBuyerMatches matches={workspace.buyerMatches} />
+            <div className="buyer-footprint-column">
+              <RankedBuyerMatches matches={workspace.buyerMatches} onSelectBuyer={setSelectedBuyerKey} selectedBuyerKey={selectedBuyerKey} />
+              <BuyerFootprintDrawer footprint={selectedBuyerFootprint} />
+            </div>
           </section>
         </>
       ) : null}
@@ -262,6 +275,21 @@ function SourceStatusPanel({ source }) {
         </div>
       ) : null}
     </section>
+  );
+}
+
+function DealIntelligenceCards({ items }) {
+  if (!items?.length) return null;
+  return (
+    <div className="deal-intelligence-grid">
+      {items.map((item) => (
+        <article className="deal-intelligence-card" key={item.label}>
+          <span>{item.label}</span>
+          <strong>{item.value}</strong>
+          <p>{item.detail}</p>
+        </article>
+      ))}
+    </div>
   );
 }
 
@@ -318,7 +346,7 @@ function SubjectPropertyPanel({ readiness, subject }) {
   );
 }
 
-function BuyerActivityMap({ filters, onSelectSale, selectedSale, subject, transactions }) {
+function BuyerActivityMap({ filters, onSelectBuyer, onSelectSale, selectedBuyerKey, selectedSale, subject, transactions }) {
   return (
     <section className="disposition-panel activity-map-panel">
       <div className="map-heading">
@@ -338,9 +366,12 @@ function BuyerActivityMap({ filters, onSelectSale, selectedSale, subject, transa
           const position = markerPosition(transaction, subject, filters.radiusMiles);
           return (
             <button
-              className={`map-marker ${markerClass(transaction.markerType)} ${selectedSale?.id === transaction.id ? "active" : ""}`}
+              className={`map-marker ${markerClass(transaction.markerType)} ${selectedSale?.id === transaction.id ? "active" : ""} ${selectedBuyerKey && normalizeBuyerKey(transaction.buyerName) === selectedBuyerKey ? "footprint-active" : ""} ${selectedBuyerKey && normalizeBuyerKey(transaction.buyerName) !== selectedBuyerKey ? "footprint-dim" : ""}`}
               key={transaction.id}
-              onClick={() => onSelectSale(transaction.id)}
+              onClick={() => {
+                onSelectSale(transaction.id);
+                onSelectBuyer?.(normalizeBuyerKey(transaction.buyerName));
+              }}
               style={{ left: `${position.left}%`, top: `${position.top}%` }}
               type="button"
             >
@@ -394,7 +425,7 @@ function SaleMarkerDrawer({ sale }) {
   );
 }
 
-function RankedBuyerMatches({ matches }) {
+function RankedBuyerMatches({ matches, onSelectBuyer, selectedBuyerKey }) {
   return (
     <section className="disposition-panel ranked-buyers-panel">
       <div>
@@ -404,7 +435,11 @@ function RankedBuyerMatches({ matches }) {
       {matches.length ? (
         <div className="ranked-buyer-list">
           {matches.slice(0, 6).map((match, index) => (
-            <article className="ranked-buyer-card" key={match.normalizedBuyerName}>
+            <article
+              className={`ranked-buyer-card ${selectedBuyerKey === match.normalizedBuyerName ? "active" : ""}`}
+              key={match.normalizedBuyerName}
+              onClick={() => onSelectBuyer?.(match.normalizedBuyerName)}
+            >
               <div className="ranked-buyer-top">
                 <strong>{index + 1}. {match.buyerName}</strong>
                 <span>{match.score}% Match</span>
@@ -425,6 +460,69 @@ function RankedBuyerMatches({ matches }) {
       ) : (
         <div className="mini-empty"><p>No ranked buyers found for these filters.</p></div>
       )}
+    </section>
+  );
+}
+
+function BuyerFootprintDrawer({ footprint }) {
+  if (!footprint) {
+    return (
+      <section className="disposition-panel buyer-footprint-drawer">
+        <p className="eyebrow">Buyer Footprint</p>
+        <div className="mini-empty"><p>Select a ranked buyer to see their footprint.</p></div>
+      </section>
+    );
+  }
+
+  return (
+    <section className="disposition-panel buyer-footprint-drawer">
+      <div>
+        <p className="eyebrow">Buyer Footprint</p>
+        <h3>{footprint.entityName}</h3>
+        <small>{footprint.sourceConfidence || 0}% source confidence</small>
+      </div>
+
+      <div className="footprint-stat-grid">
+        <DispositionMetric label="Verified Buys" value={footprint.verifiedPurchaseCount} />
+        <DispositionMetric label="Within 1 Mile" value={footprint.purchasesByRadius?.["1"] || 0} />
+        <DispositionMetric label="Within 5 Miles" value={footprint.purchasesByRadius?.["5"] || 0} />
+        <DispositionMetric label="Cash %" value={`${footprint.cashPurchasePercentage || 0}%`} />
+        <DispositionMetric label="Avg Price" value={formatMoney(footprint.averagePurchasePrice)} />
+        <DispositionMetric label="Avg Acreage" value={footprint.averageAcreage || 0} />
+      </div>
+
+      <div className="footprint-chip-group">
+        {(footprint.intentSignals || []).map((signal) => <span key={signal}>{signal}</span>)}
+      </div>
+
+      <div className="footprint-section">
+        <strong>Why this buyer matters</strong>
+        <p>{footprint.matchExplanation}</p>
+      </div>
+
+      <div className="footprint-section">
+        <strong>Corridor Evidence</strong>
+        {(footprint.corridorSignals || []).length ? (
+          footprint.corridorSignals.map((signal) => (
+            <p key={signal.label}>{signal.label}: {signal.detail}</p>
+          ))
+        ) : (
+          <p>No corridor signal yet.</p>
+        )}
+      </div>
+
+      <div className="footprint-section">
+        <strong>Aliases</strong>
+        {(footprint.aliases || []).slice(0, 4).map((alias) => (
+          <p key={alias.alias}>{alias.alias} / {alias.confidence}% / {alias.reason}</p>
+        ))}
+      </div>
+
+      <div className="sale-actions">
+        <button type="button">Add to Outreach</button>
+        <button type="button">Match to Deal</button>
+        <button type="button">Exclude from Deal</button>
+      </div>
     </section>
   );
 }
@@ -534,6 +632,15 @@ function markerPosition(transaction, subject, radiusMiles) {
     left: clamp(50 + (milesEast / scale) * 43, 7, 93),
     top: clamp(50 - (milesNorth / scale) * 43, 7, 93)
   };
+}
+
+function normalizeBuyerKey(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[.,]/g, "")
+    .replace(/\b(llc|l l c|inc|company|co|ltd|lp|llp)\b/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function markerClass(type) {

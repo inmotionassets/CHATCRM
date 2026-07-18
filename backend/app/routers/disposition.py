@@ -123,6 +123,8 @@ class DispositionWorkspace(BaseModel):
     readiness: list[DealReadinessItem]
     transactions: list[BuyerSaleTransaction]
     buyerMatches: list[BuyerMatch]
+    buyerFootprints: dict[str, Any] = Field(default_factory=dict)
+    dealIntelligenceSummary: list[dict[str, Any]] = Field(default_factory=list)
     source: DispositionSource
     overview: DispositionOverview
 
