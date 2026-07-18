@@ -1,0 +1,4 @@
+source_record_id,parcel_id,address,latitude,longitude,sale_date,sale_price,acreage,deed_type,financing_type,buyer_name,seller_name,buyer_mailing_address,property_type,zoning,confidence
+DCAD-SALE-001,00000481291000000,"1214 Cedar Crest Blvd, Dallas, TX",32.7832,-96.7891,2026-06-24,72000,1.25,Warranty Deed,Cash,DFW Land Partners LLC,Sample Seller,"325 N Saint Paul St, Dallas, TX",Vacant Land,R-7.5,92
+DCAD-SALE-002,00000783114000000,"1881 Oak Gate Ln, Dallas, TX",32.7954,-96.8062,2026-05-18,81000,1.70,Warranty Deed,Conventional,Lone Star Custom Homes LLC,Sample Seller,"4301 Alpha Rd, Dallas, TX",Residential Lot,R-10,88
+DCAD-SALE-003,00000319045000000,"901 Prairie Bend Rd, Dallas, TX",32.7578,-96.8155,2026-04-26,54500,0.95,Warranty Deed,Cash,Texas Dirt Investments LLC,Sample Seller,"1409 S Lamar St, Dallas, TX",Vacant Land,R-5,86

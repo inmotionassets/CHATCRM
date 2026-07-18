@@ -1,4 +1,5 @@
 import React from "react";
+import { DispositionIntelligenceView } from "./DispositionIntelligence.jsx";
 
 const starterLeads = [
   {
@@ -90,7 +91,8 @@ const contactStatuses = [
   { value: "left-voicemail", label: "Left Voicemail", color: "blue" },
   { value: "follow-up", label: "Follow Up", color: "yellow" }
 ];
-const mainViews = ["Leads", "Pipeline", "Property Intelligence", "Buyer Network", "Imports", "Analytics", "Training"];
+const mainViews = ["Leads", "Pipeline", "Disposition Intelligence", "Property Intelligence", "Buyer Network", "Imports", "Analytics", "Training"];
+const dispositionViews = ["Disposition Intelligence", "Buyer Network", "Pipeline", "Training", "Profile"];
 const callerViews = ["Dashboard", "Leads", "Training", "Leaderboard", "Profile"];
 const commissionTiers = [
   { min: 0, max: 9999, rate: 0.15, label: "$0 - $9,999" },
@@ -300,7 +302,8 @@ export function App() {
   const cadFileInputRef = React.useRef(null);
   const authToken = auth?.accessToken || "";
   const isAdmin = auth?.user?.role === "Admin";
-  const visibleMainViews = isAdmin ? [...mainViews, "Team"] : callerViews;
+  const isDisposition = auth?.user?.role === "Disposition";
+  const visibleMainViews = isAdmin ? [...mainViews, "Team"] : isDisposition ? dispositionViews : callerViews;
 
   React.useEffect(() => {
     if (!visibleMainViews.includes(activeView)) {
@@ -1128,6 +1131,9 @@ export function App() {
             <PipelineView leads={leads} onViewLead={setSelectedLeadId} />
           ) : null}
 
+          {activeView === "Disposition Intelligence" ? (
+            <DispositionIntelligenceView authToken={authToken} currentUser={auth.user} leads={leads} />
+          ) : null}
           {activeView === "Property Intelligence" ? (
             <PropertyIntelligenceView authToken={authToken} buyers={buyers} leads={leads} />
           ) : null}
