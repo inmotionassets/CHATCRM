@@ -4,15 +4,15 @@ from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile, sta
 from pydantic import BaseModel, Field
 
 from ..auth import CurrentUser
-from ..disposition_engine import build_disposition_workspace, build_subject_property
+from ..market_intelligence import MarketIntelligenceFilters, MarketIntelligenceService
 from ..disposition_providers import (
     DEFAULT_SOURCE_NAME,
-    get_provider,
     import_csv_transactions as import_disposition_csv_transactions,
 )
 from . import leads as lead_store
 
 router = APIRouter(prefix="/disposition", tags=["disposition"])
+market_intelligence_service = MarketIntelligenceService()
 
 
 class Coordinates(BaseModel):
@@ -126,6 +126,7 @@ class DispositionWorkspace(BaseModel):
     buyerFootprints: dict[str, Any] = Field(default_factory=dict)
     dealIntelligenceSummary: list[dict[str, Any]] = Field(default_factory=list)
     source: DispositionSource
+    marketIntelligence: dict[str, Any] = Field(default_factory=dict)
     overview: DispositionOverview
 
 
@@ -172,20 +173,8 @@ def get_disposition_workspace(
     if not lead:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Lead not found")
 
-    lead_payload = lead.model_dump()
-    filter_payload = build_filter_payload(radius_miles, sold_within_days, vacant_land_only, cash_only, buyer_type)
-    provider_result = load_provider_result(lead_payload, filter_payload, provider_name=provider_name)
-
-    return build_disposition_workspace(
-        lead_payload,
-        radius_miles=radius_miles,
-        sold_within_days=sold_within_days,
-        vacant_land_only=vacant_land_only,
-        cash_only=cash_only,
-        buyer_types=buyer_type,
-        transactions=provider_result.get("transactions") or [],
-        provider_result=provider_result,
-    )
+    filters = build_market_filters(radius_miles, sold_within_days, vacant_land_only, cash_only, buyer_type)
+    return market_intelligence_service.build_snapshot(lead.model_dump(), filters=filters, provider_name=provider_name)
 
 
 @router.post("/workspace/{lead_id}/refresh", response_model=DispositionRefreshResult)
@@ -205,16 +194,8 @@ def refresh_disposition_workspace(
     if not lead:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Lead not found")
 
-    subject = build_subject_property(lead.model_dump())
-    filter_payload = build_filter_payload(radius_miles, sold_within_days, vacant_land_only, cash_only, buyer_type)
-    provider_result = get_provider(provider_name or None).refresh(subject, filter_payload)
-    return {
-        "provider": provider_result.get("provider") or "mock",
-        "sourceName": provider_result.get("sourceName") or "",
-        "lastRefreshAt": provider_result.get("lastRefreshAt") or "",
-        "errors": provider_result.get("errors") or [],
-        "transactionCount": len(provider_result.get("transactions") or []),
-    }
+    filters = build_market_filters(radius_miles, sold_within_days, vacant_land_only, cash_only, buyer_type)
+    return market_intelligence_service.refresh_transactions(lead.model_dump(), filters=filters, provider_name=provider_name)
 
 
 @router.post("/transactions/import-csv", response_model=TransactionImportResult)
@@ -237,37 +218,17 @@ async def import_disposition_transactions(
     return import_disposition_csv_transactions(csv_text, source_name=source_name or DEFAULT_SOURCE_NAME)
 
 
-def build_filter_payload(
+def build_market_filters(
     radius_miles: float,
     sold_within_days: int,
     vacant_land_only: bool,
     cash_only: bool,
     buyer_type: list[str],
-) -> dict[str, Any]:
-    return {
-        "radiusMiles": radius_miles,
-        "soldWithinDays": sold_within_days,
-        "vacantLandOnly": vacant_land_only,
-        "cashOnly": cash_only,
-        "buyerTypes": buyer_type,
-    }
-
-
-def load_provider_result(lead_payload: dict[str, Any], filters: dict[str, Any], provider_name: str = "") -> dict[str, Any]:
-    subject = build_subject_property(lead_payload)
-    provider = get_provider(provider_name or None)
-    provider_result = provider.search(subject, filters)
-    if provider_result.get("transactions") or provider.name == "mock":
-        return provider_result
-
-    fallback_result = get_provider("mock").search(subject, filters)
-    return {
-        **fallback_result,
-        "provider": provider.name,
-        "sourceName": f"{provider_result.get('sourceName') or provider.name} / mock fallback",
-        "lastRefreshAt": provider_result.get("lastRefreshAt") or fallback_result.get("lastRefreshAt") or "",
-        "errors": [
-            *(provider_result.get("errors") or []),
-            "No saved transactions found for this provider yet, so ChatCRM is showing mock activity until a CSV is imported.",
-        ],
-    }
+) -> MarketIntelligenceFilters:
+    return MarketIntelligenceFilters(
+        radius_miles=radius_miles,
+        sold_within_days=sold_within_days,
+        vacant_land_only=vacant_land_only,
+        cash_only=cash_only,
+        buyer_types=buyer_type,
+    )

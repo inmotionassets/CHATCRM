@@ -204,10 +204,6 @@ def build_disposition_workspace(
     ]
     buyer_matches.sort(key=lambda item: item["score"], reverse=True)
 
-    from .buyer_footprints import build_buyer_footprints, build_deal_intelligence_summary
-
-    buyer_footprints = build_buyer_footprints(filtered_transactions, subject)
-    deal_intelligence_summary = build_deal_intelligence_summary(buyer_footprints, buyer_matches, filtered_transactions)
 
     price_per_acre_values = [safe_float(item.get("pricePerAcre"), 0) for item in filtered_transactions if safe_float(item.get("pricePerAcre"), 0) > 0]
     average_price_per_acre = mean(price_per_acre_values) if price_per_acre_values else 0
@@ -226,8 +222,6 @@ def build_disposition_workspace(
         "readiness": build_deal_readiness(lead_payload),
         "transactions": filtered_transactions,
         "buyerMatches": buyer_matches,
-        "buyerFootprints": buyer_footprints,
-        "dealIntelligenceSummary": deal_intelligence_summary,
         "source": build_source_status(provider_result),
         "overview": {
             "verifiedNearbyBuyers": len(buyer_groups),

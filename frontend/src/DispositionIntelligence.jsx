@@ -207,6 +207,7 @@ export function DispositionIntelligenceView({ authToken, currentUser, leads }) {
       {workspace ? (
         <>
           <SourceStatusPanel source={workspace.source} />
+          <MarketIntelligencePanel intelligence={workspace.marketIntelligence} />
           <DispositionOverview overview={workspace.overview} />
           <DealIntelligenceCards items={workspace.dealIntelligenceSummary || []} />
 
@@ -274,6 +275,29 @@ function SourceStatusPanel({ source }) {
           {source.errors.map((error) => <span key={error}>{error}</span>)}
         </div>
       ) : null}
+    </section>
+  );
+}
+
+function MarketIntelligencePanel({ intelligence }) {
+  const opportunity = intelligence?.opportunityScore;
+  if (!opportunity) return null;
+  return (
+    <section className="market-intelligence-panel">
+      <div className="opportunity-score-block">
+        <p className="eyebrow">Market Intelligence</p>
+        <strong>{opportunity.score}</strong>
+        <span>{opportunity.grade}</span>
+      </div>
+      <div className="market-summary-block">
+        <h3>Opportunity Score</h3>
+        <p>{intelligence.summary}</p>
+        <div className="opportunity-reason-list">
+          {(opportunity.reasons || []).slice(0, 6).map((reason) => (
+            <span key={reason.label}>{reason.label} +{reason.points}</span>
+          ))}
+        </div>
+      </div>
     </section>
   );
 }

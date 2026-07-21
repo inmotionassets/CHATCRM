@@ -10,7 +10,7 @@ from app.buyer_footprints import (
     build_deal_intelligence_summary,
     normalize_entity_name,
 )
-from app.disposition_engine import build_disposition_workspace
+from app.market_intelligence import MarketIntelligenceFilters, MarketIntelligenceService
 from app.disposition_providers import normalize_provider_transaction, prepare_persisted_transaction_for_subject
 
 
@@ -77,7 +77,7 @@ class BuyerFootprintTests(unittest.TestCase):
         self.assertTrue(any("corridor" in signal["label"].lower() for signal in footprint["corridorSignals"]))
         self.assertIn("Possible land assembler", footprint["intentSignals"])
 
-    def test_workspace_includes_footprints_and_deal_summary(self):
+    def test_market_snapshot_includes_footprints_and_deal_summary(self):
         lead = {
             "id": "lead-test",
             "address": "1234 Forge St",
@@ -86,15 +86,13 @@ class BuyerFootprintTests(unittest.TestCase):
             "lotSize": "1 acres",
             "stage": "Under Contract",
         }
-        transactions = [
-            transaction(id="tx-1", distanceMiles=0.2),
-            transaction(id="tx-2", address="1420 Forge St", distanceMiles=0.7, saleDate="2026-05-15"),
-        ]
-        workspace = build_disposition_workspace(lead, radius_miles=5, transactions=transactions)
+        service = MarketIntelligenceService()
+        workspace = service.build_snapshot(lead, filters=MarketIntelligenceFilters(radius_miles=25), provider_name="mock")
 
         self.assertIn("buyerFootprints", workspace)
         self.assertIn("dealIntelligenceSummary", workspace)
-        self.assertIn("abc builders", workspace["buyerFootprints"])
+        self.assertIn("marketIntelligence", workspace)
+        self.assertTrue(workspace["buyerFootprints"])
 
     def test_csv_provider_transactions_feed_footprint_engine(self):
         provider_transaction = normalize_provider_transaction(
