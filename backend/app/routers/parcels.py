@@ -1,12 +1,14 @@
 from datetime import datetime, timezone
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from ..auth import CurrentUser
+from ..market_intelligence import MarketIntelligenceFilters, MarketIntelligenceService
 from . import leads as lead_store
 
 router = APIRouter(prefix="/parcels", tags=["parcels"])
+market_intelligence_service = MarketIntelligenceService()
 
 
 class ParcelIntelligence(BaseModel):
@@ -140,6 +142,37 @@ def save_parcel(parcel: ParcelIntelligence, lead_id: str) -> ParcelIntelligence:
 @router.get("/{lead_id}", response_model=ParcelIntelligence)
 def get_parcel_intelligence(lead_id: str, current_user: CurrentUser):
     return get_saved_parcel(lead_id)
+
+
+@router.get("/{lead_id}/workspace")
+def get_property_intelligence_workspace(
+    lead_id: str,
+    current_user: CurrentUser,
+    radius_miles: float = Query(10, ge=1, le=25, alias="radiusMiles"),
+    sold_within_days: int = Query(365, ge=30, le=1095, alias="soldWithinDays"),
+    vacant_land_only: bool = Query(False, alias="vacantLandOnly"),
+    cash_only: bool = Query(False, alias="cashOnly"),
+    buyer_type: list[str] = Query(default_factory=list, alias="buyerType"),
+    provider_name: str = Query("", alias="provider"),
+):
+    lead = lead_store.get_saved_lead(lead_id)
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+
+    parcel = get_saved_parcel(lead_id)
+    filters = MarketIntelligenceFilters(
+        radius_miles=radius_miles,
+        sold_within_days=sold_within_days,
+        vacant_land_only=vacant_land_only,
+        cash_only=cash_only,
+        buyer_types=buyer_type,
+    )
+    return market_intelligence_service.build_property_snapshot(
+        lead.model_dump(),
+        parcel.model_dump(),
+        filters=filters,
+        provider_name=provider_name,
+    )
 
 
 @router.put("/{lead_id}", response_model=ParcelIntelligence)

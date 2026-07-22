@@ -3000,6 +3000,8 @@ function LeadDetail({
   const [parcel, setParcel] = React.useState(() => createEmptyParcelRecord(lead));
   const [parcelMessage, setParcelMessage] = React.useState("");
   const [isParcelSaving, setIsParcelSaving] = React.useState(false);
+  const [propertyWorkspace, setPropertyWorkspace] = React.useState(null);
+  const [propertyWorkspaceMessage, setPropertyWorkspaceMessage] = React.useState("");
   const [buyerMatches, setBuyerMatches] = React.useState([]);
   const [buyerMatchMessage, setBuyerMatchMessage] = React.useState("");
   const [isFindingBuyers, setIsFindingBuyers] = React.useState(false);
@@ -3040,6 +3042,34 @@ function LeadDetail({
       cancelled = true;
     };
   }, [authToken, lead.id, canUseAdminDealTools]);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    setPropertyWorkspace(null);
+    setPropertyWorkspaceMessage("LEGACY is building the property intelligence snapshot...");
+
+    async function hydratePropertyWorkspace() {
+      if (!authToken || !lead.id) {
+        setPropertyWorkspaceMessage("");
+        return;
+      }
+
+      try {
+        const result = await fetchPropertyIntelligenceWorkspace(lead.id, authToken);
+        if (!cancelled) {
+          setPropertyWorkspace(result);
+          setPropertyWorkspaceMessage("");
+        }
+      } catch {
+        if (!cancelled) setPropertyWorkspaceMessage("Property Intelligence will load once the backend responds.");
+      }
+    }
+
+    hydratePropertyWorkspace();
+    return () => {
+      cancelled = true;
+    };
+  }, [authToken, lead.id]);
 
   React.useEffect(() => {
     setBuyerMatches([]);
@@ -3262,6 +3292,13 @@ function LeadDetail({
         <ContactLink href={mapUrl} label="Map" />
         <ContactLink href={taxUrl} label="County Tax" />
       </div>
+
+      <PropertyIntelligenceWorkspace
+        lead={lead}
+        message={propertyWorkspaceMessage}
+        snapshot={propertyWorkspace}
+        taxUrl={taxUrl}
+      />
 
       <div className="call-workspace">
         {phones.length > 0 ? (
@@ -3602,7 +3639,7 @@ function LeadDetail({
       </div>
 
       <div className="detail-actions">
-        {canUseAdminDealTools ? <button className="agreement-button" onClick={onStartAgreement}>Create Purchase Agreement</button> : null}
+
         {lead.needsReview ? (
           <>
             <button className="secondary-button" onClick={handleMarkReviewed}>Mark Reviewed</button>
@@ -3615,6 +3652,257 @@ function LeadDetail({
   );
 }
 
+function PropertyIntelligenceWorkspace({ lead, message, snapshot, taxUrl }) {
+  const [selectedNarrativeId, setSelectedNarrativeId] = React.useState("");
+  const [selectedBuyerKey, setSelectedBuyerKey] = React.useState("");
+  const [selectedTransactionId, setSelectedTransactionId] = React.useState("");
+
+  React.useEffect(() => {
+    setSelectedNarrativeId("");
+    setSelectedBuyerKey("");
+    setSelectedTransactionId("");
+  }, [lead.id, snapshot?.addressTrigger]);
+
+  if (!snapshot) {
+    return (
+      <section className="legacy-property-workspace loading">
+        <div>
+          <p className="eyebrow">LEGACY Property Intelligence</p>
+          <h2>{lead.address || "Address needed"}</h2>
+          <p>{message || "Add an address and LEGACY will build the property workspace."}</p>
+        </div>
+      </section>
+    );
+  }
+
+  const subject = snapshot.subjectProperty || {};
+  const intelligence = snapshot.marketIntelligence || {};
+  const narrative = intelligence.narrative || [];
+  const activeNarrative = narrative.find((item) => item.id === selectedNarrativeId) || narrative[0] || null;
+  const buyers = intelligence.mostProbableBuyers || [];
+  const transactions = snapshot.transactions || [];
+  const visibleTransactions = selectedBuyerKey
+    ? transactions.filter((transaction) => legacyBuyerKey(transaction.buyerName) === selectedBuyerKey)
+    : transactions;
+  const selectedTransaction =
+    visibleTransactions.find((transaction) => transaction.id === selectedTransactionId) ||
+    visibleTransactions[0] ||
+    transactions[0] ||
+    null;
+  const selectedBuyer = buyers.find((buyer) => legacyBuyerKey(buyer.buyerName) === selectedBuyerKey) || null;
+  const contact = snapshot.contactIntelligence || {};
+
+  return (
+    <section className="legacy-property-workspace">
+      <div className="legacy-workspace-header">
+        <div>
+          <p className="eyebrow">LEGACY Property Intelligence</p>
+          <h2>{subject.address || lead.address || "Address needed"}</h2>
+          <p>{intelligence.summary || "LEGACY is building the market picture around this property."}</p>
+        </div>
+        <div className="legacy-score-badge">
+          <span>Opportunity</span>
+          <strong>{subject.opportunityScore || intelligence.opportunityScore?.score || 0}</strong>
+          <small>{subject.opportunityGrade || intelligence.opportunityScore?.grade || "Needs Data"}</small>
+        </div>
+      </div>
+
+      <div className="legacy-workspace-grid">
+        <aside className="legacy-panel legacy-subject-panel">
+          <div>
+            <p className="eyebrow">Property</p>
+            <h3>Subject Property</h3>
+          </div>
+          <div className="legacy-metric-grid">
+            <LegacyMetric label="APN" value={subject.apn || "Missing"} />
+            <LegacyMetric label="County" value={subject.county || "Missing"} />
+            <LegacyMetric label="Latitude" value={subject.latitude || "Missing"} />
+            <LegacyMetric label="Longitude" value={subject.longitude || "Missing"} />
+            <LegacyMetric label="Lot Size" value={subject.lotSize || `${subject.acreage || "Missing"} acres`} />
+            <LegacyMetric label="Type" value={subject.propertyType || "Missing"} />
+            <LegacyMetric label="Zoning" value={subject.zoning || "Unknown"} />
+            <LegacyMetric label="Utilities" value={subject.utilities || "Unknown"} />
+            <LegacyMetric label="Flood" value={subject.floodZone || "Unknown"} />
+            <LegacyMetric label="Road Access" value={subject.roadAccess || "Needs Review"} />
+            <LegacyMetric label="Tax Status" value={subject.taxStatus || "Unknown"} />
+            <LegacyMetric label="Owner" value={subject.owner || "Owner needed"} />
+            <LegacyMetric label="Contract" value={formatLegacyMoney(subject.contractPrice)} />
+            <LegacyMetric label="Target Assignment" value={formatLegacyMoney(subject.targetAssignment)} />
+            <LegacyMetric label="Deal Status" value={subject.dealStatus || lead.stage || "New Lead"} />
+          </div>
+          <div className="legacy-action-row">
+            <a href={taxUrl} rel="noreferrer" target="_blank">Open County Tax</a>
+          </div>
+          <div className="legacy-timeline-list">
+            <p className="eyebrow">Deal Timeline</p>
+            {(subject.dealTimeline || []).slice(0, 7).map((item) => (
+              <span className={item.complete ? "complete" : ""} key={item.label}>
+                <i />{item.label}
+              </span>
+            ))}
+          </div>
+        </aside>
+
+        <LegacyMarketMap
+          onClearBuyer={() => setSelectedBuyerKey("")}
+          onSelectBuyer={setSelectedBuyerKey}
+          onSelectTransaction={setSelectedTransactionId}
+          selectedBuyer={selectedBuyer}
+          selectedBuyerKey={selectedBuyerKey}
+          selectedTransaction={selectedTransaction}
+          subject={subject}
+          transactions={visibleTransactions}
+        />
+
+        <aside className="legacy-panel legacy-market-rail">
+          <div>
+            <p className="eyebrow">Market Narrative</p>
+            <h3>What LEGACY Knows</h3>
+          </div>
+          <div className="legacy-narrative-list">
+            {narrative.map((item) => (
+              <button
+                className={activeNarrative?.id === item.id ? "active" : ""}
+                key={item.id}
+                onClick={() => setSelectedNarrativeId(item.id)}
+                type="button"
+              >
+                <span>{item.confidence}</span>
+                {item.sentence}
+              </button>
+            ))}
+          </div>
+          {activeNarrative ? (
+            <div className="legacy-evidence-box">
+              <span>Evidence</span>
+              {(activeNarrative.evidence || []).slice(0, 5).map((item, index) => (
+                <p key={`${activeNarrative.id}-${index}`}>
+                  <strong>{item.label || item}</strong>{item.value !== undefined ? `: ${item.value}` : item.detail ? `: ${item.detail}` : ""}
+                </p>
+              ))}
+            </div>
+          ) : null}
+
+          <div className="legacy-buyer-list">
+            <p className="eyebrow">Most Probable Buyers</p>
+            {buyers.slice(0, 4).map((buyer) => (
+              <button
+                className={selectedBuyerKey === legacyBuyerKey(buyer.buyerName) ? "active" : ""}
+                key={`${buyer.rank}-${buyer.buyerName}`}
+                onClick={() => setSelectedBuyerKey(legacyBuyerKey(buyer.buyerName))}
+                type="button"
+              >
+                <strong>{buyer.rank}. {buyer.buyerName}</strong>
+                <span>{buyer.score}% match</span>
+                <small>{(buyer.reasons || []).slice(0, 2).map((reason) => reason.label).join(" / ")}</small>
+              </button>
+            ))}
+          </div>
+
+          <div className="legacy-contact-intel">
+            <p className="eyebrow">Contact Intelligence</p>
+            <h3>{contact.confidence || "Needs Public Source"}</h3>
+            {(contact.verifiedToday || []).length ? (
+              contact.verifiedToday.map((item) => <p key={item.label}><strong>{item.label}</strong>: {item.value}</p>)
+            ) : (
+              <p>No verified public contact source connected yet.</p>
+            )}
+            <small>{contact.note}</small>
+          </div>
+        </aside>
+      </div>
+    </section>
+  );
+}
+
+function LegacyMarketMap({ onClearBuyer, onSelectBuyer, onSelectTransaction, selectedBuyer, selectedBuyerKey, selectedTransaction, subject, transactions }) {
+  const radiusMiles = 10;
+  const markerRecords = transactions.map((transaction) => ({
+    transaction,
+    position: legacyMarkerPosition(transaction, subject, radiusMiles)
+  }));
+
+  return (
+    <section className="legacy-panel legacy-map-panel">
+      <div className="legacy-map-heading">
+        <div>
+          <p className="eyebrow">Market Intelligence Map</p>
+          <h3>{transactions.length} nearby signals</h3>
+        </div>
+        {selectedBuyerKey ? <button onClick={onClearBuyer} type="button">Show Full Market</button> : <small>Centered on subject parcel</small>}
+      </div>
+      {selectedBuyer ? (
+        <div className="legacy-highlight-strip">
+          <span>Buyer Highlight Mode</span>
+          <strong>{selectedBuyer.buyerName}</strong>
+          <small>{selectedBuyer.nearbyPurchases} nearby purchases / avg {formatLegacyMoney(selectedBuyer.averagePurchasePrice)}</small>
+        </div>
+      ) : null}
+      <div className="legacy-map-canvas" aria-label="Property market intelligence map">
+        <div className="legacy-map-grid" />
+        <div className="legacy-map-ring one" />
+        <div className="legacy-map-ring two" />
+        <div className="legacy-parcel-outline" title={subject.parcel?.boundarySource || "Estimated parcel outline"} />
+        <button className="legacy-subject-marker" type="button">Deal</button>
+        {markerRecords.map(({ transaction, position }) => (
+          <button
+            className={`legacy-sale-marker ${legacyMarkerClass(transaction)} ${selectedTransaction?.id === transaction.id ? "active" : ""}`}
+            key={transaction.id}
+            onClick={() => onSelectTransaction(transaction.id)}
+            style={{ left: `${position.left}%`, top: `${position.top}%` }}
+            title={`${transaction.buyerName || "Unknown buyer"} / ${formatLegacyMoney(transaction.salePrice)}`}
+            type="button"
+          >
+            {legacyMarkerLabel(transaction)}
+          </button>
+        ))}
+      </div>
+      <div className="legacy-map-legend">
+        <span><i className="recorded" />Recorded Sales</span>
+        <span><i className="cash" />Cash</span>
+        <span><i className="builder" />Builder</span>
+        <span><i className="repeat" />Repeat Buyer</span>
+        <span><i className="unknown" />Unknown</span>
+      </div>
+      {selectedTransaction ? (
+        <article className="legacy-transaction-drawer">
+          <div>
+            <p className="eyebrow">Clicked Parcel</p>
+            <h3>{selectedTransaction.address}</h3>
+            <small>{selectedTransaction.apn || selectedTransaction.parcelId || "APN missing"}</small>
+          </div>
+          <div className="legacy-metric-grid compact">
+            <LegacyMetric label="Sale Price" value={formatLegacyMoney(selectedTransaction.salePrice)} />
+            <LegacyMetric label="Sale Date" value={formatLegacyDate(selectedTransaction.saleDate)} />
+            <LegacyMetric label="Distance" value={`${selectedTransaction.distanceMiles || 0} mi`} />
+            <LegacyMetric label="Lot Size" value={`${selectedTransaction.acreage || "Unknown"} acres`} />
+            <LegacyMetric label="Price/Acre" value={formatLegacyMoney(selectedTransaction.pricePerAcre)} />
+            <LegacyMetric label="Buyer" value={selectedTransaction.buyerName || "Unknown"} />
+            <LegacyMetric label="Seller" value={selectedTransaction.sellerName || "Unknown"} />
+            <LegacyMetric label="Source" value={selectedTransaction.sourceName || selectedTransaction.source || "Unknown"} />
+            <LegacyMetric label="Confidence" value={`${selectedTransaction.confidence || 0}%`} />
+            <LegacyMetric label="Type" value={selectedTransaction.propertyType || "Unknown"} />
+          </div>
+          <div className="legacy-action-row">
+            <button onClick={() => onSelectBuyer(legacyBuyerKey(selectedTransaction.buyerName))} type="button">View Buyer</button>
+            <button onClick={() => onSelectBuyer(legacyBuyerKey(selectedTransaction.buyerName))} type="button">Highlight Holdings</button>
+            <button type="button">Contact Intelligence</button>
+            <button type="button">Add To Outreach</button>
+          </div>
+        </article>
+      ) : null}
+    </section>
+  );
+}
+
+function LegacyMetric({ label, value }) {
+  return (
+    <div className="legacy-metric">
+      <span>{label}</span>
+      <strong>{value || "Missing"}</strong>
+    </div>
+  );
+}
 function PropertyBuyerMatch({ match }) {
   const buyer = match?.buyer || {};
   const phones = getBuyerPhones(buyer);
@@ -4612,6 +4900,21 @@ async function matchDealToBuyers(deal, token) {
   }));
 }
 
+async function fetchPropertyIntelligenceWorkspace(leadId, token) {
+  const params = new URLSearchParams({
+    radiusMiles: "10",
+    soldWithinDays: "365"
+  });
+  const response = await fetch(`${apiBaseUrl}/parcels/${encodeURIComponent(leadId)}/workspace?${params}`, {
+    headers: authHeaders(token)
+  });
+
+  if (!response.ok) {
+    throw new Error("Property Intelligence fetch failed");
+  }
+
+  return response.json();
+}
 async function fetchParcelIntelligence(leadId, token) {
   const response = await fetch(`${apiBaseUrl}/parcels/${encodeURIComponent(leadId)}`, {
     headers: authHeaders(token)
@@ -5065,6 +5368,75 @@ function splitInputValues(value = "") {
     .filter(Boolean);
 }
 
+function legacyBuyerKey(value = "") {
+  return safeText(value)
+    .toLowerCase()
+    .replace(/[.,]/g, "")
+    .replace(/\b(llc|l l c|inc|company|co|ltd|lp|llp)\b/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function legacyMarkerPosition(transaction = {}, subject = {}, radiusMiles = 10) {
+  const subjectLat = Number(subject?.coordinates?.lat) || Number(subject?.latitude) || 0;
+  const subjectLng = Number(subject?.coordinates?.lng) || Number(subject?.longitude) || 0;
+  const markerLat = Number(transaction?.coordinates?.lat) || subjectLat;
+  const markerLng = Number(transaction?.coordinates?.lng) || subjectLng;
+  const milesNorth = (markerLat - subjectLat) * 69;
+  const milesEast = (markerLng - subjectLng) * Math.cos((subjectLat * Math.PI) / 180) * 69;
+  const scale = Math.max(Number(radiusMiles) || 10, 1);
+  return {
+    left: clampNumber(50 + (milesEast / scale) * 42, 7, 93),
+    top: clampNumber(50 - (milesNorth / scale) * 42, 7, 93)
+  };
+}
+
+function legacyMarkerType(transaction = {}) {
+  const type = transaction.marketMarkerType || transaction.markerType || "recorded_sale";
+  return {
+    standard: "recorded_sale",
+    cash: "cash_purchase",
+    builder: "builder_purchase",
+    repeat: "repeat_buyer",
+    issue: "unknown_estimated"
+  }[type] || type;
+}
+
+function legacyMarkerClass(transaction = {}) {
+  return {
+    recorded_sale: "recorded",
+    cash_purchase: "cash",
+    builder_purchase: "builder",
+    repeat_buyer: "repeat",
+    unknown_estimated: "unknown"
+  }[legacyMarkerType(transaction)] || "recorded";
+}
+
+function legacyMarkerLabel(transaction = {}) {
+  return {
+    recorded_sale: "S",
+    cash_purchase: "$",
+    builder_purchase: "B",
+    repeat_buyer: "R",
+    unknown_estimated: "?"
+  }[legacyMarkerType(transaction)] || "S";
+}
+
+function formatLegacyMoney(value) {
+  const numberValue = Number(value);
+  return Number.isFinite(numberValue) && numberValue > 0 ? formatMoney(numberValue) : "Missing";
+}
+
+function formatLegacyDate(value = "") {
+  if (!value) return "Missing";
+  const date = new Date(`${value}T12:00:00`);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+}
+
+function clampNumber(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
 function createDealDraft(lead = {}) {
   const offer = calculateOffer(lead);
   return {

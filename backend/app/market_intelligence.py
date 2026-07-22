@@ -61,6 +61,71 @@ class MarketIntelligenceService:
             "marketIntelligence": market_snapshot,
         }
 
+    def build_property_snapshot(
+        self,
+        lead_payload: dict[str, Any],
+        parcel_payload: dict[str, Any] | None = None,
+        filters: MarketIntelligenceFilters | None = None,
+        provider_name: str = "",
+    ) -> dict[str, Any]:
+        filters = filters or MarketIntelligenceFilters(radius_miles=10, sold_within_days=365)
+        parcel_payload = parcel_payload or {}
+        merged_payload = merge_property_payload(lead_payload, parcel_payload)
+        market_workspace = self.build_snapshot(merged_payload, filters=filters, provider_name=provider_name)
+        subject = build_property_subject(
+            market_workspace.get("subject") or {},
+            lead_payload,
+            parcel_payload,
+            market_workspace.get("marketIntelligence", {}).get("opportunityScore") or {},
+            market_workspace.get("readiness") or [],
+        )
+        narrative = build_market_narrative(market_workspace, subject)
+        most_probable_buyers = build_most_probable_buyers(market_workspace.get("buyerMatches") or [])
+        market_intelligence = {
+            **(market_workspace.get("marketIntelligence") or {}),
+            "narrative": narrative,
+            "mostProbableBuyers": most_probable_buyers,
+        }
+        map_snapshot = {
+            **(market_intelligence.get("map") or {}),
+            "center": subject.get("coordinates") or {},
+            "subjectMarker": {
+                **((market_intelligence.get("map") or {}).get("subjectMarker") or {}),
+                "type": "subject_property",
+                "label": "Subject Property",
+                "address": subject.get("address") or "",
+                "coordinates": subject.get("coordinates") or {},
+                "color": "gold",
+                "size": "large",
+            },
+            "subjectParcel": subject.get("parcel") or {},
+        }
+        market_intelligence["map"] = map_snapshot
+
+        return {
+            "engine": "LEGACY Property Intelligence",
+            "version": "property-intelligence-workspace-v1",
+            "addressTrigger": subject.get("address") or "",
+            "workspaceType": "Property Intelligence Workspace",
+            "subjectProperty": subject,
+            "marketIntelligence": market_intelligence,
+            "transactions": market_workspace.get("transactions") or [],
+            "buyerMatches": market_workspace.get("buyerMatches") or [],
+            "buyerFootprints": market_workspace.get("buyerFootprints") or {},
+            "dealIntelligenceSummary": market_workspace.get("dealIntelligenceSummary") or [],
+            "source": market_workspace.get("source") or {},
+            "overview": market_workspace.get("overview") or {},
+            "contactIntelligence": build_contact_intelligence(lead_payload, parcel_payload),
+            "workspacePanels": [
+                "Subject Property",
+                "Market Intelligence Map",
+                "Market Narrative",
+                "Buyer Matches",
+                "Buyer Footprint",
+                "Contact Intelligence",
+            ],
+        }
+
     def refresh_transactions(
         self,
         lead_payload: dict[str, Any],
@@ -158,6 +223,12 @@ def build_map_snapshot(
             "coordinates": subject.get("coordinates") or {},
             "color": "gold",
             "size": "large",
+        },
+        "subjectParcel": {
+            "boundary": build_estimated_parcel_boundary(subject),
+            "boundaryType": "estimated",
+            "boundarySource": "Address-based estimate until county GIS parcel geometry is connected.",
+            "glow": "gold",
         },
         "markerLegend": [
             {"type": "recorded_sale", "label": "Nearby Recorded Sale", "color": "blue", "active": True},
@@ -335,4 +406,202 @@ def score_grade(score: int) -> str:
         return "Strong"
     if score >= 55:
         return "Watch"
+    return "Needs Data"
+
+def merge_property_payload(lead_payload: dict[str, Any], parcel_payload: dict[str, Any]) -> dict[str, Any]:
+    return {
+        **lead_payload,
+        "address": parcel_payload.get("address") or lead_payload.get("address") or "",
+        "parcelNumber": parcel_payload.get("apn") or lead_payload.get("parcelNumber") or "",
+        "county": parcel_payload.get("county") or lead_payload.get("county") or "Dallas",
+        "lotSize": parcel_payload.get("acreage") or parcel_payload.get("lotDimensions") or lead_payload.get("lotSize") or "",
+        "zoning": parcel_payload.get("zoning") or lead_payload.get("zoning") or "",
+        "floodZone": parcel_payload.get("floodZone") or lead_payload.get("floodZone") or "",
+        "utilities": parcel_payload.get("utilityAvailability") or lead_payload.get("utilities") or "",
+    }
+
+
+def build_property_subject(
+    subject: dict[str, Any],
+    lead_payload: dict[str, Any],
+    parcel_payload: dict[str, Any],
+    opportunity: dict[str, Any],
+    readiness: list[dict[str, Any]],
+) -> dict[str, Any]:
+    coordinates = subject.get("coordinates") or {}
+    parcel_boundary = build_estimated_parcel_boundary(subject)
+    deal_timeline = [
+        {"label": item.get("label") or "", "complete": bool(item.get("complete"))}
+        for item in readiness
+        if item.get("label")
+    ]
+
+    return {
+        "leadId": subject.get("leadId") or lead_payload.get("id") or "",
+        "address": subject.get("address") or lead_payload.get("address") or "",
+        "coordinates": coordinates,
+        "latitude": coordinates.get("lat"),
+        "longitude": coordinates.get("lng"),
+        "parcel": {
+            "apn": subject.get("apn") or parcel_payload.get("apn") or "",
+            "boundary": parcel_boundary,
+            "boundaryType": "estimated",
+            "boundarySource": "Address-based estimate until county GIS geometry is connected.",
+            "confidence": 58 if parcel_boundary else 0,
+        },
+        "apn": subject.get("apn") or parcel_payload.get("apn") or "",
+        "county": subject.get("county") or parcel_payload.get("county") or "Dallas",
+        "subdivision": parcel_payload.get("legalDescription") or "",
+        "lotSize": parcel_payload.get("acreage") or subject.get("acreage") or "",
+        "acreage": subject.get("acreage") or 0,
+        "propertyType": subject.get("propertyType") or parcel_payload.get("landUse") or "Vacant Land",
+        "zoning": subject.get("zoning") or parcel_payload.get("zoning") or "Unknown",
+        "utilities": subject.get("utilities") or parcel_payload.get("utilityAvailability") or "Unknown",
+        "floodZone": subject.get("floodZone") or parcel_payload.get("floodZone") or "Unknown",
+        "roadAccess": parcel_payload.get("roadAccess") or "Needs Review",
+        "taxStatus": parcel_payload.get("taxDelinquencyStatus") or "Unknown",
+        "owner": lead_payload.get("name") or lead_payload.get("owner") or "Owner needed",
+        "seller": lead_payload.get("name") or "Seller needed",
+        "contractPrice": subject.get("contractPrice") or 0,
+        "targetAssignment": subject.get("targetAssignmentPrice") or 0,
+        "opportunityScore": opportunity.get("score") or 0,
+        "opportunityGrade": opportunity.get("grade") or "Needs Data",
+        "dealStatus": lead_payload.get("stage") or "New Lead",
+        "dealTimeline": deal_timeline,
+    }
+
+
+def build_estimated_parcel_boundary(subject: dict[str, Any]) -> list[dict[str, float]]:
+    coordinates = subject.get("coordinates") or {}
+    lat = safe_float(coordinates.get("lat"), 0)
+    lng = safe_float(coordinates.get("lng"), 0)
+    if not lat or not lng:
+        return []
+
+    acreage = max(safe_float(subject.get("acreage"), 1.2), 0.1)
+    offset = min(max((acreage ** 0.5) * 0.00055, 0.00035), 0.0022)
+    return [
+        {"lat": round(lat - offset, 6), "lng": round(lng - offset, 6)},
+        {"lat": round(lat - offset, 6), "lng": round(lng + offset, 6)},
+        {"lat": round(lat + offset, 6), "lng": round(lng + offset, 6)},
+        {"lat": round(lat + offset, 6), "lng": round(lng - offset, 6)},
+    ]
+
+
+def build_market_narrative(workspace: dict[str, Any], subject: dict[str, Any]) -> list[dict[str, Any]]:
+    overview = workspace.get("overview") or {}
+    buyer_matches = workspace.get("buyerMatches") or []
+    transactions = workspace.get("transactions") or []
+    opportunity = (workspace.get("marketIntelligence") or {}).get("opportunityScore") or {}
+    strongest_buyer = buyer_matches[0] if buyer_matches else {}
+    same_street_matches = count_same_street_transactions(subject.get("address") or "", transactions)
+
+    return [
+        {
+            "id": "corridor",
+            "sentence": f"This property sits near {overview.get('activeBuilders', 0)} active builder groups and {overview.get('verifiedNearbyBuyers', 0)} nearby buyer groups.",
+            "confidence": confidence_label(overview.get("activeBuilders", 0), overview.get("verifiedNearbyBuyers", 0)),
+            "evidence": [
+                {"label": "Active Builders", "value": overview.get("activeBuilders", 0)},
+                {"label": "Nearby Buyer Groups", "value": overview.get("verifiedNearbyBuyers", 0)},
+            ],
+        },
+        {
+            "id": "buyer-demand",
+            "sentence": f"{strongest_buyer.get('buyerName') or 'No buyer'} is currently the strongest ranked buyer for this property.",
+            "confidence": confidence_label(strongest_buyer.get("score", 0)),
+            "evidence": [
+                {"label": "Match Score", "value": strongest_buyer.get("score", 0)},
+                {"label": "Nearby Purchases", "value": strongest_buyer.get("nearbyPurchases", 0)},
+            ],
+        },
+        {
+            "id": "same-street",
+            "sentence": f"LEGACY found {same_street_matches} same-street or close-street transaction signals around the subject address.",
+            "confidence": confidence_label(same_street_matches),
+            "evidence": [
+                {"label": "Same Street Signals", "value": same_street_matches},
+                {"label": "Visible Transactions", "value": len(transactions)},
+            ],
+        },
+        {
+            "id": "pricing",
+            "sentence": f"Average nearby price per acre is ${overview.get('averagePricePerAcre', 0):,}, supporting an estimated spread of ${overview.get('estimatedAssignmentSpread', 0):,}.",
+            "confidence": confidence_label(overview.get("averagePricePerAcre", 0)),
+            "evidence": [
+                {"label": "Average Price/Acre", "value": overview.get("averagePricePerAcre", 0)},
+                {"label": "Estimated Assignment Spread", "value": overview.get("estimatedAssignmentSpread", 0)},
+            ],
+        },
+        {
+            "id": "opportunity",
+            "sentence": f"Overall opportunity is {opportunity.get('grade') or 'Needs Data'} with a score of {opportunity.get('score', 0)}.",
+            "confidence": confidence_label(opportunity.get("score", 0)),
+            "evidence": opportunity.get("reasons") or [],
+        },
+    ]
+
+
+def build_most_probable_buyers(matches: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        {
+            "rank": index + 1,
+            "buyerName": match.get("buyerName") or "Unknown Buyer",
+            "normalizedBuyerName": match.get("normalizedBuyerName") or "",
+            "score": match.get("score") or 0,
+            "buyerType": match.get("buyerType") or "unknown",
+            "reasons": [
+                {"label": reason, "evidence": reason}
+                for reason in (match.get("reasons") or [])
+            ],
+            "nearbyPurchases": match.get("nearbyPurchases") or 0,
+            "latestPurchaseDate": match.get("latestPurchaseDate") or "",
+            "averagePurchasePrice": match.get("averagePurchasePrice") or 0,
+            "averageAcreage": match.get("averageAcreage") or 0,
+            "averagePricePerAcre": match.get("averagePricePerAcre") or 0,
+        }
+        for index, match in enumerate(matches[:6])
+    ]
+
+
+def build_contact_intelligence(lead_payload: dict[str, Any], parcel_payload: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "status": "public-data-ready",
+        "confidence": "Needs Public Source",
+        "businessPhone": "",
+        "officePhone": "",
+        "email": lead_payload.get("email") or "",
+        "website": "",
+        "mailingAddress": "",
+        "registeredAgent": "",
+        "knownContacts": [],
+        "verifiedToday": [
+            item
+            for item in [
+                {"label": "Seller Email", "value": lead_payload.get("email") or "", "source": "Lead record"},
+                {"label": "Parcel APN", "value": parcel_payload.get("apn") or lead_payload.get("parcelNumber") or "", "source": "Lead / parcel record"},
+            ]
+            if item.get("value")
+        ],
+        "futureProviders": ["Public business registry", "County records", "OpenCorporates", "Licensed skip trace", "Premium data"],
+        "note": "Contact Intelligence replaces one-off skip tracing. Private phone enrichment is intentionally provider-ready, not hardcoded.",
+    }
+
+
+def count_same_street_transactions(address: str, transactions: list[dict[str, Any]]) -> int:
+    street_tokens = [token for token in str(address).lower().split() if token and not token.isdigit()]
+    street_key = " ".join(street_tokens[:2])
+    if not street_key:
+        return 0
+    return len([item for item in transactions if street_key in str(item.get("address") or "").lower()])
+
+
+def confidence_label(*values: Any) -> str:
+    strongest = max([safe_float(value, 0) for value in values] or [0])
+    if strongest >= 80:
+        return "High"
+    if strongest >= 3:
+        return "Medium"
+    if strongest > 0:
+        return "Early Signal"
     return "Needs Data"
