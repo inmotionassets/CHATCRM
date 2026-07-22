@@ -5296,3 +5296,101 @@ textarea::placeholder {
     height: 360px;
   }
 }
+
+.legacy-outcome-panel {
+  border: 1px solid rgba(245, 179, 0, 0.28);
+  background: linear-gradient(180deg, rgba(245, 179, 0, 0.08), rgba(9, 21, 24, 0.48));
+  border-radius: 8px;
+  padding: 14px;
+  display: grid;
+  gap: 12px;
+}
+
+.legacy-outcome-panel h3 {
+  margin: 2px 0 3px;
+  color: var(--text-strong);
+  font-size: 1rem;
+}
+
+.legacy-outcome-panel small,
+.legacy-outcome-message {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+.legacy-learning-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.legacy-learning-stats div {
+  min-height: 54px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 7px;
+  padding: 8px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.legacy-learning-stats span,
+.legacy-outcome-form label {
+  display: block;
+  color: var(--text-muted);
+  font-size: 0.69rem;
+  font-weight: 800;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.legacy-learning-stats strong {
+  display: block;
+  margin-top: 3px;
+  color: var(--text-strong);
+  font-size: 1rem;
+}
+
+.legacy-outcome-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.legacy-outcome-form label.full,
+.legacy-outcome-form button {
+  grid-column: 1 / -1;
+}
+
+.legacy-outcome-form input,
+.legacy-outcome-form select,
+.legacy-outcome-form textarea {
+  width: 100%;
+  margin-top: 5px;
+  border: 1px solid rgba(203, 216, 208, 0.22);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-strong);
+  font: inherit;
+  font-size: 0.78rem;
+  padding: 8px 9px;
+}
+
+.legacy-outcome-form textarea {
+  min-height: 72px;
+  resize: vertical;
+}
+
+.legacy-outcome-form button {
+  min-height: 38px;
+  border: 0;
+  border-radius: 7px;
+  background: linear-gradient(135deg, #f5b300, #0f9f6e);
+  color: #081214;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.legacy-outcome-form button:disabled {
+  opacity: 0.62;
+  cursor: wait;
+}

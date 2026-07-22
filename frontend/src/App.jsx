@@ -3299,6 +3299,7 @@ function LeadDetail({
           message={propertyWorkspaceMessage}
           snapshot={propertyWorkspace}
           taxUrl={taxUrl}
+          authToken={authToken}
         />
       ) : null}
 
@@ -3654,7 +3655,7 @@ function LeadDetail({
   );
 }
 
-function PropertyIntelligenceWorkspace({ lead, message, snapshot, taxUrl }) {
+function PropertyIntelligenceWorkspace({ authToken, lead, message, snapshot, taxUrl }) {
   const [selectedNarrativeId, setSelectedNarrativeId] = React.useState("");
   const [selectedBuyerKey, setSelectedBuyerKey] = React.useState("");
   const [selectedTransactionId, setSelectedTransactionId] = React.useState("");
@@ -3690,6 +3691,7 @@ function PropertyIntelligenceWorkspace({ lead, message, snapshot, taxUrl }) {
   const narrative = intelligence.narrative || [];
   const activeNarrative = narrative.find((item) => item.id === selectedNarrativeId) || narrative[0] || null;
   const buyers = intelligence.mostProbableBuyers || [];
+  const learning = intelligence.learningIntelligence || snapshot.learningIntelligence || {};
   const transactions = snapshot.transactions || [];
   const visibleTransactions = selectedBuyerKey
     ? transactions.filter((transaction) => legacyBuyerKey(transaction.buyerName) === selectedBuyerKey)
@@ -3837,6 +3839,16 @@ function PropertyIntelligenceWorkspace({ lead, message, snapshot, taxUrl }) {
             ))}
           </div>
 
+          <LegacyOutcomePanel
+            assessment={assessment}
+            authToken={authToken}
+            buyers={buyers}
+            header={header}
+            lead={lead}
+            learning={learning}
+            subject={subject}
+          />
+
           <div className="legacy-contact-intel">
             <p className="eyebrow">Contact Intelligence</p>
             <h3>{contact.confidence || "Needs Public Source"}</h3>
@@ -3888,6 +3900,139 @@ function LegacyAssessmentCard({ detail, label, value }) {
   );
 }
 
+function LegacyOutcomePanel({ assessment = {}, authToken, buyers = [], header = {}, lead, learning = {}, subject = {} }) {
+  const recommendedBuyer = buyers[0]?.buyerName || assessment.nextBestAction?.buyerName || "";
+  const [form, setForm] = React.useState({
+    finalBuyer: recommendedBuyer,
+    assignmentFee: "",
+    daysToClose: "",
+    purchasePrice: "",
+    dispositionResult: "closed",
+    sellerOutcome: "seller_closed",
+    notes: ""
+  });
+  const [message, setMessage] = React.useState("");
+  const [isSaving, setIsSaving] = React.useState(false);
+
+  React.useEffect(() => {
+    setForm((current) => ({ ...current, finalBuyer: current.finalBuyer || recommendedBuyer }));
+    setMessage("");
+  }, [lead.id, recommendedBuyer]);
+
+  function updateField(field, value) {
+    setForm((current) => ({ ...current, [field]: value }));
+  }
+
+  async function submitOutcome(event) {
+    event.preventDefault();
+    if (!authToken || !lead?.id) return;
+    setIsSaving(true);
+    setMessage("Saving outcome...");
+
+    try {
+      const record = await saveOutcomeRecord(lead.id, {
+        propertyId: subject.propertyId || lead.id,
+        address: subject.address || lead.address,
+        apn: subject.apn || lead.parcelNumber,
+        county: subject.county || lead.county,
+        originalOpportunityScore: subject.opportunityScore || 0,
+        recommendedAction: assessment.recommendedAction || "Review",
+        recommendedBuyer,
+        confidence: header.confidence || assessment.confidence?.score || 0,
+        recommendationTimestamp: header.analyzedAt || new Date().toISOString(),
+        ...form
+      }, authToken);
+      setMessage(`Outcome saved. Recommendation result: ${formatOutcomeAccuracy(record.intelligence?.recommendationCorrect)}.`);
+    } catch {
+      setMessage("Could not save outcome yet. Confirm the backend is online.");
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  return (
+    <section className="legacy-outcome-panel">
+      <div>
+        <p className="eyebrow">Outcome Intelligence</p>
+        <h3>LEGACY Learns</h3>
+        <small>{learning.mantra || "We measure before we predict."}</small>
+      </div>
+      <div className="legacy-learning-stats">
+        <LegacyMiniStat label="Outcomes" value={learning.totalOutcomes || 0} />
+        <LegacyMiniStat label="Accuracy" value={`${learning.recommendationAccuracyRate || 0}%`} />
+        <LegacyMiniStat label="Avg Close" value={`${learning.averageDaysToClose || 0}d`} />
+      </div>
+      <form className="legacy-outcome-form" onSubmit={submitOutcome}>
+        <label>
+          Final Buyer
+          <input value={form.finalBuyer} onChange={(event) => updateField("finalBuyer", event.target.value)} placeholder="Buyer who actually purchased" />
+        </label>
+        <label>
+          Assignment Fee
+          <input value={form.assignmentFee} onChange={(event) => updateField("assignmentFee", event.target.value)} placeholder="18000" />
+        </label>
+        <label>
+          Days To Close
+          <input value={form.daysToClose} onChange={(event) => updateField("daysToClose", event.target.value)} placeholder="9" />
+        </label>
+        <label>
+          Purchase Price
+          <input value={form.purchasePrice} onChange={(event) => updateField("purchasePrice", event.target.value)} placeholder="62000" />
+        </label>
+        <label>
+          Disposition Result
+          <select value={form.dispositionResult} onChange={(event) => updateField("dispositionResult", event.target.value)}>
+            <option value="closed">Closed</option>
+            <option value="assigned">Assigned</option>
+            <option value="buyer_purchased">Buyer Purchased</option>
+            <option value="seller_declined">Seller Declined</option>
+            <option value="price_too_high">Price Too High</option>
+            <option value="buyer_passed">Buyer Passed</option>
+            <option value="contract_canceled">Contract Canceled</option>
+            <option value="repriced">Repriced</option>
+            <option value="unknown">Unknown</option>
+          </select>
+        </label>
+        <label>
+          Seller Outcome
+          <select value={form.sellerOutcome} onChange={(event) => updateField("sellerOutcome", event.target.value)}>
+            <option value="seller_closed">Seller closed</option>
+            <option value="seller_backed_out">Seller backed out</option>
+            <option value="needed_more_money">Needed more money</option>
+            <option value="title_issue">Title issue</option>
+            <option value="unknown">Unknown</option>
+          </select>
+        </label>
+        <label className="full">
+          Notes
+          <textarea value={form.notes} onChange={(event) => updateField("notes", event.target.value)} placeholder="What actually happened?" />
+        </label>
+        <button disabled={isSaving} type="submit">Save Outcome</button>
+      </form>
+      {message ? <p className="legacy-outcome-message">{message}</p> : null}
+    </section>
+  );
+}
+
+function LegacyMiniStat({ label, value }) {
+  return (
+    <div>
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  );
+}
+
+function formatOutcomeAccuracy(value) {
+  const labels = {
+    yes: "Correct",
+    partial: "Partial",
+    no: "Missed",
+    unknown: "Not measured",
+    missing_actual_buyer: "Needs final buyer"
+  };
+  return labels[value] || "Not measured";
+}
 function LegacyWhyPropertyDrawer({ assessment = {}, categories = [], onClose }) {
   return (
     <section className="legacy-why-drawer" aria-label="Why this property evidence drawer">
@@ -5048,6 +5193,22 @@ async function matchDealToBuyers(deal, token) {
   }));
 }
 
+async function saveOutcomeRecord(leadId, outcome, token) {
+  const response = await fetch(`${apiBaseUrl}/outcomes/lead/${encodeURIComponent(leadId)}`, {
+    method: "POST",
+    headers: {
+      ...authHeaders(token),
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(outcome)
+  });
+
+  if (!response.ok) {
+    throw new Error("Outcome save failed");
+  }
+
+  return response.json();
+}
 async function fetchPropertyIntelligenceWorkspace(leadId, token) {
   const params = new URLSearchParams({
     radiusMiles: "10",

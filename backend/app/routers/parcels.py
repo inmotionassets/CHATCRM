@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field
 
 from ..auth import CurrentUser
 from ..market_intelligence import MarketIntelligenceFilters, MarketIntelligenceService
-from . import leads as lead_store
+from . import leads as lead_store, outcomes as outcome_store
 
 router = APIRouter(prefix="/parcels", tags=["parcels"])
 market_intelligence_service = MarketIntelligenceService()
@@ -170,12 +170,18 @@ def get_property_intelligence_workspace(
         cash_only=cash_only,
         buyer_types=buyer_type,
     )
-    return market_intelligence_service.build_property_snapshot(
+    snapshot = market_intelligence_service.build_property_snapshot(
         lead.model_dump(),
         parcel.model_dump(),
         filters=filters,
         provider_name=provider_name,
     )
+    learning_summary = outcome_store.build_learning_summary_for_lead(lead_id)
+    snapshot["learningIntelligence"] = learning_summary
+    snapshot.setdefault("marketIntelligence", {})["learningIntelligence"] = learning_summary
+    if "Outcome Intelligence" not in snapshot.get("workspacePanels", []):
+        snapshot.setdefault("workspacePanels", []).append("Outcome Intelligence")
+    return snapshot
 
 
 @router.put("/{lead_id}", response_model=ParcelIntelligence)
