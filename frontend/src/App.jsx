@@ -3658,18 +3658,20 @@ function PropertyIntelligenceWorkspace({ lead, message, snapshot, taxUrl }) {
   const [selectedNarrativeId, setSelectedNarrativeId] = React.useState("");
   const [selectedBuyerKey, setSelectedBuyerKey] = React.useState("");
   const [selectedTransactionId, setSelectedTransactionId] = React.useState("");
+  const [showWhyDrawer, setShowWhyDrawer] = React.useState(false);
 
   React.useEffect(() => {
     setSelectedNarrativeId("");
     setSelectedBuyerKey("");
     setSelectedTransactionId("");
+    setShowWhyDrawer(false);
   }, [lead.id, snapshot?.addressTrigger]);
 
   if (!snapshot) {
     return (
       <section className="legacy-property-workspace loading">
         <div>
-          <p className="eyebrow">LEGACY Property Intelligence</p>
+          <p className="eyebrow">LEGACY Workspace</p>
           <h2>{lead.address || "Address needed"}</h2>
           <p>{message || "Add an address and LEGACY will build the property workspace."}</p>
         </div>
@@ -3679,6 +3681,12 @@ function PropertyIntelligenceWorkspace({ lead, message, snapshot, taxUrl }) {
 
   const subject = snapshot.subjectProperty || {};
   const intelligence = snapshot.marketIntelligence || {};
+  const header = intelligence.workspaceHeader || snapshot.workspaceHeader || {};
+  const assessment = intelligence.assessment || snapshot.assessment || {};
+  const evidenceBreakdown = intelligence.evidenceBreakdown || [];
+  const sourceBadges = header.sources || intelligence.sourceBadges || [];
+  const confidenceValue = header.confidence || assessment?.confidence?.score || intelligence.confidence?.score || 0;
+  const confidenceLabel = header.confidenceLabel || assessment?.confidence?.label || intelligence.confidence?.label || "Needs Data";
   const narrative = intelligence.narrative || [];
   const activeNarrative = narrative.find((item) => item.id === selectedNarrativeId) || narrative[0] || null;
   const buyers = intelligence.mostProbableBuyers || [];
@@ -3693,27 +3701,52 @@ function PropertyIntelligenceWorkspace({ lead, message, snapshot, taxUrl }) {
     null;
   const selectedBuyer = buyers.find((buyer) => legacyBuyerKey(buyer.buyerName) === selectedBuyerKey) || null;
   const contact = snapshot.contactIntelligence || {};
+  const opportunityScore = subject.opportunityScore || intelligence.opportunityScore?.score || 0;
+  const opportunityGrade = subject.opportunityGrade || intelligence.opportunityScore?.grade || "Needs Data";
 
   return (
     <section className="legacy-property-workspace">
-      <div className="legacy-workspace-header">
-        <div>
-          <p className="eyebrow">LEGACY Property Intelligence</p>
+      <div className="legacy-workspace-header premium">
+        <div className="legacy-header-main">
+          <p className="eyebrow">{header.title || "LEGACY Workspace"}</p>
           <h2>{subject.address || lead.address || "Address needed"}</h2>
-          <p>{intelligence.summary || "LEGACY is building the market picture around this property."}</p>
+          <p>{assessment.summary || intelligence.summary || "LEGACY is building the market picture around this property."}</p>
+          <div className="legacy-header-meta">
+            <span>Analyzed {formatLegacyRelativeTime(header.analyzedAt)}</span>
+            <span>{confidenceValue}% confidence</span>
+            <span>{confidenceLabel}</span>
+          </div>
+          <LegacySourceBadges sources={sourceBadges} />
         </div>
-        <div className="legacy-score-badge">
+        <button
+          aria-expanded={showWhyDrawer}
+          className={`legacy-score-badge ${showWhyDrawer ? "active" : ""}`}
+          onClick={() => setShowWhyDrawer((current) => !current)}
+          type="button"
+        >
           <span>Opportunity</span>
-          <strong>{subject.opportunityScore || intelligence.opportunityScore?.score || 0}</strong>
-          <small>{subject.opportunityGrade || intelligence.opportunityScore?.grade || "Needs Data"}</small>
-        </div>
+          <strong>{opportunityScore}</strong>
+          <small>{opportunityGrade}</small>
+          <em>Why This Property?</em>
+        </button>
       </div>
+
+      <LegacyAssessmentPanel assessment={assessment} onOpenWhy={() => setShowWhyDrawer(true)} />
+
+      {showWhyDrawer ? (
+        <LegacyWhyPropertyDrawer
+          assessment={assessment}
+          categories={evidenceBreakdown}
+          onClose={() => setShowWhyDrawer(false)}
+        />
+      ) : null}
 
       <div className="legacy-workspace-grid">
         <aside className="legacy-panel legacy-subject-panel">
           <div>
             <p className="eyebrow">Property</p>
             <h3>Subject Property</h3>
+            <LegacySectionSource label="County Records" sources={sourceBadges} />
           </div>
           <div className="legacy-metric-grid">
             <LegacyMetric label="APN" value={subject.apn || "Missing"} />
@@ -3752,6 +3785,7 @@ function PropertyIntelligenceWorkspace({ lead, message, snapshot, taxUrl }) {
           selectedBuyer={selectedBuyer}
           selectedBuyerKey={selectedBuyerKey}
           selectedTransaction={selectedTransaction}
+          sourceBadges={sourceBadges}
           subject={subject}
           transactions={visibleTransactions}
         />
@@ -3760,6 +3794,7 @@ function PropertyIntelligenceWorkspace({ lead, message, snapshot, taxUrl }) {
           <div>
             <p className="eyebrow">Market Narrative</p>
             <h3>What LEGACY Knows</h3>
+            <LegacySectionSource label={activeNarrative?.source || "Market Intelligence"} sources={sourceBadges} />
           </div>
           <div className="legacy-narrative-list">
             {narrative.map((item) => (
@@ -3771,6 +3806,7 @@ function PropertyIntelligenceWorkspace({ lead, message, snapshot, taxUrl }) {
               >
                 <span>{item.confidence}</span>
                 {item.sentence}
+                <em>{item.source || "Evidence Engine"}</em>
               </button>
             ))}
           </div>
@@ -3779,7 +3815,7 @@ function PropertyIntelligenceWorkspace({ lead, message, snapshot, taxUrl }) {
               <span>Evidence</span>
               {(activeNarrative.evidence || []).slice(0, 5).map((item, index) => (
                 <p key={`${activeNarrative.id}-${index}`}>
-                  <strong>{item.label || item}</strong>{item.value !== undefined ? `: ${item.value}` : item.detail ? `: ${item.detail}` : ""}
+                  <strong>{item.label || item}</strong>{formatLegacyEvidenceValue(item)}
                 </p>
               ))}
             </div>
@@ -3804,6 +3840,7 @@ function PropertyIntelligenceWorkspace({ lead, message, snapshot, taxUrl }) {
           <div className="legacy-contact-intel">
             <p className="eyebrow">Contact Intelligence</p>
             <h3>{contact.confidence || "Needs Public Source"}</h3>
+            <LegacySectionSource label="Internal Intelligence" sources={sourceBadges} />
             {(contact.verifiedToday || []).length ? (
               contact.verifiedToday.map((item) => <p key={item.label}><strong>{item.label}</strong>: {item.value}</p>)
             ) : (
@@ -3817,19 +3854,111 @@ function PropertyIntelligenceWorkspace({ lead, message, snapshot, taxUrl }) {
   );
 }
 
-function LegacyMarketMap({ onClearBuyer, onSelectBuyer, onSelectTransaction, selectedBuyer, selectedBuyerKey, selectedTransaction, subject, transactions }) {
+function LegacyAssessmentPanel({ assessment = {}, onOpenWhy }) {
+  const action = assessment.recommendedAction || "Review";
+  const nextAction = assessment.nextBestAction || {};
+  const potential = assessment.assignmentPotential || {};
+  const confidence = assessment.confidence || {};
+  return (
+    <section className={`legacy-assessment-panel ${assessment.actionTone || "watch"}`}>
+      <div className="legacy-assessment-main">
+        <p className="eyebrow">LEGACY Assessment</p>
+        <h3>{action}</h3>
+        <p>{assessment.summary || "LEGACY is waiting on stronger market evidence before making a recommendation."}</p>
+      </div>
+      <div className="legacy-assessment-cards">
+        <LegacyAssessmentCard label="Next Best Action" value={nextAction.label || "Review evidence"} detail={nextAction.reason || "Evidence is still building."} />
+        <LegacyAssessmentCard label="Assignment Potential" value={potential.label || "Needs pricing data"} detail={potential.source || "Pricing Intelligence"} />
+        <LegacyAssessmentCard label="Confidence" value={`${confidence.score || 0}%`} detail={confidence.label || "Needs Data"} />
+      </div>
+      <div className="legacy-assessment-actions">
+        <button onClick={onOpenWhy} type="button">Why This Property?</button>
+      </div>
+    </section>
+  );
+}
+
+function LegacyAssessmentCard({ detail, label, value }) {
+  return (
+    <div className="legacy-assessment-card">
+      <span>{label}</span>
+      <strong>{value}</strong>
+      <small>{detail}</small>
+    </div>
+  );
+}
+
+function LegacyWhyPropertyDrawer({ assessment = {}, categories = [], onClose }) {
+  return (
+    <section className="legacy-why-drawer" aria-label="Why this property evidence drawer">
+      <div className="legacy-why-header">
+        <div>
+          <p className="eyebrow">Why This Property?</p>
+          <h3>{assessment.recommendedAction || "Review"}</h3>
+          <p>{assessment.summary || "LEGACY explains each recommendation with evidence."}</p>
+        </div>
+        <button onClick={onClose} type="button">Close</button>
+      </div>
+      <div className="legacy-why-grid">
+        {categories.map((category, index) => (
+          <details className="legacy-why-category" key={category.id || category.label} open={index === 0}>
+            <summary>
+              <span>{category.label}</span>
+              <strong>{Math.round(Number(category.score) || 0)}</strong>
+              <small>{category.confidence || "Needs Data"} / {category.source || "Evidence Engine"}</small>
+            </summary>
+            <div className="legacy-score-bar"><i style={{ width: `${clampNumber(Number(category.score) || 0, 0, 100)}%` }} /></div>
+            <p>{category.summary}</p>
+            <div className="legacy-why-evidence-list">
+              {(category.evidence || []).map((item, itemIndex) => (
+                <span key={`${category.id || category.label}-${itemIndex}`}>
+                  <b>{item.label || item}</b>{formatLegacyEvidenceValue(item)}
+                </span>
+              ))}
+            </div>
+          </details>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function LegacySourceBadges({ sources = [], limit = 4 }) {
+  return (
+    <div className="legacy-source-badges">
+      {sources.slice(0, limit).map((source) => (
+        <span className={source.verified ? "verified" : "inferred"} key={source.label} title={source.detail || source.source}>
+          {source.verified ? "OK" : "?"} {source.label}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function LegacySectionSource({ label, sources = [] }) {
+  const source = legacyFindSource(sources, label);
+  return (
+    <small className={`legacy-section-source ${source?.verified ? "verified" : "inferred"}`}>
+      {source?.label || label} / {source?.status || "Inferred"}
+    </small>
+  );
+}
+
+function LegacyMarketMap({ onClearBuyer, onSelectBuyer, onSelectTransaction, selectedBuyer, selectedBuyerKey, selectedTransaction, sourceBadges = [], subject, transactions }) {
   const radiusMiles = 10;
   const markerRecords = transactions.map((transaction) => ({
     transaction,
     position: legacyMarkerPosition(transaction, subject, radiusMiles)
   }));
+  const showFootprintLines = Boolean(selectedBuyerKey && markerRecords.length);
 
   return (
     <section className="legacy-panel legacy-map-panel">
       <div className="legacy-map-heading">
         <div>
           <p className="eyebrow">Market Intelligence Map</p>
-          <h3>{transactions.length} nearby signals</h3>
+          <h3>{selectedBuyerKey ? `${transactions.length} highlighted holdings` : `${transactions.length} nearby signals`}</h3>
+          <LegacySectionSource label="Recorded Sales" sources={sourceBadges} />
         </div>
         {selectedBuyerKey ? <button onClick={onClearBuyer} type="button">Show Full Market</button> : <small>Centered on subject parcel</small>}
       </div>
@@ -3840,10 +3969,26 @@ function LegacyMarketMap({ onClearBuyer, onSelectBuyer, onSelectTransaction, sel
           <small>{selectedBuyer.nearbyPurchases} nearby purchases / avg {formatLegacyMoney(selectedBuyer.averagePurchasePrice)}</small>
         </div>
       ) : null}
-      <div className="legacy-map-canvas" aria-label="Property market intelligence map">
+      <div className={`legacy-map-canvas ${selectedBuyerKey ? "highlight-mode" : ""}`} aria-label="Property market intelligence map">
         <div className="legacy-map-grid" />
         <div className="legacy-map-ring one" />
         <div className="legacy-map-ring two" />
+        {showFootprintLines ? (
+          <svg aria-hidden="true" className="legacy-footprint-lines" focusable="false">
+            {markerRecords.map(({ position }, index) => {
+              const previous = index === 0 ? { left: 50, top: 50 } : markerRecords[index - 1].position;
+              return (
+                <line
+                  key={`line-${index}`}
+                  x1={`${previous.left}%`}
+                  x2={`${position.left}%`}
+                  y1={`${previous.top}%`}
+                  y2={`${position.top}%`}
+                />
+              );
+            })}
+          </svg>
+        ) : null}
         <div className="legacy-parcel-outline" title={subject.parcel?.boundarySource || "Estimated parcel outline"} />
         <button className="legacy-subject-marker" type="button">Deal</button>
         {markerRecords.map(({ transaction, position }) => (
@@ -3888,8 +4033,9 @@ function LegacyMarketMap({ onClearBuyer, onSelectBuyer, onSelectTransaction, sel
           <div className="legacy-action-row">
             <button onClick={() => onSelectBuyer(legacyBuyerKey(selectedTransaction.buyerName))} type="button">View Buyer</button>
             <button onClick={() => onSelectBuyer(legacyBuyerKey(selectedTransaction.buyerName))} type="button">Highlight Holdings</button>
+            <button type="button">Match To Deal</button>
             <button type="button">Contact Intelligence</button>
-            <button type="button">Add To Outreach</button>
+            <button disabled type="button">Skip Trace</button>
           </div>
         </article>
       ) : null}
@@ -5370,6 +5516,36 @@ function splitInputValues(value = "") {
     .filter(Boolean);
 }
 
+function legacyFindSource(sources = [], label = "") {
+  const cleanLabel = safeText(label).toLowerCase();
+  if (!cleanLabel) return null;
+  return sources.find((source) => {
+    const sourceLabel = safeText(source.label).toLowerCase();
+    return sourceLabel === cleanLabel || sourceLabel.includes(cleanLabel) || cleanLabel.includes(sourceLabel);
+  }) || null;
+}
+
+function formatLegacyRelativeTime(value = "") {
+  if (!value) return "just now";
+  const timestamp = Date.parse(value);
+  if (!Number.isFinite(timestamp)) return "just now";
+  const seconds = Math.max(0, Math.round((Date.now() - timestamp) / 1000));
+  if (seconds < 10) return "just now";
+  if (seconds < 60) return `${seconds} seconds ago`;
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes} minute${minutes === 1 ? "" : "s"} ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours} hour${hours === 1 ? "" : "s"} ago`;
+  return formatLegacyDate(value.slice(0, 10));
+}
+
+function formatLegacyEvidenceValue(item = {}) {
+  if (!item || typeof item !== "object") return "";
+  const rawValue = item.value ?? item.score ?? item.detail ?? item.evidence;
+  if (rawValue === undefined || rawValue === null || rawValue === "") return "";
+  if (typeof rawValue === "number") return `: ${rawValue.toLocaleString()}`;
+  return `: ${rawValue}`;
+}
 function legacyBuyerKey(value = "") {
   return safeText(value)
     .toLowerCase()

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Any
 
 from .buyer_footprints import build_buyer_footprints, build_deal_intelligence_summary, normalize_entity_name
@@ -81,8 +82,18 @@ class MarketIntelligenceService:
         )
         narrative = build_market_narrative(market_workspace, subject)
         most_probable_buyers = build_most_probable_buyers(market_workspace.get("buyerMatches") or [])
+        source_badges = build_source_badges(lead_payload, parcel_payload, market_workspace)
+        confidence = build_overall_confidence(market_workspace, subject, source_badges)
+        assessment = build_legacy_assessment(market_workspace, subject, most_probable_buyers, confidence)
+        evidence_breakdown = build_evidence_breakdown(market_workspace, subject, confidence)
+        workspace_header = build_workspace_header(confidence, source_badges)
         market_intelligence = {
             **(market_workspace.get("marketIntelligence") or {}),
+            "workspaceHeader": workspace_header,
+            "assessment": assessment,
+            "evidenceBreakdown": evidence_breakdown,
+            "confidence": confidence,
+            "sourceBadges": source_badges,
             "narrative": narrative,
             "mostProbableBuyers": most_probable_buyers,
         }
@@ -108,6 +119,8 @@ class MarketIntelligenceService:
             "addressTrigger": subject.get("address") or "",
             "workspaceType": "Property Intelligence Workspace",
             "subjectProperty": subject,
+            "workspaceHeader": workspace_header,
+            "assessment": assessment,
             "marketIntelligence": market_intelligence,
             "transactions": market_workspace.get("transactions") or [],
             "buyerMatches": market_workspace.get("buyerMatches") or [],
@@ -488,6 +501,366 @@ def build_estimated_parcel_boundary(subject: dict[str, Any]) -> list[dict[str, f
     ]
 
 
+def current_timestamp() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def build_workspace_header(confidence: dict[str, Any], source_badges: list[dict[str, Any]]) -> dict[str, Any]:
+    return {
+        "title": "LEGACY Workspace",
+        "subtitle": "Property Intelligence Workspace",
+        "analyzedAt": current_timestamp(),
+        "confidence": confidence.get("score") or 0,
+        "confidenceLabel": confidence.get("label") or "Needs Data",
+        "sources": source_badges,
+    }
+
+
+def build_source_badges(
+    lead_payload: dict[str, Any],
+    parcel_payload: dict[str, Any],
+    workspace: dict[str, Any],
+) -> list[dict[str, Any]]:
+    source = workspace.get("source") or {}
+    transactions = workspace.get("transactions") or []
+    buyer_matches = workspace.get("buyerMatches") or []
+    apn = parcel_payload.get("apn") or lead_payload.get("parcelNumber") or ""
+    address = parcel_payload.get("address") or lead_payload.get("address") or ""
+    avg_transaction_confidence = average_number([item.get("confidence") for item in transactions])
+
+    return [
+        {
+            "label": "County Records",
+            "status": "Verified" if apn else "Needs APN",
+            "confidence": 82 if apn else 48,
+            "verified": bool(apn),
+            "source": parcel_payload.get("dataSource") or "Lead / parcel record",
+            "detail": "APN and county fields are present." if apn else "Add APN to strengthen county record confidence.",
+        },
+        {
+            "label": "Recorded Sales",
+            "status": "Active" if transactions else "Needs Import",
+            "confidence": round(avg_transaction_confidence) if avg_transaction_confidence else 45,
+            "verified": bool(transactions),
+            "source": source.get("sourceName") or "Market transaction provider",
+            "detail": f"{len(transactions)} nearby transaction signals loaded.",
+        },
+        {
+            "label": "Buyer Activity",
+            "status": "Active" if buyer_matches else "Needs Buyer Data",
+            "confidence": min(96, 58 + len(buyer_matches) * 6) if buyer_matches else 40,
+            "verified": bool(buyer_matches),
+            "source": "Buyer matching and footprint engine",
+            "detail": f"{len(buyer_matches)} ranked buyer groups found.",
+        },
+        {
+            "label": "Internal Intelligence",
+            "status": "Active" if address else "Needs Address",
+            "confidence": 86 if address else 35,
+            "verified": bool(address),
+            "source": "ChatCRM lead record",
+            "detail": "Lead address and workflow history are available." if address else "Address is needed before LEGACY can build the workspace.",
+        },
+    ]
+
+
+def build_overall_confidence(
+    workspace: dict[str, Any],
+    subject: dict[str, Any],
+    source_badges: list[dict[str, Any]],
+) -> dict[str, Any]:
+    source_score = average_number([item.get("confidence") for item in source_badges]) or 0
+    transaction_score = average_number([item.get("confidence") for item in workspace.get("transactions") or []]) or 0
+    buyer_count = len(workspace.get("buyerMatches") or [])
+    buyer_score = min(96, 52 + buyer_count * 7) if buyer_count else 36
+    parcel_score = 88 if subject.get("apn") and subject.get("address") else 58 if subject.get("address") else 35
+    overall = round(average_number([source_score, transaction_score or source_score, buyer_score, parcel_score]) or 0)
+    return {
+        "score": max(0, min(100, overall)),
+        "label": percent_confidence_label(overall),
+        "drivers": [
+            {"label": "Source Coverage", "score": round(source_score)},
+            {"label": "Transaction Quality", "score": round(transaction_score or source_score)},
+            {"label": "Buyer Evidence", "score": round(buyer_score)},
+            {"label": "Parcel Completeness", "score": round(parcel_score)},
+        ],
+    }
+
+
+def build_legacy_assessment(
+    workspace: dict[str, Any],
+    subject: dict[str, Any],
+    most_probable_buyers: list[dict[str, Any]],
+    confidence: dict[str, Any],
+) -> dict[str, Any]:
+    market_intelligence = workspace.get("marketIntelligence") or {}
+    opportunity = market_intelligence.get("opportunityScore") or {}
+    overview = workspace.get("overview") or {}
+    top_buyer = most_probable_buyers[0] if most_probable_buyers else {}
+    score = safe_float(opportunity.get("score"), 0)
+    confidence_score = safe_float(confidence.get("score"), 0)
+    spread = safe_float(overview.get("estimatedAssignmentSpread"), 0)
+    assignment_potential = build_assignment_potential(spread, subject)
+    action = recommended_action(score, confidence_score)
+    next_action = next_best_action(top_buyer, subject, overview, score)
+
+    summary = build_assessment_summary(action, overview, top_buyer, opportunity, assignment_potential)
+    return {
+        "recommendedAction": action,
+        "actionTone": action_tone(action),
+        "nextBestAction": next_action,
+        "assignmentPotential": assignment_potential,
+        "confidence": confidence,
+        "summary": summary,
+        "evidence": [
+            {"label": "Opportunity Score", "value": opportunity.get("score") or 0, "source": "Opportunity Engine"},
+            {"label": "Top Buyer", "value": top_buyer.get("buyerName") or "No ranked buyer yet", "source": "Buyer Intelligence"},
+            {"label": "Nearby Buyer Groups", "value": overview.get("verifiedNearbyBuyers", 0), "source": "Buyer Activity"},
+            {"label": "Active Builders", "value": overview.get("activeBuilders", 0), "source": "Buyer Activity"},
+            {"label": "Estimated Assignment Potential", "value": assignment_potential.get("label"), "source": "Pricing Intelligence"},
+        ],
+    }
+
+
+def build_assignment_potential(spread: float, subject: dict[str, Any]) -> dict[str, Any]:
+    if spread <= 0:
+        target_assignment = safe_float(subject.get("targetAssignment"), 0)
+        contract_price = safe_float(subject.get("contractPrice"), 0)
+        spread = max(0, target_assignment - contract_price)
+    if spread <= 0:
+        return {"low": 0, "high": 0, "label": "Needs pricing data", "source": "Pricing Intelligence"}
+    low = round(spread * 0.7)
+    high = round(spread * 1.15)
+    return {"low": low, "high": high, "label": f"${low:,.0f} - ${high:,.0f}", "source": "Pricing Intelligence"}
+
+
+def recommended_action(score: float, confidence_score: float) -> str:
+    if score >= 85 and confidence_score >= 80:
+        return "Pursue Immediately"
+    if score >= 72:
+        return "Pursue"
+    if score >= 55:
+        return "Review"
+    if score >= 42:
+        return "Reprice"
+    return "Pass"
+
+
+def action_tone(action: str) -> str:
+    return {
+        "Pursue Immediately": "strong",
+        "Pursue": "positive",
+        "Review": "watch",
+        "Reprice": "caution",
+        "Pass": "muted",
+    }.get(action, "watch")
+
+
+def next_best_action(
+    top_buyer: dict[str, Any],
+    subject: dict[str, Any],
+    overview: dict[str, Any],
+    score: float,
+) -> dict[str, Any]:
+    if top_buyer.get("buyerName") and safe_float(top_buyer.get("score"), 0) >= 70:
+        return {
+            "label": f"Call {top_buyer.get('buyerName')} first",
+            "reason": "This buyer has the strongest match score and nearby activity.",
+            "source": "Recommendation Engine",
+        }
+    if str(subject.get("utilities") or "").lower() in {"", "unknown", "needs review"}:
+        return {
+            "label": "Verify utility availability",
+            "reason": "Utility confidence is still low, and that can affect buyer demand.",
+            "source": "Recommendation Engine",
+        }
+    if safe_float(overview.get("recentSimilarSales"), 0) < 3:
+        return {
+            "label": "Expand search radius",
+            "reason": "LEGACY needs more comparable sales before making a stronger recommendation.",
+            "source": "Recommendation Engine",
+        }
+    if score < 55:
+        return {
+            "label": "Review price before outreach",
+            "reason": "The opportunity score is not strong enough yet for aggressive buyer outreach.",
+            "source": "Recommendation Engine",
+        }
+    return {
+        "label": "Prepare buyer outreach package",
+        "reason": "Market and buyer signals are strong enough to move toward disposition.",
+        "source": "Recommendation Engine",
+    }
+
+
+def build_assessment_summary(
+    action: str,
+    overview: dict[str, Any],
+    top_buyer: dict[str, Any],
+    opportunity: dict[str, Any],
+    assignment_potential: dict[str, Any],
+) -> str:
+    buyer_count = overview.get("verifiedNearbyBuyers", 0)
+    builder_count = overview.get("activeBuilders", 0)
+    top_buyer_name = top_buyer.get("buyerName") or "the top ranked buyer"
+    if action in {"Pursue Immediately", "Pursue"}:
+        return (
+            f"This parcel sits inside an active buyer pocket with {buyer_count} buyer groups and "
+            f"{builder_count} builder groups detected nearby. {top_buyer_name} should be contacted first, "
+            f"with estimated assignment potential of {assignment_potential.get('label')}.")
+    if action == "Review":
+        return (
+            f"LEGACY sees a workable opportunity, but the evidence is not complete yet. "
+            f"Review buyer demand, utilities, and price support before pushing this deal hard.")
+    if action == "Reprice":
+        return "LEGACY needs stronger pricing support before this should move forward. Recheck contract price, acreage, and nearby transaction quality."
+    return "LEGACY does not see enough evidence yet to recommend pursuit. Add better parcel, pricing, or transaction data before investing more time."
+
+
+def build_evidence_breakdown(
+    workspace: dict[str, Any],
+    subject: dict[str, Any],
+    confidence: dict[str, Any],
+) -> list[dict[str, Any]]:
+    overview = workspace.get("overview") or {}
+    transactions = workspace.get("transactions") or []
+    buyer_matches = workspace.get("buyerMatches") or []
+    buyer_footprints = workspace.get("buyerFootprints") or {}
+    opportunity = (workspace.get("marketIntelligence") or {}).get("opportunityScore") or {}
+    recent_90 = count_recent_transactions(transactions, 90)
+    cash_count = len([item for item in transactions if item.get("cashSale")])
+    same_street = count_same_street_transactions(subject.get("address") or "", transactions)
+    top_buyer = buyer_matches[0] if buyer_matches else {}
+
+    return [
+        {
+            "id": "buyer-demand",
+            "label": "Buyer Demand",
+            "score": min(100, safe_float(overview.get("verifiedNearbyBuyers"), 0) * 18 + safe_float(overview.get("highMatchBuyers"), 0) * 10),
+            "confidence": confidence.get("label"),
+            "source": "Buyer Activity",
+            "summary": "Measures how many real buyer groups are active around this property.",
+            "evidence": [
+                {"label": "Nearby buyer groups", "value": overview.get("verifiedNearbyBuyers", 0)},
+                {"label": "High-match buyers", "value": overview.get("highMatchBuyers", 0)},
+                {"label": "Top buyer", "value": top_buyer.get("buyerName") or "No ranked buyer yet"},
+                {"label": "Cash purchase signals", "value": cash_count},
+            ],
+        },
+        {
+            "id": "builder-activity",
+            "label": "Builder Activity",
+            "score": min(100, safe_float(overview.get("activeBuilders"), 0) * 30 + same_street * 12),
+            "confidence": confidence.get("label"),
+            "source": "Buyer Footprints",
+            "summary": "Looks for builder and repeat-buyer activity close to the subject parcel.",
+            "evidence": [
+                {"label": "Active builders", "value": overview.get("activeBuilders", 0)},
+                {"label": "Same-street signals", "value": same_street},
+                {"label": "Buyer footprints", "value": len(buyer_footprints)},
+            ],
+        },
+        {
+            "id": "market-velocity",
+            "label": "Market Velocity",
+            "score": min(100, recent_90 * 18 + len(transactions) * 4),
+            "confidence": confidence.get("label"),
+            "source": "Recorded Sales",
+            "summary": "Shows whether nearby land has been moving recently.",
+            "evidence": [
+                {"label": "Sales in last 90 days", "value": recent_90},
+                {"label": "Visible transactions", "value": len(transactions)},
+                {"label": "Latest sale", "value": max_sale_date(transactions) or "No sale date"},
+            ],
+        },
+        {
+            "id": "price-support",
+            "label": "Price Support",
+            "score": min(100, safe_float(overview.get("estimatedAssignmentSpread"), 0) / 350 + (25 if overview.get("averagePricePerAcre") else 0)),
+            "confidence": confidence.get("label"),
+            "source": "Pricing Intelligence",
+            "summary": "Compares nearby price-per-acre evidence against the current acquisition target.",
+            "evidence": [
+                {"label": "Average price per acre", "value": overview.get("averagePricePerAcre", 0)},
+                {"label": "Estimated assignment spread", "value": overview.get("estimatedAssignmentSpread", 0)},
+                {"label": "Opportunity score", "value": opportunity.get("score") or 0},
+            ],
+        },
+        {
+            "id": "parcel-quality",
+            "label": "Parcel Quality",
+            "score": parcel_quality_score(subject),
+            "confidence": confidence.get("label"),
+            "source": "County Records",
+            "summary": "Checks whether core parcel facts are present and usable.",
+            "evidence": [
+                {"label": "APN", "value": subject.get("apn") or "Missing"},
+                {"label": "Acreage", "value": subject.get("acreage") or "Missing"},
+                {"label": "Zoning", "value": subject.get("zoning") or "Unknown"},
+                {"label": "Utilities", "value": subject.get("utilities") or "Unknown"},
+                {"label": "Flood zone", "value": subject.get("floodZone") or "Unknown"},
+            ],
+        },
+        {
+            "id": "confidence",
+            "label": "Confidence",
+            "score": confidence.get("score") or 0,
+            "confidence": confidence.get("label"),
+            "source": "Evidence Engine",
+            "summary": "Shows how reliable LEGACY believes this recommendation is right now.",
+            "evidence": confidence.get("drivers") or [],
+        },
+    ]
+
+
+def average_number(values: list[Any]) -> float:
+    clean = [safe_float(value, 0) for value in values if safe_float(value, 0) > 0]
+    return sum(clean) / len(clean) if clean else 0
+
+
+def percent_confidence_label(value: Any) -> str:
+    score = safe_float(value, 0)
+    if score >= 82:
+        return "High"
+    if score >= 62:
+        return "Medium"
+    if score > 0:
+        return "Low"
+    return "Needs Data"
+
+
+def count_recent_transactions(transactions: list[dict[str, Any]], days: int) -> int:
+    today = datetime.now(timezone.utc).date()
+    count = 0
+    for transaction in transactions:
+        sale_date = str(transaction.get("saleDate") or "")
+        if not sale_date:
+            continue
+        try:
+            parsed = datetime.fromisoformat(sale_date[:10]).date()
+        except ValueError:
+            continue
+        if (today - parsed).days <= days:
+            count += 1
+    return count
+
+
+def parcel_quality_score(subject: dict[str, Any]) -> int:
+    score = 0
+    if subject.get("apn"):
+        score += 22
+    if safe_float(subject.get("acreage"), 0):
+        score += 20
+    if str(subject.get("zoning") or "").lower() not in {"", "unknown"}:
+        score += 16
+    if str(subject.get("utilities") or "").lower() not in {"", "unknown", "needs review"}:
+        score += 18
+    if str(subject.get("floodZone") or "").lower() not in {"", "unknown"}:
+        score += 14
+    if subject.get("coordinates"):
+        score += 10
+    return min(100, score)
+
 def build_market_narrative(workspace: dict[str, Any], subject: dict[str, Any]) -> list[dict[str, Any]]:
     overview = workspace.get("overview") or {}
     buyer_matches = workspace.get("buyerMatches") or []
@@ -495,39 +868,75 @@ def build_market_narrative(workspace: dict[str, Any], subject: dict[str, Any]) -
     opportunity = (workspace.get("marketIntelligence") or {}).get("opportunityScore") or {}
     strongest_buyer = buyer_matches[0] if buyer_matches else {}
     same_street_matches = count_same_street_transactions(subject.get("address") or "", transactions)
+    recent_90 = count_recent_transactions(transactions, 90)
+    cash_count = len([item for item in transactions if item.get("cashSale")])
+    active_builders = overview.get("activeBuilders", 0)
+    nearby_buyers = overview.get("verifiedNearbyBuyers", 0)
+
+    corridor_sentence = "This property sits inside an active residential builder pocket."
+    if not active_builders and not nearby_buyers:
+        corridor_sentence = "LEGACY needs more buyer and builder evidence before calling this a proven market pocket."
+
+    buyer_sentence = f"{strongest_buyer.get('buyerName') or 'No ranked buyer yet'} is the first buyer to review because the match score is {strongest_buyer.get('score', 0)}."
+    if not strongest_buyer:
+        buyer_sentence = "No ranked buyer has enough evidence yet, so the next step is importing or refreshing nearby activity."
+
+    velocity_sentence = f"Recent activity shows {recent_90} nearby purchases in the last ninety days and {len(transactions)} visible transaction signals overall."
+    if recent_90 == 0:
+        velocity_sentence = "Recent purchase velocity is still unproven because LEGACY has not found a sale in the last ninety days."
+
+    pricing_sentence = f"Nearby price-per-acre evidence is ${overview.get('averagePricePerAcre', 0):,}, with estimated assignment potential of ${overview.get('estimatedAssignmentSpread', 0):,}."
+    if not overview.get("averagePricePerAcre"):
+        pricing_sentence = "Pricing support is still low because LEGACY has not found usable price-per-acre evidence."
 
     return [
         {
             "id": "corridor",
-            "sentence": f"This property sits near {overview.get('activeBuilders', 0)} active builder groups and {overview.get('verifiedNearbyBuyers', 0)} nearby buyer groups.",
-            "confidence": confidence_label(overview.get("activeBuilders", 0), overview.get("verifiedNearbyBuyers", 0)),
+            "sentence": corridor_sentence,
+            "confidence": confidence_label(active_builders, nearby_buyers),
+            "source": "Buyer Activity",
             "evidence": [
-                {"label": "Active Builders", "value": overview.get("activeBuilders", 0)},
-                {"label": "Nearby Buyer Groups", "value": overview.get("verifiedNearbyBuyers", 0)},
+                {"label": "Active Builders", "value": active_builders},
+                {"label": "Nearby Buyer Groups", "value": nearby_buyers},
             ],
         },
         {
             "id": "buyer-demand",
-            "sentence": f"{strongest_buyer.get('buyerName') or 'No buyer'} is currently the strongest ranked buyer for this property.",
+            "sentence": buyer_sentence,
             "confidence": confidence_label(strongest_buyer.get("score", 0)),
+            "source": "Buyer Intelligence",
             "evidence": [
                 {"label": "Match Score", "value": strongest_buyer.get("score", 0)},
                 {"label": "Nearby Purchases", "value": strongest_buyer.get("nearbyPurchases", 0)},
+                {"label": "Cash Purchase Signals", "value": cash_count},
             ],
         },
         {
             "id": "same-street",
-            "sentence": f"LEGACY found {same_street_matches} same-street or close-street transaction signals around the subject address.",
+            "sentence": f"LEGACY found {same_street_matches} same-street or close-street signals, which helps reveal whether this block is already attracting buyers.",
             "confidence": confidence_label(same_street_matches),
+            "source": "Recorded Sales",
             "evidence": [
                 {"label": "Same Street Signals", "value": same_street_matches},
                 {"label": "Visible Transactions", "value": len(transactions)},
             ],
         },
         {
+            "id": "velocity",
+            "sentence": velocity_sentence,
+            "confidence": confidence_label(recent_90, len(transactions)),
+            "source": "Recorded Sales",
+            "evidence": [
+                {"label": "Purchases Last 90 Days", "value": recent_90},
+                {"label": "Visible Transactions", "value": len(transactions)},
+                {"label": "Latest Sale", "value": max_sale_date(transactions) or "No sale date"},
+            ],
+        },
+        {
             "id": "pricing",
-            "sentence": f"Average nearby price per acre is ${overview.get('averagePricePerAcre', 0):,}, supporting an estimated spread of ${overview.get('estimatedAssignmentSpread', 0):,}.",
+            "sentence": pricing_sentence,
             "confidence": confidence_label(overview.get("averagePricePerAcre", 0)),
+            "source": "Pricing Intelligence",
             "evidence": [
                 {"label": "Average Price/Acre", "value": overview.get("averagePricePerAcre", 0)},
                 {"label": "Estimated Assignment Spread", "value": overview.get("estimatedAssignmentSpread", 0)},
@@ -535,12 +944,12 @@ def build_market_narrative(workspace: dict[str, Any], subject: dict[str, Any]) -
         },
         {
             "id": "opportunity",
-            "sentence": f"Overall opportunity is {opportunity.get('grade') or 'Needs Data'} with a score of {opportunity.get('score', 0)}.",
+            "sentence": f"LEGACY rates this opportunity {opportunity.get('grade') or 'Needs Data'} at {opportunity.get('score', 0)} because the score is built from buyer demand, builder activity, pricing, parcel fit, and confidence.",
             "confidence": confidence_label(opportunity.get("score", 0)),
+            "source": "Opportunity Engine",
             "evidence": opportunity.get("reasons") or [],
         },
     ]
-
 
 def build_most_probable_buyers(matches: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [

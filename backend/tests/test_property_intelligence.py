@@ -77,6 +77,37 @@ class PropertyIntelligenceSnapshotTests(unittest.TestCase):
         self.assertGreater(len(buyers), 0)
         self.assertTrue(all("score" in buyer and "reasons" in buyer for buyer in buyers))
 
+    def test_property_snapshot_includes_phase_two_assessment_contract(self):
+        snapshot = self.service.build_property_snapshot(
+            self.lead,
+            self.parcel,
+            filters=MarketIntelligenceFilters(radius_miles=25),
+            provider_name="mock",
+        )
+        intelligence = snapshot["marketIntelligence"]
+        header = intelligence["workspaceHeader"]
+        assessment = intelligence["assessment"]
+        evidence_breakdown = intelligence["evidenceBreakdown"]
+        source_badges = intelligence["sourceBadges"]
+
+        self.assertEqual(header["title"], "LEGACY Workspace")
+        self.assertTrue(header["analyzedAt"])
+        self.assertGreaterEqual(header["confidence"], 0)
+        self.assertEqual(snapshot["assessment"], assessment)
+        self.assertIn(
+            assessment["recommendedAction"],
+            {"Pursue Immediately", "Pursue", "Review", "Reprice", "Pass"},
+        )
+        self.assertTrue(assessment["nextBestAction"]["label"])
+        self.assertTrue(assessment["assignmentPotential"]["label"])
+        self.assertTrue(assessment["summary"])
+        self.assertGreaterEqual(len(source_badges), 4)
+        self.assertTrue(all(item.get("label") and item.get("source") for item in source_badges))
+        categories = {item["label"] for item in evidence_breakdown}
+        self.assertTrue(
+            {"Buyer Demand", "Builder Activity", "Market Velocity", "Price Support", "Parcel Quality", "Confidence"}.issubset(categories)
+        )
+        self.assertTrue(all(item.get("evidence") for item in evidence_breakdown))
     def test_contact_intelligence_is_provider_ready_without_fake_private_data(self):
         snapshot = self.service.build_property_snapshot(self.lead, self.parcel, provider_name="mock")
         contact = snapshot["contactIntelligence"]
