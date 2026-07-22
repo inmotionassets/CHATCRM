@@ -14,6 +14,13 @@ const buyerTypeOptions = [
   { label: "Investors", value: "investor" },
   { label: "Developers", value: "developer" }
 ];
+const propertyTypeOptions = [
+  { label: "All Types", value: "" },
+  { label: "Vacant Land", value: "vacant land" },
+  { label: "Residential Lot", value: "residential lot" },
+  { label: "Commercial", value: "commercial" },
+  { label: "Builder Lots", value: "builder lots" }
+];
 
 export function DispositionIntelligenceView({ authToken, currentUser, leads }) {
   const dealOptions = React.useMemo(() => getDispositionLeadOptions(leads), [leads]);
@@ -26,9 +33,16 @@ export function DispositionIntelligenceView({ authToken, currentUser, leads }) {
     buyerType: "",
     provider: ""
   });
+  const [mapFilters, setMapFilters] = React.useState({
+    propertyType: "",
+    builderOnly: false,
+    repeatBuyers: false,
+    entityPurchases: false
+  });
   const [workspace, setWorkspace] = React.useState(null);
   const [selectedSaleId, setSelectedSaleId] = React.useState("");
   const [selectedBuyerKey, setSelectedBuyerKey] = React.useState("");
+  const [selectedIntelReason, setSelectedIntelReason] = React.useState(null);
   const [message, setMessage] = React.useState("Loading Disposition Intelligence...");
   const [sourceMessage, setSourceMessage] = React.useState("");
   const [isRefreshing, setIsRefreshing] = React.useState(false);
@@ -36,14 +50,21 @@ export function DispositionIntelligenceView({ authToken, currentUser, leads }) {
   const csvInputRef = React.useRef(null);
 
   const selectedLead = dealOptions.find((lead) => lead.id === selectedLeadId) || dealOptions[0] || null;
+  const visibleTransactions = React.useMemo(
+    () => filterTransactionsForMap(workspace?.transactions || [], mapFilters, selectedBuyerKey),
+    [workspace?.transactions, mapFilters, selectedBuyerKey]
+  );
   const selectedSale =
+    visibleTransactions.find((transaction) => transaction.id === selectedSaleId) ||
     workspace?.transactions?.find((transaction) => transaction.id === selectedSaleId) ||
+    visibleTransactions[0] ||
     workspace?.transactions?.[0] ||
     null;
   const selectedBuyerFootprint =
     workspace?.buyerFootprints?.[selectedBuyerKey] ||
     workspace?.buyerFootprints?.[normalizeBuyerKey(selectedSale?.buyerName)] ||
     null;
+  const marketMap = workspace?.marketIntelligence?.map || {};
 
   React.useEffect(() => {
     if (!selectedLeadId && dealOptions[0]?.id) {
@@ -61,13 +82,14 @@ export function DispositionIntelligenceView({ authToken, currentUser, leads }) {
         return;
       }
 
-      setMessage("Loading buyer activity...");
+      setMessage("Loading market intelligence...");
       try {
         const result = await fetchDispositionWorkspace(selectedLead.id, filters, authToken);
         if (cancelled) return;
         setWorkspace(result);
         setSelectedSaleId(result.transactions?.[0]?.id || "");
-        setSelectedBuyerKey(result.buyerMatches?.[0]?.normalizedBuyerName || "");
+        setSelectedBuyerKey("");
+        setSelectedIntelReason(result.marketIntelligence?.opportunityScore?.reasons?.[0] || null);
         setMessage("");
       } catch (error) {
         if (!cancelled) {
@@ -96,13 +118,22 @@ export function DispositionIntelligenceView({ authToken, currentUser, leads }) {
     setFilters((current) => ({ ...current, [field]: value }));
   }
 
-  async function reloadWorkspace(nextMessage = "Loading buyer activity...", nextFilters = filters) {
+  function updateMapFilter(field, value) {
+    setMapFilters((current) => ({ ...current, [field]: value }));
+  }
+
+  function clearBuyerHighlight() {
+    setSelectedBuyerKey("");
+  }
+
+  async function reloadWorkspace(nextMessage = "Loading market intelligence...", nextFilters = filters) {
     if (!authToken || !selectedLead?.id) return;
     setMessage(nextMessage);
     const result = await fetchDispositionWorkspace(selectedLead.id, nextFilters, authToken);
     setWorkspace(result);
     setSelectedSaleId(result.transactions?.[0]?.id || "");
-    setSelectedBuyerKey(result.buyerMatches?.[0]?.normalizedBuyerName || "");
+    setSelectedBuyerKey("");
+    setSelectedIntelReason(result.marketIntelligence?.opportunityScore?.reasons?.[0] || null);
     setMessage("");
   }
 
@@ -113,7 +144,7 @@ export function DispositionIntelligenceView({ authToken, currentUser, leads }) {
     try {
       const result = await refreshDispositionWorkspace(selectedLead.id, filters, authToken);
       setSourceMessage(`Refreshed ${result.transactionCount || 0} records from ${result.sourceName || result.provider}.`);
-      await reloadWorkspace("Refreshing buyer activity...");
+      await reloadWorkspace("Refreshing market intelligence...");
     } catch (error) {
       setSourceMessage(error.message || "Could not refresh buyer activity yet.");
     } finally {
@@ -131,7 +162,7 @@ export function DispositionIntelligenceView({ authToken, currentUser, leads }) {
       const csvFilters = { ...filters, provider: "csv" };
       setFilters(csvFilters);
       setSourceMessage(`Imported ${result.importedCount || 0} new records, updated ${result.updatedCount || 0}, flagged ${result.duplicateCount || 0} duplicates.`);
-      await reloadWorkspace("Loading imported buyer activity...", csvFilters);
+      await reloadWorkspace("Loading imported market intelligence...", csvFilters);
     } catch (error) {
       setSourceMessage(error.message || "Could not import that CSV yet.");
     } finally {
@@ -157,12 +188,12 @@ export function DispositionIntelligenceView({ authToken, currentUser, leads }) {
   }
 
   return (
-    <div className="panel wide-panel disposition-workspace">
+    <div className="panel wide-panel disposition-workspace market-intelligence-workspace">
       <div className="panel-header disposition-header">
         <div>
-          <p className="eyebrow">Disposition Intelligence</p>
-          <h2>Buyer Activity Map</h2>
-          <p className="subtle-copy">Rank buyers by what they have actually purchased near the subject property.</p>
+          <p className="eyebrow">LEGACY Market Intelligence</p>
+          <h2>Market Intelligence Map</h2>
+          <p className="subtle-copy">Open the market first: who is most likely to buy this property, and why?</p>
         </div>
         <div className="disposition-controls">
           <label>
@@ -172,22 +203,6 @@ export function DispositionIntelligenceView({ authToken, currentUser, leads }) {
                 <option key={lead.id} value={lead.id}>
                   {lead.address || lead.name || "Unnamed Deal"}
                 </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Radius
-            <select value={filters.radiusMiles} onChange={(event) => updateFilter("radiusMiles", Number(event.target.value))}>
-              {radiusOptions.map((radius) => (
-                <option key={radius} value={radius}>{radius} mi</option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Sold Within
-            <select value={filters.soldWithinDays} onChange={(event) => updateFilter("soldWithinDays", Number(event.target.value))}>
-              {soldDateOptions.map((days) => (
-                <option key={days} value={days}>{days} days</option>
               ))}
             </select>
           </label>
@@ -207,52 +222,44 @@ export function DispositionIntelligenceView({ authToken, currentUser, leads }) {
       {workspace ? (
         <>
           <SourceStatusPanel source={workspace.source} />
-          <MarketIntelligencePanel intelligence={workspace.marketIntelligence} />
-          <DispositionOverview overview={workspace.overview} />
-          <DealIntelligenceCards items={workspace.dealIntelligenceSummary || []} />
+          <MarketIntelligencePanel
+            intelligence={workspace.marketIntelligence}
+            onSelectReason={setSelectedIntelReason}
+            selectedReason={selectedIntelReason}
+          />
 
-          <div className="disposition-filter-row">
-            <label>
-              <input
-                checked={filters.vacantLandOnly}
-                onChange={(event) => updateFilter("vacantLandOnly", event.target.checked)}
-                type="checkbox"
-              />
-              Vacant land
-            </label>
-            <label>
-              <input
-                checked={filters.cashOnly}
-                onChange={(event) => updateFilter("cashOnly", event.target.checked)}
-                type="checkbox"
-              />
-              Cash sales
-            </label>
-            <label>
-              Buyer Type
-              <select value={filters.buyerType} onChange={(event) => updateFilter("buyerType", event.target.value)}>
-                {buyerTypeOptions.map((option) => (
-                  <option key={option.value || "all"} value={option.value}>{option.label}</option>
-                ))}
-              </select>
-            </label>
-          </div>
-
-          <section className="disposition-grid-layout">
-            <SubjectPropertyPanel readiness={workspace.readiness} subject={workspace.subject} />
+          <section className="market-map-layout">
             <BuyerActivityMap
               filters={workspace.filters}
+              mapFilters={mapFilters}
+              mapSnapshot={marketMap}
+              onClearBuyerHighlight={clearBuyerHighlight}
               onSelectBuyer={setSelectedBuyerKey}
               onSelectSale={setSelectedSaleId}
+              onUpdateFilter={updateFilter}
+              onUpdateMapFilter={updateMapFilter}
+              selectedBuyerFootprint={selectedBuyerFootprint}
               selectedBuyerKey={selectedBuyerKey}
               selectedSale={selectedSale}
               subject={workspace.subject}
-              transactions={workspace.transactions}
+              transactions={visibleTransactions}
             />
-            <div className="buyer-footprint-column">
-              <RankedBuyerMatches matches={workspace.buyerMatches} onSelectBuyer={setSelectedBuyerKey} selectedBuyerKey={selectedBuyerKey} />
-              <BuyerFootprintDrawer footprint={selectedBuyerFootprint} />
-            </div>
+            <aside className="market-side-rail">
+              <RankedBuyerMatches
+                matches={workspace.buyerMatches}
+                onSelectBuyer={setSelectedBuyerKey}
+                onSelectReason={setSelectedIntelReason}
+                selectedBuyerKey={selectedBuyerKey}
+              />
+              <BuyerFootprintDrawer footprint={selectedBuyerFootprint} highlight={marketMap.buyerHighlights?.[selectedBuyerKey]} />
+            </aside>
+          </section>
+
+          <DealIntelligenceCards items={workspace.dealIntelligenceSummary || []} />
+
+          <section className="disposition-support-grid">
+            <SubjectPropertyPanel readiness={workspace.readiness} subject={workspace.subject} />
+            <DispositionOverview overview={workspace.overview} />
           </section>
         </>
       ) : null}
@@ -279,25 +286,40 @@ function SourceStatusPanel({ source }) {
   );
 }
 
-function MarketIntelligencePanel({ intelligence }) {
+function MarketIntelligencePanel({ intelligence, onSelectReason, selectedReason }) {
   const opportunity = intelligence?.opportunityScore;
   if (!opportunity) return null;
+  const activeReason = selectedReason || opportunity.reasons?.[0];
   return (
-    <section className="market-intelligence-panel">
+    <section className="market-intelligence-panel premium-intelligence-panel">
       <div className="opportunity-score-block">
-        <p className="eyebrow">Market Intelligence</p>
+        <p className="eyebrow">Opportunity</p>
         <strong>{opportunity.score}</strong>
         <span>{opportunity.grade}</span>
       </div>
       <div className="market-summary-block">
-        <h3>Opportunity Score</h3>
+        <h3>What LEGACY knows</h3>
         <p>{intelligence.summary}</p>
-        <div className="opportunity-reason-list">
+        <div className="opportunity-reason-list clickable-reasons">
           {(opportunity.reasons || []).slice(0, 6).map((reason) => (
-            <span key={reason.label}>{reason.label} +{reason.points}</span>
+            <button
+              className={activeReason?.label === reason.label ? "active" : ""}
+              key={reason.label}
+              onClick={() => onSelectReason?.(reason)}
+              type="button"
+            >
+              {reason.label} +{reason.points}
+            </button>
           ))}
         </div>
       </div>
+      {activeReason ? (
+        <div className="reason-evidence-panel">
+          <span>Evidence</span>
+          <strong>{activeReason.label}</strong>
+          <p>{activeReason.detail}</p>
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -305,9 +327,9 @@ function MarketIntelligencePanel({ intelligence }) {
 function DealIntelligenceCards({ items }) {
   if (!items?.length) return null;
   return (
-    <div className="deal-intelligence-grid">
+    <div className="deal-intelligence-grid intelligence-card-grid">
       {items.map((item) => (
-        <article className="deal-intelligence-card" key={item.label}>
+        <article className="deal-intelligence-card evidence-card" key={item.label}>
           <span>{item.label}</span>
           <strong>{item.value}</strong>
           <p>{item.detail}</p>
@@ -328,14 +350,20 @@ function DispositionOverview({ overview }) {
   ];
 
   return (
-    <div className="disposition-overview-grid">
-      {items.map(([label, value]) => (
-        <article className="stat compact-stat" key={label}>
-          <p>{label}</p>
-          <strong>{value}</strong>
-        </article>
-      ))}
-    </div>
+    <section className="disposition-panel overview-panel">
+      <div>
+        <p className="eyebrow">Market Totals</p>
+        <h3>Snapshot Metrics</h3>
+      </div>
+      <div className="disposition-overview-grid">
+        {items.map(([label, value]) => (
+          <article className="stat compact-stat" key={label}>
+            <p>{label}</p>
+            <strong>{value}</strong>
+          </article>
+        ))}
+      </div>
+    </section>
   );
 }
 
@@ -370,90 +398,262 @@ function SubjectPropertyPanel({ readiness, subject }) {
   );
 }
 
-function BuyerActivityMap({ filters, onSelectBuyer, onSelectSale, selectedBuyerKey, selectedSale, subject, transactions }) {
+function BuyerActivityMap({
+  filters,
+  mapFilters,
+  mapSnapshot,
+  onClearBuyerHighlight,
+  onSelectBuyer,
+  onSelectSale,
+  onUpdateFilter,
+  onUpdateMapFilter,
+  selectedBuyerFootprint,
+  selectedBuyerKey,
+  selectedSale,
+  subject,
+  transactions
+}) {
+  const markerRecords = transactions.map((transaction) => ({
+    transaction,
+    position: markerPosition(transaction, subject, filters.radiusMiles)
+  }));
+  const connectorRecords = selectedBuyerKey
+    ? markerRecords
+        .filter((record) => normalizeBuyerKey(record.transaction.buyerName) === selectedBuyerKey)
+        .sort((a, b) => String(a.transaction.saleDate || "").localeCompare(String(b.transaction.saleDate || "")))
+    : [];
+  const highlight = selectedBuyerKey ? mapSnapshot?.buyerHighlights?.[selectedBuyerKey] : null;
+
   return (
-    <section className="disposition-panel activity-map-panel">
-      <div className="map-heading">
+    <section className="disposition-panel activity-map-panel market-map-panel">
+      <div className="map-heading market-map-heading">
         <div>
-          <p className="eyebrow">Buyer Activity Map</p>
-          <h3>{transactions.length} nearby sale markers</h3>
+          <p className="eyebrow">Market Intelligence Map</p>
+          <h3>{transactions.length} visible market signals</h3>
         </div>
         <small>{filters.radiusMiles} mile radius / {filters.soldWithinDays} days</small>
       </div>
 
-      <div className="buyer-activity-map" aria-label="Mock buyer activity map">
+      <MarketMapControls
+        filters={filters}
+        mapFilters={mapFilters}
+        mapSnapshot={mapSnapshot}
+        onUpdateFilter={onUpdateFilter}
+        onUpdateMapFilter={onUpdateMapFilter}
+      />
+
+      {selectedBuyerKey ? (
+        <div className="buyer-highlight-strip">
+          <div>
+            <span>Buyer Highlight Mode</span>
+            <strong>{highlight?.buyerName || selectedBuyerFootprint?.entityName || selectedBuyerKey}</strong>
+          </div>
+          <button onClick={onClearBuyerHighlight} type="button">Show Full Market</button>
+        </div>
+      ) : null}
+
+      <div className="buyer-activity-map premium-market-map" aria-label="Market intelligence map">
         <div className="map-grid-lines" />
+        <div className="market-map-rings">
+          <span className="ring ring-one" />
+          <span className="ring ring-two" />
+          <span className="ring ring-three" />
+        </div>
+        <svg aria-hidden="true" className="footprint-line-layer" focusable="false">
+          {connectorRecords.slice(1).map((record, index) => {
+            const previous = connectorRecords[index];
+            return (
+              <line
+                key={`${previous.transaction.id}-${record.transaction.id}`}
+                x1={`${previous.position.left}%`}
+                x2={`${record.position.left}%`}
+                y1={`${previous.position.top}%`}
+                y2={`${record.position.top}%`}
+              />
+            );
+          })}
+        </svg>
         <button className="map-marker subject-marker" style={{ left: "50%", top: "50%" }} type="button">
-          Subject
+          Deal
         </button>
-        {transactions.map((transaction) => {
-          const position = markerPosition(transaction, subject, filters.radiusMiles);
+        <div className="map-center-card">
+          <span>Under Contract</span>
+          <strong>{subject.address}</strong>
+        </div>
+        {markerRecords.map(({ transaction, position }) => {
+          const markerType = mapMarkerType(transaction);
           return (
             <button
-              className={`map-marker ${markerClass(transaction.markerType)} ${selectedSale?.id === transaction.id ? "active" : ""} ${selectedBuyerKey && normalizeBuyerKey(transaction.buyerName) === selectedBuyerKey ? "footprint-active" : ""} ${selectedBuyerKey && normalizeBuyerKey(transaction.buyerName) !== selectedBuyerKey ? "footprint-dim" : ""}`}
+              className={`map-marker ${markerClass(markerType)} ${selectedSale?.id === transaction.id ? "active" : ""}`}
               key={transaction.id}
               onClick={() => {
                 onSelectSale(transaction.id);
                 onSelectBuyer?.(normalizeBuyerKey(transaction.buyerName));
               }}
               style={{ left: `${position.left}%`, top: `${position.top}%` }}
+              title={`${transaction.buyerName || "Unknown buyer"} / ${formatMoney(transaction.salePrice)}`}
               type="button"
             >
-              {markerLabel(transaction.markerType)}
+              {markerLabel(markerType)}
             </button>
           );
         })}
       </div>
 
-      <div className="map-legend">
-        <span><i className="legend-dot standard" />Recorded sale</span>
-        <span><i className="legend-dot cash" />Cash investor</span>
-        <span><i className="legend-dot builder" />Builder</span>
-        <span><i className="legend-dot repeat" />Repeat buyer</span>
-        <span><i className="legend-dot issue" />Estimated / review</span>
-      </div>
+      <MapLegend legend={mapSnapshot?.markerLegend || []} />
+      <FutureLayerStrip layers={mapSnapshot?.futureLayers || []} />
 
-      {selectedSale ? <SaleMarkerDrawer sale={selectedSale} /> : <div className="mini-empty"><p>No nearby sales found for these filters.</p></div>}
+      {selectedSale ? (
+        <SaleMarkerDrawer sale={selectedSale} onSelectBuyer={onSelectBuyer} />
+      ) : (
+        <div className="mini-empty"><p>No nearby sales found for these filters.</p></div>
+      )}
     </section>
   );
 }
 
-function SaleMarkerDrawer({ sale }) {
+function MarketMapControls({ filters, mapFilters, mapSnapshot, onUpdateFilter, onUpdateMapFilter }) {
+  const timeline = mapSnapshot?.timeline || {};
   return (
-    <article className="sale-drawer">
-      <div>
-        <h3>{sale.address}</h3>
-        <p>Sold {formatMoney(sale.salePrice)} on {formatShortDate(sale.saleDate)}</p>
+    <div className="market-map-controls">
+      <div className="segmented-filter">
+        <span>Radius</span>
+        <div>
+          {radiusOptions.map((radius) => (
+            <button
+              className={filters.radiusMiles === radius ? "active" : ""}
+              key={radius}
+              onClick={() => onUpdateFilter("radiusMiles", radius)}
+              type="button"
+            >
+              {radius}
+            </button>
+          ))}
+        </div>
       </div>
-      <div className="source-badge-row">
+
+      <div className="timeline-control">
+        <div>
+          <span>Timeline</span>
+          <strong>{filters.soldWithinDays} days</strong>
+        </div>
+        <input
+          aria-label="Transaction timeline"
+          max={soldDateOptions.length - 1}
+          min="0"
+          onChange={(event) => onUpdateFilter("soldWithinDays", soldDateOptions[Number(event.target.value)] || 365)}
+          step="1"
+          type="range"
+          value={Math.max(0, soldDateOptions.indexOf(filters.soldWithinDays))}
+        />
+        <small>{timeline.visibleTransactionCount || 0} records / newest {formatShortDate(timeline.newestSaleDate)}</small>
+      </div>
+
+      <label>
+        Property Type
+        <select value={mapFilters.propertyType} onChange={(event) => onUpdateMapFilter("propertyType", event.target.value)}>
+          {propertyTypeOptions.map((option) => (
+            <option key={option.value || "all"} value={option.value}>{option.label}</option>
+          ))}
+        </select>
+      </label>
+
+      <div className="map-toggle-group">
+        <label>
+          <input checked={filters.cashOnly} onChange={(event) => onUpdateFilter("cashOnly", event.target.checked)} type="checkbox" />
+          Cash Only
+        </label>
+        <label>
+          <input checked={mapFilters.builderOnly} onChange={(event) => onUpdateMapFilter("builderOnly", event.target.checked)} type="checkbox" />
+          Builder Only
+        </label>
+        <label>
+          <input checked={mapFilters.repeatBuyers} onChange={(event) => onUpdateMapFilter("repeatBuyers", event.target.checked)} type="checkbox" />
+          Repeat Buyers
+        </label>
+        <label>
+          <input checked={mapFilters.entityPurchases} onChange={(event) => onUpdateMapFilter("entityPurchases", event.target.checked)} type="checkbox" />
+          Entity Purchases
+        </label>
+      </div>
+    </div>
+  );
+}
+
+function MapLegend({ legend }) {
+  const fallback = [
+    { type: "recorded_sale", label: "Recorded Sale" },
+    { type: "cash_purchase", label: "Cash Purchase" },
+    { type: "builder_purchase", label: "Builder Purchase" },
+    { type: "repeat_buyer", label: "Repeat Buyer" },
+    { type: "unknown_estimated", label: "Unknown / Estimated" }
+  ];
+  return (
+    <div className="map-legend premium-map-legend">
+      {(legend.length ? legend : fallback).map((item) => (
+        <span key={item.type}><i className={`legend-dot ${legendClass(item.type)}`} />{item.label}</span>
+      ))}
+    </div>
+  );
+}
+
+function FutureLayerStrip({ layers }) {
+  if (!layers.length) return null;
+  return (
+    <div className="future-layer-strip">
+      <span>Future Layers</span>
+      {layers.map((layer) => (
+        <button disabled key={layer.type} type="button">{layer.label}</button>
+      ))}
+    </div>
+  );
+}
+
+function SaleMarkerDrawer({ sale, onSelectBuyer }) {
+  const buyerKey = normalizeBuyerKey(sale.buyerName);
+  return (
+    <article className="sale-drawer market-sale-drawer">
+      <div className="sale-drawer-header">
+        <div>
+          <p className="eyebrow">Transaction Evidence</p>
+          <h3>{sale.address}</h3>
+          <p>Sold {formatMoney(sale.salePrice)} on {formatShortDate(sale.saleDate)}</p>
+        </div>
+        <span className={`source-badge ${mapMarkerType(sale)}`}>{humanizeLabel(mapMarkerType(sale))}</span>
+      </div>
+      <div className="source-badge-row evidence-tags">
         {saleSourceBadges(sale).map((badge) => <span className="source-badge" key={badge}>{badge}</span>)}
+        {(sale.evidenceTags || []).map((tag) => <span className="source-badge" key={tag}>{tag}</span>)}
       </div>
-      <div className="subject-detail-grid">
+      <div className="subject-detail-grid sale-detail-grid">
+        <DispositionMetric label="Sale Date" value={formatShortDate(sale.saleDate)} />
+        <DispositionMetric label="Sale Price" value={formatMoney(sale.salePrice)} />
+        <DispositionMetric label="Distance" value={`${sale.distanceMiles} mi`} />
         <DispositionMetric label="Lot Size" value={`${sale.acreage || "Unknown"} acres`} />
         <DispositionMetric label="Price/Acre" value={formatMoney(sale.pricePerAcre)} />
-        <DispositionMetric label="Distance" value={`${sale.distanceMiles} mi`} />
-        <DispositionMetric label="Buyer" value={sale.buyerName} />
+        <DispositionMetric label="Buyer Name" value={sale.buyerName || "Unknown"} />
+        <DispositionMetric label="Buyer Entity" value={sale.buyerEntity || sale.buyerName || "Unknown"} />
         <DispositionMetric label="Source" value={sale.sourceName || sale.source || "Unknown"} />
-        <DispositionMetric label="Quality" value={`${humanizeLabel(sale.dataQuality || "estimated")} / ${sale.confidence || 0}%`} />
-        <DispositionMetric label="Deed" value={sale.deedType || "Unknown"} />
-        <DispositionMetric label="Financing" value={sale.financingType || "Unknown"} />
+        <DispositionMetric label="Confidence" value={`${sale.confidence || 0}%`} />
+        <DispositionMetric label="Property Type" value={sale.propertyType || "Unknown"} />
       </div>
       <p className="subtle-copy">{sale.buyerMailingAddress || "Buyer mailing address missing"}</p>
       <p className="subtle-copy">{sale.sourceLastRefreshed ? `Source refreshed ${formatTimestamp(sale.sourceLastRefreshed)}` : "Source refresh date missing"}</p>
       <div className="sale-actions">
-        <button type="button">Add Buyer</button>
-        <button type="button">View Buyer Profile</button>
-        <button type="button">Match to Deal</button>
+        <button onClick={() => onSelectBuyer?.(buyerKey)} type="button">View Buyer</button>
+        <button onClick={() => onSelectBuyer?.(buyerKey)} type="button">Highlight Holdings</button>
+        <button type="button">Match To Deal</button>
+        <button disabled type="button">Skip Trace</button>
       </div>
     </article>
   );
 }
 
-function RankedBuyerMatches({ matches, onSelectBuyer, selectedBuyerKey }) {
+function RankedBuyerMatches({ matches, onSelectBuyer, onSelectReason, selectedBuyerKey }) {
   return (
     <section className="disposition-panel ranked-buyers-panel">
       <div>
-        <p className="eyebrow">Ranked Buyers</p>
+        <p className="eyebrow">Buyer Prediction</p>
         <h3>Best Buyers For This Deal</h3>
       </div>
       {matches.length ? (
@@ -475,8 +675,19 @@ function RankedBuyerMatches({ matches, onSelectBuyer, selectedBuyerKey }) {
                   <span key={label}>{humanizeLabel(label)} {value}</span>
                 ))}
               </div>
-              <div className="reason-list">
-                {(match.reasons || []).slice(0, 4).map((reason) => <span key={reason}>{reason}</span>)}
+              <div className="reason-list clickable-reasons compact-reasons">
+                {(match.reasons || []).slice(0, 5).map((reason) => (
+                  <button
+                    key={reason}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onSelectReason?.({ label: match.buyerName, points: match.score, detail: reason });
+                    }}
+                    type="button"
+                  >
+                    {reason}
+                  </button>
+                ))}
               </div>
             </article>
           ))}
@@ -488,31 +699,35 @@ function RankedBuyerMatches({ matches, onSelectBuyer, selectedBuyerKey }) {
   );
 }
 
-function BuyerFootprintDrawer({ footprint }) {
+function BuyerFootprintDrawer({ footprint, highlight }) {
   if (!footprint) {
     return (
       <section className="disposition-panel buyer-footprint-drawer">
         <p className="eyebrow">Buyer Footprint</p>
-        <div className="mini-empty"><p>Select a ranked buyer to see their footprint.</p></div>
+        <div className="mini-empty"><p>Select a ranked buyer to see their verified footprint.</p></div>
       </section>
     );
   }
 
   return (
-    <section className="disposition-panel buyer-footprint-drawer">
+    <section className="disposition-panel buyer-footprint-drawer market-footprint-drawer">
       <div>
-        <p className="eyebrow">Buyer Footprint</p>
+        <p className="eyebrow">Buyer Highlight</p>
         <h3>{footprint.entityName}</h3>
         <small>{footprint.sourceConfidence || 0}% source confidence</small>
       </div>
 
       <div className="footprint-stat-grid">
-        <DispositionMetric label="Verified Buys" value={footprint.verifiedPurchaseCount} />
-        <DispositionMetric label="Within 1 Mile" value={footprint.purchasesByRadius?.["1"] || 0} />
-        <DispositionMetric label="Within 5 Miles" value={footprint.purchasesByRadius?.["5"] || 0} />
-        <DispositionMetric label="Cash %" value={`${footprint.cashPurchasePercentage || 0}%`} />
-        <DispositionMetric label="Avg Price" value={formatMoney(footprint.averagePurchasePrice)} />
-        <DispositionMetric label="Avg Acreage" value={footprint.averageAcreage || 0} />
+        <DispositionMetric label="Verified Purchases" value={highlight?.verifiedPurchases ?? footprint.verifiedPurchaseCount} />
+        <DispositionMetric label="Within 1 Mile" value={highlight?.purchasesWithin?.["1"] ?? footprint.purchasesByRadius?.["1"] ?? 0} />
+        <DispositionMetric label="Within 3 Miles" value={highlight?.purchasesWithin?.["3"] ?? footprint.purchasesByRadius?.["3"] ?? 0} />
+        <DispositionMetric label="Within 5 Miles" value={highlight?.purchasesWithin?.["5"] ?? footprint.purchasesByRadius?.["5"] ?? 0} />
+        <DispositionMetric label="Within 10 Miles" value={highlight?.purchasesWithin?.["10"] ?? footprint.purchasesByRadius?.["10"] ?? 0} />
+        <DispositionMetric label="Avg Purchase" value={formatMoney(highlight?.averagePurchase ?? footprint.averagePurchasePrice)} />
+        <DispositionMetric label="Avg Acreage" value={highlight?.averageAcreage ?? footprint.averageAcreage ?? 0} />
+        <DispositionMetric label="Avg Price/Acre" value={formatMoney(highlight?.averagePricePerAcre ?? footprint.averagePricePerAcre)} />
+        <DispositionMetric label="Latest Purchase" value={formatShortDate(highlight?.latestPurchase || footprint.latestPurchaseDate)} />
+        <DispositionMetric label="Buying Trend" value={trendLabel(highlight?.buyingTrend || footprint.activityTrend)} />
       </div>
 
       <div className="footprint-chip-group">
@@ -644,6 +859,23 @@ function isDispositionReadyLead(lead = {}) {
   return ["offer", "contract", "closed", "hot", "confirmed"].some((signal) => text.includes(signal));
 }
 
+function filterTransactionsForMap(transactions = [], mapFilters = {}, selectedBuyerKey = "") {
+  return transactions.filter((transaction) => {
+    const buyerKey = normalizeBuyerKey(transaction.buyerName);
+    const markerType = mapMarkerType(transaction);
+    const propertyType = String(transaction.propertyType || "").toLowerCase();
+    const buyerType = String(transaction.buyerType || "").toLowerCase();
+
+    if (selectedBuyerKey && buyerKey !== selectedBuyerKey) return false;
+    if (mapFilters.propertyType === "builder lots" && buyerType !== "builder" && !propertyType.includes("lot")) return false;
+    if (mapFilters.propertyType && mapFilters.propertyType !== "builder lots" && !propertyType.includes(mapFilters.propertyType)) return false;
+    if (mapFilters.builderOnly && markerType !== "builder_purchase" && buyerType !== "builder") return false;
+    if (mapFilters.repeatBuyers && markerType !== "repeat_buyer") return false;
+    if (mapFilters.entityPurchases && !isEntityBuyer(transaction.buyerName)) return false;
+    return true;
+  });
+}
+
 function markerPosition(transaction, subject, radiusMiles) {
   const subjectLat = Number(subject?.coordinates?.lat) || 0;
   const subjectLng = Number(subject?.coordinates?.lng) || 0;
@@ -667,22 +899,58 @@ function normalizeBuyerKey(value) {
     .trim();
 }
 
+function mapMarkerType(transaction = {}) {
+  const legacyType = transaction.marketMarkerType || transaction.markerType || "recorded_sale";
+  return {
+    standard: "recorded_sale",
+    cash: "cash_purchase",
+    builder: "builder_purchase",
+    repeat: "repeat_buyer",
+    issue: "unknown_estimated"
+  }[legacyType] || legacyType;
+}
+
 function markerClass(type) {
   return {
-    builder: "builder-marker",
-    cash: "cash-marker",
-    repeat: "repeat-marker",
-    issue: "issue-marker"
-  }[type] || "standard-marker";
+    recorded_sale: "recorded-marker",
+    cash_purchase: "cash-marker",
+    builder_purchase: "builder-marker",
+    repeat_buyer: "repeat-marker",
+    unknown_estimated: "unknown-marker"
+  }[type] || "recorded-marker";
 }
 
 function markerLabel(type) {
   return {
-    builder: "B",
-    cash: "$",
-    repeat: "R",
-    issue: "!"
+    recorded_sale: "S",
+    cash_purchase: "$",
+    builder_purchase: "B",
+    repeat_buyer: "R",
+    unknown_estimated: "?"
   }[type] || "S";
+}
+
+function legendClass(type) {
+  return {
+    recorded_sale: "standard",
+    cash_purchase: "cash",
+    builder_purchase: "builder",
+    repeat_buyer: "repeat",
+    unknown_estimated: "unknown"
+  }[type] || "standard";
+}
+
+function isEntityBuyer(value = "") {
+  return /\b(llc|inc|corp|company|co|holdings|partners|development|investments|properties|homes|builders)\b/i.test(String(value));
+}
+
+function trendLabel(trend = {}) {
+  const recent = Number(trend["90"] || 0);
+  const annual = Number(trend["365"] || 0);
+  if (recent >= 3) return "Increasing";
+  if (recent >= 1) return "Active";
+  if (annual >= 1) return "Cooling";
+  return "Unknown";
 }
 
 function formatMoney(value) {
@@ -701,7 +969,7 @@ function saleSourceBadges(sale = {}) {
   if (sale.dataQuality === "incomplete") badges.push("Incomplete record");
   if (sale.buyerMailingAddress && !Number(sale.salePrice)) badges.push("Buyer mailing record");
   if (sale.buyerType === "builder" && !sale.verified) badges.push("Inferred builder");
-  if (sale.markerType === "repeat") badges.push("Verified repeat buyer");
+  if (mapMarkerType(sale) === "repeat_buyer") badges.push("Verified repeat buyer");
   return [...new Set(badges.length ? badges : ["Source needs review"])];
 }
 
@@ -721,6 +989,7 @@ function formatTimestamp(value) {
 
 function humanizeLabel(value) {
   return String(value || "")
+    .replace(/_/g, " ")
     .replace(/([A-Z])/g, " $1")
     .replace(/^./, (char) => char.toUpperCase());
 }

@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from .buyer_footprints import build_buyer_footprints, build_deal_intelligence_summary
+from .buyer_footprints import build_buyer_footprints, build_deal_intelligence_summary, normalize_entity_name
 from .disposition_engine import build_disposition_workspace, build_subject_property, safe_float
 from .disposition_providers import get_provider
 
@@ -49,11 +49,13 @@ class MarketIntelligenceService:
         transactions = disposition_workspace.get("transactions") or []
         buyer_matches = disposition_workspace.get("buyerMatches") or []
         buyer_footprints = build_buyer_footprints(transactions, disposition_workspace["subject"])
-        deal_summary = build_deal_intelligence_summary(buyer_footprints, buyer_matches, transactions)
-        market_snapshot = build_market_snapshot(disposition_workspace, buyer_footprints, deal_summary)
+        map_transactions = build_map_transactions(transactions, buyer_footprints)
+        enhanced_workspace = {**disposition_workspace, "transactions": map_transactions}
+        deal_summary = build_deal_intelligence_summary(buyer_footprints, buyer_matches, map_transactions)
+        market_snapshot = build_market_snapshot(enhanced_workspace, buyer_footprints, deal_summary)
 
         return {
-            **disposition_workspace,
+            **enhanced_workspace,
             "buyerFootprints": buyer_footprints,
             "dealIntelligenceSummary": deal_summary,
             "marketIntelligence": market_snapshot,
@@ -108,7 +110,7 @@ def build_market_snapshot(
     opportunity = build_opportunity_score(disposition_workspace, buyer_footprints)
     return {
         "engine": "Market Intelligence Engine",
-        "version": "market-intelligence-v1",
+        "version": "market-intelligence-map-v1",
         "modules": [
             "Transaction Engine",
             "Buyer Intelligence",
@@ -116,11 +118,139 @@ def build_market_snapshot(
             "Corridor Detection",
             "Buyer Prediction",
             "Opportunity Scoring",
+            "Market Intelligence Map",
         ],
         "opportunityScore": opportunity,
+        "map": build_map_snapshot(disposition_workspace, buyer_footprints),
         "summary": build_plain_language_summary(disposition_workspace, buyer_footprints, opportunity),
         "dealSummary": deal_summary,
     }
+
+
+def build_map_transactions(
+    transactions: list[dict[str, Any]],
+    buyer_footprints: dict[str, dict[str, Any]],
+) -> list[dict[str, Any]]:
+    return [
+        {
+            **transaction,
+            "normalizedBuyerName": normalize_entity_name(transaction.get("buyerName")),
+            "marketMarkerType": classify_market_marker(transaction, buyer_footprints),
+            "evidenceTags": build_transaction_evidence_tags(transaction, buyer_footprints),
+        }
+        for transaction in transactions
+    ]
+
+
+def build_map_snapshot(
+    disposition_workspace: dict[str, Any],
+    buyer_footprints: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    subject = disposition_workspace.get("subject") or {}
+    transactions = disposition_workspace.get("transactions") or []
+    filters = disposition_workspace.get("filters") or {}
+    return {
+        "center": subject.get("coordinates") or {},
+        "subjectMarker": {
+            "type": "subject_property",
+            "label": "Subject Property",
+            "address": subject.get("address") or "",
+            "coordinates": subject.get("coordinates") or {},
+            "color": "gold",
+            "size": "large",
+        },
+        "markerLegend": [
+            {"type": "recorded_sale", "label": "Nearby Recorded Sale", "color": "blue", "active": True},
+            {"type": "cash_purchase", "label": "Cash Purchase", "color": "green", "active": True},
+            {"type": "builder_purchase", "label": "Builder Purchase", "color": "gold", "active": True},
+            {"type": "repeat_buyer", "label": "Repeat Buyer", "color": "purple", "active": True},
+            {"type": "unknown_estimated", "label": "Unknown / Estimated", "color": "gray", "active": True},
+        ],
+        "futureLayers": [
+            {"type": "active_permits", "label": "Active Permits", "available": False},
+            {"type": "builder_holdings", "label": "Builder Holdings", "available": False},
+            {"type": "utilities", "label": "Utilities", "available": False},
+            {"type": "flood", "label": "Flood", "available": False},
+            {"type": "zoning", "label": "Zoning", "available": False},
+            {"type": "ownership", "label": "Ownership", "available": False},
+        ],
+        "timeline": {
+            "options": [30, 90, 180, 365],
+            "selectedDays": filters.get("soldWithinDays") or 365,
+            "oldestSaleDate": min_sale_date(transactions),
+            "newestSaleDate": max_sale_date(transactions),
+            "visibleTransactionCount": len(transactions),
+        },
+        "buyerHighlights": build_buyer_highlights(buyer_footprints),
+    }
+
+
+def classify_market_marker(transaction: dict[str, Any], buyer_footprints: dict[str, dict[str, Any]]) -> str:
+    buyer_key = normalize_entity_name(transaction.get("buyerName"))
+    footprint = buyer_footprints.get(buyer_key) or {}
+    quality = str(transaction.get("dataQuality") or "").lower()
+    confidence = safe_float(transaction.get("confidence"), 100)
+    buyer_type = str(transaction.get("buyerType") or "").lower()
+    buyer_name = str(transaction.get("buyerName") or "").lower()
+
+    if quality in {"estimated", "incomplete", "stale"} or confidence < 65 or not safe_float(transaction.get("salePrice"), 0):
+        return "unknown_estimated"
+    if safe_float(footprint.get("verifiedPurchaseCount"), 0) >= 2 or safe_float(footprint.get("transactionCount"), 0) >= 2:
+        return "repeat_buyer"
+    if buyer_type == "builder" or any(word in buyer_name for word in ["builder", "builders", "homes", "construction"]):
+        return "builder_purchase"
+    if transaction.get("cashSale"):
+        return "cash_purchase"
+    return "recorded_sale"
+
+
+def build_transaction_evidence_tags(transaction: dict[str, Any], buyer_footprints: dict[str, dict[str, Any]]) -> list[str]:
+    buyer_key = normalize_entity_name(transaction.get("buyerName"))
+    footprint = buyer_footprints.get(buyer_key) or {}
+    tags: list[str] = []
+    if transaction.get("cashSale"):
+        tags.append("Cash purchase")
+    if str(transaction.get("buyerType") or "").lower() == "builder":
+        tags.append("Builder activity")
+    if safe_float(footprint.get("verifiedPurchaseCount"), 0) >= 2:
+        tags.append("Verified repeat buyer")
+    if safe_float(transaction.get("distanceMiles"), 999) <= 1:
+        tags.append("Within 1 mile")
+    if safe_float(transaction.get("confidence"), 100) < 80:
+        tags.append("Needs source review")
+    return tags
+
+
+def build_buyer_highlights(buyer_footprints: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    highlights: dict[str, dict[str, Any]] = {}
+    for key, footprint in buyer_footprints.items():
+        highlights[key] = {
+            "buyerName": footprint.get("entityName") or key.title(),
+            "verifiedPurchases": footprint.get("verifiedPurchaseCount") or 0,
+            "purchasesWithin": {
+                "1": footprint.get("purchasesByRadius", {}).get("1", 0),
+                "3": footprint.get("purchasesByRadius", {}).get("3", 0),
+                "5": footprint.get("purchasesByRadius", {}).get("5", 0),
+                "10": footprint.get("purchasesByRadius", {}).get("10", 0),
+            },
+            "averagePurchase": footprint.get("averagePurchasePrice") or 0,
+            "averageAcreage": footprint.get("averageAcreage") or 0,
+            "averagePricePerAcre": footprint.get("averagePricePerAcre") or 0,
+            "latestPurchase": footprint.get("latestPurchaseDate") or "",
+            "buyingTrend": footprint.get("activityTrend") or {},
+            "intentSignals": footprint.get("intentSignals") or [],
+        }
+    return highlights
+
+
+def min_sale_date(transactions: list[dict[str, Any]]) -> str:
+    dates = [str(item.get("saleDate") or "") for item in transactions if item.get("saleDate")]
+    return min(dates) if dates else ""
+
+
+def max_sale_date(transactions: list[dict[str, Any]]) -> str:
+    dates = [str(item.get("saleDate") or "") for item in transactions if item.get("saleDate")]
+    return max(dates) if dates else ""
 
 
 def build_opportunity_score(disposition_workspace: dict[str, Any], buyer_footprints: dict[str, dict[str, Any]]) -> dict[str, Any]:
