@@ -3049,7 +3049,7 @@ function LeadDetail({
     setPropertyWorkspaceMessage("LEGACY is building the property intelligence snapshot...");
 
     async function hydratePropertyWorkspace() {
-      if (!authToken || !lead.id) {
+      if (!canUseAdminDealTools || !authToken || !lead.id) {
         setPropertyWorkspaceMessage("");
         return;
       }
@@ -3069,7 +3069,7 @@ function LeadDetail({
     return () => {
       cancelled = true;
     };
-  }, [authToken, lead.id]);
+  }, [authToken, lead.id, canUseAdminDealTools]);
 
   React.useEffect(() => {
     setBuyerMatches([]);
@@ -3293,12 +3293,14 @@ function LeadDetail({
         <ContactLink href={taxUrl} label="County Tax" />
       </div>
 
-      <PropertyIntelligenceWorkspace
-        lead={lead}
-        message={propertyWorkspaceMessage}
-        snapshot={propertyWorkspace}
-        taxUrl={taxUrl}
-      />
+      {canUseAdminDealTools ? (
+        <PropertyIntelligenceWorkspace
+          lead={lead}
+          message={propertyWorkspaceMessage}
+          snapshot={propertyWorkspace}
+          taxUrl={taxUrl}
+        />
+      ) : null}
 
       <div className="call-workspace">
         {phones.length > 0 ? (

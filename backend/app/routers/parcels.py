@@ -155,6 +155,9 @@ def get_property_intelligence_workspace(
     buyer_type: list[str] = Query(default_factory=list, alias="buyerType"),
     provider_name: str = Query("", alias="provider"),
 ):
+    if current_user.role != "Admin":
+        raise HTTPException(status_code=403, detail="Property Intelligence is only available to Admin users.")
+
     lead = lead_store.get_saved_lead(lead_id)
     if not lead:
         raise HTTPException(status_code=404, detail="Lead not found")
