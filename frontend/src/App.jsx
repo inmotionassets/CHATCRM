@@ -203,6 +203,7 @@ const apiBaseUrl =
   (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1"
     ? "http://127.0.0.1:8001"
     : "https://chatcrm.onrender.com");
+const googleMapsEmbedApiKey = import.meta.env.VITE_GOOGLE_MAPS_EMBED_API_KEY || "";
 const authStorageKey = "chatcrm.auth";
 const leadWorkspacePathPattern = /^\/leads\/([^/?#]+)/;
 const leadWorkspaceReturnKey = "chatcrm.leadWorkspaceReturn";
@@ -3077,122 +3078,246 @@ function LeadWorkspacePage({
   const emailHref = lead.email ? `mailto:${lead.email}` : "";
   const phoneHref = primaryPhone ? `tel:${primaryPhone.replace(/[^\d+]/g, "")}` : "";
   const textHref = primaryPhone ? `sms:${primaryPhone.replace(/[^\d+]/g, "")}` : "";
+  const status = getLeadContactStatus(lead);
+  const analyzedAt = lead.lastContactedAt || lead.updatedAt || lead.createdAt || "";
+  const canCreateOffer = currentUser?.role === "Admin";
 
   return (
     <section className="lead-workspace-page" aria-label="Lead workspace">
-      <header className="lead-workspace-hero">
+      <header className="lead-workspace-hero compact">
         <button className="ghost-button" onClick={onBack} type="button">Back to Pipeline</button>
         <div className="lead-workspace-title">
-          <p className="eyebrow">Deal Workspace</p>
+          <p className="eyebrow">LEGACY Workspace</p>
           <h2>{lead.address || "Missing Address"}</h2>
-          <p>{ownerName} / {lead.county || "County needed"}</p>
+          <p>{ownerName} / {lead.county || "County needed"} / {status.label}</p>
         </div>
-        <div className="lead-workspace-score">
+        <div className="lead-workspace-score compact-score">
           <span>Opportunity</span>
           <strong>{lead.score || 0}</strong>
           <small>{lead.stage || "New Lead"}</small>
         </div>
+        <div className="lead-workspace-confidence">
+          <span>Confidence</span>
+          <strong>{Number(lead.score || 0) >= 80 ? "High" : Number(lead.score || 0) >= 60 ? "Medium" : "Needs Data"}</strong>
+          <small>{analyzedAt ? `Analyzed ${formatActivityTime(analyzedAt)}` : "Ready for review"}</small>
+        </div>
       </header>
 
-      <nav className="property-command-bar" aria-label="Property command bar">
-        <a className={!phoneHref ? "disabled" : ""} href={phoneHref || undefined}>Call</a>
+      <nav className="property-command-bar single-command-bar" aria-label="Property command bar">
+        <a className={`primary-command ${!phoneHref ? "disabled" : ""}`} href={phoneHref || undefined}>Call</a>
         <a className={!textHref ? "disabled" : ""} href={textHref || undefined}>Text</a>
         <a className={!emailHref ? "disabled" : ""} href={emailHref || undefined}>Email</a>
-        <a href={taxUrl} rel="noreferrer" target="_blank">County</a>
-        <a href={mapUrl} rel="noreferrer" target="_blank">Google Maps</a>
-        <a href={streetUrl} rel="noreferrer" target="_blank">Street View</a>
-        <a href={directionsUrl} rel="noreferrer" target="_blank">Directions</a>
-        {currentUser?.role === "Admin" ? <button onClick={onStartAgreement} type="button">Offer</button> : null}
+        {canCreateOffer ? <button onClick={onStartAgreement} type="button">Create Offer</button> : null}
+        <details className="property-tools-menu">
+          <summary>Property Tools</summary>
+          <div>
+            <button onClick={() => setVisualMode("street")} type="button">Show Street View</button>
+            <button onClick={() => setVisualMode("satellite")} type="button">Show Satellite</button>
+            <button onClick={() => setVisualMode("map")} type="button">Show Map</button>
+            <a href={directionsUrl} rel="noreferrer" target="_blank">Directions</a>
+            <a href={taxUrl} rel="noreferrer" target="_blank">County Records</a>
+            <a href={mapUrl} rel="noreferrer" target="_blank">Open Google Maps</a>
+            <a href={streetUrl} rel="noreferrer" target="_blank">Open Street View</a>
+          </div>
+        </details>
       </nav>
 
-      <div className="lead-workspace-layout">
-        <aside className="lead-workspace-rail">
-          <div>
-            <p className="eyebrow">Lead Information</p>
-            <h3>{ownerName}</h3>
-            <p>{formatPhoneList(lead) || "No phone saved"}</p>
-            <p>{lead.email || "No email saved"}</p>
-          </div>
-          <div className="workspace-rail-list">
-            <span><b>Status</b>{getLeadContactStatus(lead).label}</span>
-            <span><b>Stage</b>{lead.stage || "New Lead"}</span>
-            <span><b>APN</b>{lead.parcelNumber || "Missing"}</span>
-            <span><b>County</b>{lead.county || "Missing"}</span>
-            <span><b>Last Contact</b>{lead.lastContactedAt ? formatActivityTime(lead.lastContactedAt) : "None"}</span>
-          </div>
-          <div className="workspace-rail-tabs" aria-label="Workspace sections">
-            <span>Owner</span>
-            <span>Phones</span>
-            <span>Property</span>
-            <span>Timeline</span>
-            <span>Documents</span>
-            <span>Activity</span>
-          </div>
-        </aside>
+      <LeadWorkspaceAssessmentCard lead={lead} ownerName={ownerName} primaryPhone={primaryPhone} />
 
-        <main className="lead-workspace-main-panel">
-          <PropertyVisualPanel address={lead.address} mode={visualMode} onModeChange={setVisualMode} />
-          <LeadDetail
-            authToken={authToken}
-            currentUser={currentUser}
-            lead={lead}
-            onClose={onBack}
-            onEdit={onEdit}
-            onMarkReviewed={onMarkReviewed}
-            onMarkReviewedAndNext={onMarkReviewedAndNext}
-            onNext={onNext}
-            onPrevious={onPrevious}
-            onStartAgreement={onStartAgreement}
-            onStatusChange={onStatusChange}
-            onUpdate={onUpdate}
-            workspaceMode
-          />
-        </main>
-
-        <aside className="lead-workspace-action-rail">
-          <p className="eyebrow">Quick Actions</p>
-          <button onClick={() => setVisualMode("street")} type="button">Street View</button>
-          <button onClick={() => setVisualMode("satellite")} type="button">Satellite</button>
-          <button onClick={() => setVisualMode("map")} type="button">Map</button>
-          <a href={taxUrl} rel="noreferrer" target="_blank">Open County Tax</a>
-          <a href={streetUrl} rel="noreferrer" target="_blank">Fullscreen Street</a>
-          {currentUser?.role === "Admin" ? <button onClick={onStartAgreement} type="button">Create Offer</button> : null}
-          <div className="workspace-future-box">
-            <span>Future-ready</span>
-            <p>Photos, parcel overlay, GIS, drone images, surveys, and AI assistant can plug into this rail.</p>
-          </div>
-        </aside>
+      <div className="lead-workspace-visual-grid">
+        <PropertyVisualPanel address={lead.address} mode={visualMode} onModeChange={setVisualMode} />
+        <LeadWorkspaceSupportPanel lead={lead} ownerName={ownerName} primaryPhone={primaryPhone} />
       </div>
+
+      <LeadWorkspaceLeadSummary lead={lead} ownerName={ownerName} phones={phones} />
+
+      <main className="lead-workspace-main-panel">
+        <LeadDetail
+          authToken={authToken}
+          currentUser={currentUser}
+          lead={lead}
+          onClose={onBack}
+          onEdit={onEdit}
+          onMarkReviewed={onMarkReviewed}
+          onMarkReviewedAndNext={onMarkReviewedAndNext}
+          onNext={onNext}
+          onPrevious={onPrevious}
+          onStartAgreement={onStartAgreement}
+          onStatusChange={onStatusChange}
+          onUpdate={onUpdate}
+          workspaceMode
+        />
+      </main>
     </section>
+  );
+}
+
+function LeadWorkspaceAssessmentCard({ lead, ownerName, primaryPhone }) {
+  const score = Number(lead.score || 0);
+  const status = getLeadContactStatus(lead);
+  const isHot = score >= 85 || status.value === "confirmed" || lead.stage === "Hot Lead";
+  const recommendedAction = isHot ? "Pursue Now" : status.value === "follow-up" ? "Work Follow-Up" : "Make First Contact";
+  const nextBestAction = primaryPhone
+    ? `Call ${ownerName} at ${formatPhone(primaryPhone)} and confirm motivation.`
+    : "Verify the best owner phone number before outreach.";
+  const assignmentPotential = score >= 85 ? "Strong" : score >= 65 ? "Promising" : "Needs Research";
+
+  return (
+    <section className="legacy-assessment-card" aria-label="LEGACY assessment">
+      <div>
+        <p className="eyebrow">LEGACY Assessment</p>
+        <h3>{recommendedAction}</h3>
+        <p>{nextBestAction}</p>
+      </div>
+      <div className="assessment-metrics">
+        <span><b>Next Best Action</b>{primaryPhone ? "Call owner" : "Research contact"}</span>
+        <span><b>Assignment Potential</b>{assignmentPotential}</span>
+        <span><b>Confidence</b>{score >= 80 ? "High" : score >= 60 ? "Medium" : "Needs Data"}</span>
+      </div>
+      <details className="why-this-property">
+        <summary>Why This Property?</summary>
+        <p>
+          LEGACY is prioritizing this lead from score, status, owner contact readiness, county data, and current pipeline stage.
+          Deeper buyer, market, and outcome evidence stays below so the first screen stays clear.
+        </p>
+      </details>
+    </section>
+  );
+}
+
+function LeadWorkspaceSupportPanel({ lead, ownerName, primaryPhone }) {
+  const status = getLeadContactStatus(lead);
+  return (
+    <aside className="lead-workspace-support-card" aria-label="Supporting deal summary">
+      <p className="eyebrow">Deal Summary</p>
+      <h3>{ownerName}</h3>
+      <div className="support-facts">
+        <span><b>Primary Phone</b>{primaryPhone ? formatPhone(primaryPhone) : "Missing"}</span>
+        <span><b>Status</b>{status.label}</span>
+        <span><b>Stage</b>{lead.stage || "New Lead"}</span>
+        <span><b>County</b>{lead.county || "Missing"}</span>
+      </div>
+      <p className="support-note">
+        Start with the Street View, then use the evidence sections below when you need buyer, parcel, or outcome depth.
+      </p>
+    </aside>
+  );
+}
+
+function LeadWorkspaceLeadSummary({ lead, ownerName, phones }) {
+  const status = getLeadContactStatus(lead);
+  return (
+    <details className="lead-workspace-summary">
+      <summary>
+        <span>Lead Details</span>
+        <strong>{ownerName}</strong>
+        <small>{status.label} / {lead.stage || "New Lead"} / {lead.county || "County missing"}</small>
+      </summary>
+      <div className="lead-summary-grid">
+        <span><b>All Phones</b>{phones.length ? phones.map(formatPhone).join(", ") : "No phone saved"}</span>
+        <span><b>Email</b>{lead.email || "No email saved"}</span>
+        <span><b>APN</b>{lead.parcelNumber || "Missing"}</span>
+        <span><b>Last Contact</b>{lead.lastContactedAt ? formatActivityTime(lead.lastContactedAt) : "None"}</span>
+        <span><b>Assigned To</b>{lead.owner || "Unassigned"}</span>
+        <span><b>Source</b>{cleanSourceName(lead.source)}</span>
+      </div>
+    </details>
   );
 }
 
 function PropertyVisualPanel({ address, mode, onModeChange }) {
+  const [isFullscreen, setIsFullscreen] = React.useState(false);
+  const [streetHeading, setStreetHeading] = React.useState(210);
+  const [visualNotice, setVisualNotice] = React.useState("");
+  const safeMode = ["street", "satellite", "map"].includes(mode) ? mode : "street";
+  const title = safeMode === "satellite" ? "Satellite View" : safeMode === "street" ? "Street View" : "Map View";
+  const usesOfficialStreetView = safeMode === "street" && Boolean(googleMapsEmbedApiKey);
+  const embedUrl = buildGoogleMapsEmbedUrl(address, safeMode, { heading: streetHeading });
+
+  React.useEffect(() => {
+    setVisualNotice("");
+  }, [address, safeMode]);
+
+  function rotateStreetView(amount) {
+    setStreetHeading((current) => (current + amount + 360) % 360);
+    setVisualNotice("Adjusted Street View heading around the subject property.");
+  }
+
+  function showDriveNotice(direction) {
+    setVisualNotice(`${direction} controls are ready for the future Street View navigation layer.`);
+  }
+
   return (
-    <section className="property-visual-panel">
+    <section className={`property-visual-panel ${isFullscreen ? "fullscreen" : ""}`} aria-label="Property visuals">
       <div className="property-visual-header">
         <div>
           <p className="eyebrow">Property Visuals</p>
-          <h3>{mode === "satellite" ? "Satellite View" : mode === "street" ? "Street View" : "Map View"}</h3>
+          <h3>{title}</h3>
         </div>
-        <div className="visual-mode-toggle">
-          {["street", "satellite", "map"].map((item) => (
-            <button className={mode === item ? "active" : ""} key={item} onClick={() => onModeChange(item)} type="button">
-              {item === "street" ? "Street" : item === "satellite" ? "Satellite" : "Map"}
-            </button>
-          ))}
+        <div className="property-visual-controls">
+          <div className="visual-mode-toggle" role="group" aria-label="Visual mode">
+            {["street", "satellite", "map"].map((item) => (
+              <button
+                aria-pressed={safeMode === item}
+                className={safeMode === item ? "active" : ""}
+                key={item}
+                onClick={() => onModeChange(item)}
+                type="button"
+              >
+                {item === "street" ? "Street" : item === "satellite" ? "Satellite" : "Map"}
+              </button>
+            ))}
+          </div>
+          <button className="fullscreen-button" onClick={() => setIsFullscreen((current) => !current)} type="button">
+            {isFullscreen ? "Back to Workspace" : "Fullscreen"}
+          </button>
         </div>
       </div>
-      <iframe
-        loading="lazy"
-        referrerPolicy="no-referrer-when-downgrade"
-        src={buildGoogleMapsEmbedUrl(address, mode)}
-        title={`${mode} view for ${address || "property"}`}
-      />
-      <small>Embedded view uses the property address first; parcel and GIS layers can plug in when county geometry is connected.</small>
+
+      <div className="visual-status-row">
+        <span className="visual-status">
+          {safeMode === "street"
+            ? usesOfficialStreetView
+              ? "Google Street View panorama. Rotate, zoom, and inspect from the road."
+              : "Street View fallback. Add VITE_GOOGLE_MAPS_EMBED_API_KEY for official panorama controls."
+            : safeMode === "satellite"
+              ? "Interactive satellite view centered on the property address."
+              : "Traditional map view for roads, directions, and nearby context."}
+        </span>
+        {visualNotice ? <span className="visual-notice">{visualNotice}</span> : null}
+      </div>
+
+      <div className="property-visual-frame">
+        <iframe
+          allow="fullscreen"
+          allowFullScreen
+          key={`${safeMode}-${streetHeading}-${address || "property"}`}
+          loading="lazy"
+          onError={() => setVisualNotice("If Street View imagery is unavailable here, switch to Satellite for an immediate fallback.")}
+          referrerPolicy="no-referrer-when-downgrade"
+          src={embedUrl}
+          title={`${safeMode} view for ${address || "property"}`}
+        />
+      </div>
+
+      {safeMode === "street" ? (
+        <div className="drive-neighborhood-controls" aria-label="Drive the neighborhood controls">
+          <button onClick={() => rotateStreetView(-35)} type="button">Previous House</button>
+          <button onClick={() => showDriveNotice("Drive back")} type="button">Drive Back</button>
+          <button onClick={() => { setStreetHeading(210); setVisualNotice("Returned to the subject property view."); }} type="button">Subject</button>
+          <button onClick={() => showDriveNotice("Drive forward")} type="button">Drive Forward</button>
+          <button onClick={() => rotateStreetView(35)} type="button">Next House</button>
+        </div>
+      ) : null}
+
+      <div className="visual-future-hooks">
+        <span>Future hooks</span>
+        <p>Parcel outlines, county GIS, flood, utilities, property photos, drone imagery, permits, and buyer footprints can plug into this panel.</p>
+      </div>
     </section>
   );
 }
+
 function LeadDetail({
   authToken,
   currentUser,
@@ -3504,18 +3629,22 @@ function LeadDetail({
           <strong>{lead.address || "Missing Address"}</strong>
         </div>
         <span className="detail-status"><StatusDot lead={lead} />{getLeadContactStatus(lead).label}</span>
-        <button className="inline-map-button" onClick={() => setShowMap((current) => !current)}>
-          {showMap ? "Hide Map" : "Show Map"}
-        </button>
+        {!workspaceMode ? (
+          <button className="inline-map-button" onClick={() => setShowMap((current) => !current)}>
+            {showMap ? "Hide Map" : "Show Map"}
+          </button>
+        ) : null}
       </div>
 
-      <div className="quick-actions">
-        <ContactLink disabled={!phoneHref} href={phoneHref} label="Call" onClick={() => handleCallClick(phones[0])} />
-        <ContactLink disabled={!emailHref} href={emailHref} label="Email" />
-        <ContactLink href={streetViewUrl} label="Street View" />
-        <ContactLink href={mapUrl} label="Map" />
-        <ContactLink href={taxUrl} label="County Tax" />
-      </div>
+      {!workspaceMode ? (
+        <div className="quick-actions">
+          <ContactLink disabled={!phoneHref} href={phoneHref} label="Call" onClick={() => handleCallClick(phones[0])} />
+          <ContactLink disabled={!emailHref} href={emailHref} label="Email" />
+          <ContactLink href={streetViewUrl} label="Street View" />
+          <ContactLink href={mapUrl} label="Map" />
+          <ContactLink href={taxUrl} label="County Tax" />
+        </div>
+      ) : null}
 
       {canUseAdminDealTools ? (
         <PropertyIntelligenceWorkspace
@@ -3796,7 +3925,7 @@ function LeadDetail({
       </section>
       ) : null}
 
-      {showMap ? (
+      {!workspaceMode && showMap ? (
         <section className="map-panel" aria-label="Embedded map">
           <iframe
             loading="lazy"
@@ -6242,8 +6371,24 @@ function buildDirectionsUrl(address) {
   return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(address || "")}`;
 }
 
-function buildGoogleMapsEmbedUrl(address, mode = "map") {
-  const query = encodeURIComponent(address || "");
+function buildGoogleMapsEmbedUrl(address, mode = "map", options = {}) {
+  const rawAddress = address || "Dallas, TX";
+  const query = encodeURIComponent(rawAddress);
+  const key = googleMapsEmbedApiKey ? encodeURIComponent(googleMapsEmbedApiKey) : "";
+
+  if (key) {
+    if (mode === "street") {
+      const heading = Number.isFinite(Number(options.heading)) ? Number(options.heading) : 210;
+      const pitch = Number.isFinite(Number(options.pitch)) ? Number(options.pitch) : 0;
+      const fov = Number.isFinite(Number(options.fov)) ? Number(options.fov) : 85;
+      return `https://www.google.com/maps/embed/v1/streetview?key=${key}&location=${query}&heading=${heading}&pitch=${pitch}&fov=${fov}`;
+    }
+
+    const mapType = mode === "satellite" ? "satellite" : "roadmap";
+    const zoom = mode === "satellite" ? 19 : 17;
+    return `https://www.google.com/maps/embed/v1/place?key=${key}&q=${query}&zoom=${zoom}&maptype=${mapType}`;
+  }
+
   if (mode === "satellite") {
     return `https://maps.google.com/maps?q=${query}&t=k&z=18&output=embed`;
   }
@@ -6252,7 +6397,6 @@ function buildGoogleMapsEmbedUrl(address, mode = "map") {
   }
   return `https://maps.google.com/maps?q=${query}&z=17&output=embed`;
 }
-
 function buildMyMapsEmbedUrl(value = "") {
   const url = parseUrl(value);
   if (!url) return "";
