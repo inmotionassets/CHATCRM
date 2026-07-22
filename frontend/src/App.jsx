@@ -3163,18 +3163,18 @@ function LeadWorkspaceAssessmentCard({ lead, ownerName, primaryPhone }) {
   const assignmentPotential = score >= 85 ? "Strong" : score >= 65 ? "Promising" : "Needs Research";
 
   return (
-    <section className="legacy-assessment-card" aria-label="LEGACY assessment">
+    <section className="lead-workspace-assessment-card" aria-label="LEGACY assessment">
       <div>
         <p className="eyebrow">LEGACY Assessment</p>
         <h3>{recommendedAction}</h3>
         <p>{nextBestAction}</p>
       </div>
-      <div className="assessment-metrics">
+      <div className="lead-workspace-assessment-metrics">
         <span><b>Next Best Action</b>{primaryPhone ? "Call owner" : "Research contact"}</span>
         <span><b>Assignment Potential</b>{assignmentPotential}</span>
         <span><b>Confidence</b>{score >= 80 ? "High" : score >= 60 ? "Medium" : "Needs Data"}</span>
       </div>
-      <details className="why-this-property">
+      <details className="lead-workspace-why-property">
         <summary>Why This Property?</summary>
         <p>
           LEGACY is prioritizing this lead from score, status, owner contact readiness, county data, and current pipeline stage.

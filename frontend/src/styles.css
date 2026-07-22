@@ -5546,7 +5546,7 @@ textarea::placeholder {
   z-index: 15;
 }
 
-.legacy-assessment-card,
+.lead-workspace-assessment-card,
 .lead-workspace-support-card,
 .lead-workspace-summary,
 .property-visual-panel {
@@ -5556,37 +5556,37 @@ textarea::placeholder {
   padding: 14px;
 }
 
-.legacy-assessment-card {
+.lead-workspace-assessment-card {
   align-items: start;
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(260px, 0.85fr);
   gap: 14px;
 }
 
-.legacy-assessment-card h3,
+.lead-workspace-assessment-card h3,
 .lead-workspace-support-card h3 {
   margin: 0 0 5px;
 }
 
-.legacy-assessment-card p,
+.lead-workspace-assessment-card p,
 .lead-workspace-support-card p {
   color: var(--muted);
   line-height: 1.45;
   margin: 0;
 }
 
-.assessment-metrics,
+.lead-workspace-assessment-metrics,
 .support-facts,
 .lead-summary-grid {
   display: grid;
   gap: 8px;
 }
 
-.assessment-metrics {
+.lead-workspace-assessment-metrics {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
-.assessment-metrics span,
+.lead-workspace-assessment-metrics span,
 .support-facts span,
 .lead-summary-grid span {
   background: var(--panel-soft);
@@ -5596,7 +5596,7 @@ textarea::placeholder {
   padding: 9px;
 }
 
-.assessment-metrics b,
+.lead-workspace-assessment-metrics b,
 .support-facts b,
 .lead-summary-grid b {
   color: var(--muted-strong);
@@ -5605,18 +5605,18 @@ textarea::placeholder {
   text-transform: uppercase;
 }
 
-.why-this-property {
+.lead-workspace-why-property {
   grid-column: 1 / -1;
 }
 
-.why-this-property summary,
+.lead-workspace-why-property summary,
 .lead-workspace-summary summary {
   color: var(--accent-dark);
   cursor: pointer;
   font-weight: 900;
 }
 
-.why-this-property p {
+.lead-workspace-why-property p {
   margin-top: 8px;
 }
 
@@ -5831,7 +5831,7 @@ textarea::placeholder {
 
 @media (max-width: 1180px) {
   .lead-workspace-hero,
-  .legacy-assessment-card,
+  .lead-workspace-assessment-card,
   .lead-workspace-visual-grid {
     grid-template-columns: 1fr;
   }
@@ -5840,7 +5840,7 @@ textarea::placeholder {
     position: static;
   }
 
-  .assessment-metrics,
+  .lead-workspace-assessment-metrics,
   .lead-summary-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -5849,7 +5849,7 @@ textarea::placeholder {
 @media (max-width: 760px) {
   .lead-workspace-hero,
   .lead-workspace-summary summary,
-  .assessment-metrics,
+  .lead-workspace-assessment-metrics,
   .lead-summary-grid,
   .drive-neighborhood-controls {
     grid-template-columns: 1fr;
