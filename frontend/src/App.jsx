@@ -204,6 +204,37 @@ const apiBaseUrl =
     ? "http://127.0.0.1:8001"
     : "https://chatcrm.onrender.com");
 const authStorageKey = "chatcrm.auth";
+const leadWorkspacePathPattern = /^\/leads\/([^/?#]+)/;
+const leadWorkspaceReturnKey = "chatcrm.leadWorkspaceReturn";
+
+function getLeadIdFromPath(pathname = window.location.pathname) {
+  const match = pathname.match(leadWorkspacePathPattern);
+  return match ? decodeURIComponent(match[1]) : "";
+}
+
+function isLeadWorkspacePath(pathname = window.location.pathname) {
+  return leadWorkspacePathPattern.test(pathname);
+}
+
+function buildLeadWorkspacePath(leadId) {
+  return `/leads/${encodeURIComponent(leadId)}`;
+}
+
+function loadLeadReturnContext() {
+  try {
+    const parsed = JSON.parse(safeStorageGet(leadWorkspaceReturnKey) || "{}");
+    return {
+      view: parsed.view || "Leads",
+      scrollY: Number(parsed.scrollY) || 0
+    };
+  } catch {
+    return { view: "Leads", scrollY: 0 };
+  }
+}
+
+function saveLeadReturnContext(context) {
+  safeStorageSet(leadWorkspaceReturnKey, JSON.stringify(context));
+}
 const emptyLead = {
   name: "",
   address: "",
@@ -286,7 +317,7 @@ export function App() {
   const [editingId, setEditingId] = React.useState(null);
   const [isFormOpen, setIsFormOpen] = React.useState(false);
   const [importMessage, setImportMessage] = React.useState("");
-  const [selectedLeadId, setSelectedLeadId] = React.useState(null);
+  const [selectedLeadId, setSelectedLeadId] = React.useState(() => getLeadIdFromPath() || null);
   const [activeView, setActiveView] = React.useState("Leads");
   const [backendReady, setBackendReady] = React.useState(false);
   const [saveStatus, setSaveStatus] = React.useState("Connecting...");
@@ -300,11 +331,59 @@ export function App() {
   const fileInputRef = React.useRef(null);
   const buyerFileInputRef = React.useRef(null);
   const cadFileInputRef = React.useRef(null);
+  const leadReturnContextRef = React.useRef(loadLeadReturnContext());
   const authToken = auth?.accessToken || "";
   const isAdmin = auth?.user?.role === "Admin";
   const isDisposition = auth?.user?.role === "Disposition";
   const visibleMainViews = isAdmin ? [...mainViews, "Team"] : isDisposition ? dispositionViews : callerViews;
+  function captureLeadReturnContext() {
+    const context = {
+      view: activeView || "Leads",
+      scrollY: window.scrollY || document.documentElement.scrollTop || 0
+    };
+    leadReturnContextRef.current = context;
+    saveLeadReturnContext(context);
+    return context;
+  }
 
+  function restoreLeadReturnContext() {
+    const context = leadReturnContextRef.current || loadLeadReturnContext();
+    setActiveView(context.view || "Leads");
+    window.setTimeout(() => window.scrollTo({ top: Number(context.scrollY) || 0, behavior: "auto" }), 0);
+  }
+
+  function openLeadWorkspace(leadId, options = {}) {
+    if (!leadId) return;
+    if (!isLeadWorkspacePath()) captureLeadReturnContext();
+    setSelectedLeadId(leadId);
+    setIsFormOpen(false);
+    const nextPath = buildLeadWorkspacePath(leadId);
+    const method = options.replace ? "replaceState" : "pushState";
+    if (window.location.pathname !== nextPath) {
+      window.history[method]({ chatcrmLeadWorkspace: true, leadId }, "", nextPath);
+    }
+    window.scrollTo({ top: 0, behavior: "auto" });
+  }
+
+  function closeLeadWorkspace(options = {}) {
+    setSelectedLeadId(null);
+    if (isLeadWorkspacePath()) {
+      window.history.pushState({ chatcrmLeadWorkspace: false }, "", "/");
+    }
+    if (options.restore !== false) restoreLeadReturnContext();
+  }
+
+  React.useEffect(() => {
+    function syncLeadRoute() {
+      const routeLeadId = getLeadIdFromPath();
+      setSelectedLeadId(routeLeadId || null);
+      if (!routeLeadId) restoreLeadReturnContext();
+    }
+
+    window.addEventListener("popstate", syncLeadRoute);
+    syncLeadRoute();
+    return () => window.removeEventListener("popstate", syncLeadRoute);
+  }, []);
   React.useEffect(() => {
     if (!visibleMainViews.includes(activeView)) {
       setActiveView(visibleMainViews[0] || "Leads");
@@ -556,17 +635,19 @@ export function App() {
   const allVisibleSelected = visibleLeadIds.length > 0 && visibleLeadIds.every((id) => selectedLeadIds.includes(id));
 
   function openCreateForm() {
+    closeLeadWorkspace({ restore: false });
+    setActiveView("Leads");
     setEditingId(null);
     setFormLead(emptyLead);
     setIsFormOpen(true);
-    setSelectedLeadId(null);
   }
 
   function openEditForm(lead) {
+    closeLeadWorkspace({ restore: false });
+    setActiveView("Leads");
     setEditingId(lead.id);
     setFormLead(lead);
     setIsFormOpen(true);
-    setSelectedLeadId(null);
   }
 
   function saveLead(event) {
@@ -588,14 +669,14 @@ export function App() {
     setIsFormOpen(false);
     setEditingId(null);
     setFormLead(emptyLead);
-    setSelectedLeadId(cleanLead.id);
+    openLeadWorkspace(cleanLead.id);
   }
 
   function deleteLead(id) {
     setLeads((current) => current.filter((lead) => lead.id !== id));
     setSelectedLeadIds((current) => current.filter((selectedId) => selectedId !== id));
     if (selectedLeadId === id) {
-      setSelectedLeadId(null);
+      closeLeadWorkspace();
     }
   }
 
@@ -662,7 +743,7 @@ export function App() {
     const currentIndex = filteredLeads.findIndex((lead) => lead.id === selectedLead.id);
     if (currentIndex === -1) return;
     const nextIndex = (currentIndex + direction + filteredLeads.length) % filteredLeads.length;
-    setSelectedLeadId(filteredLeads[nextIndex]?.id || null);
+    if (filteredLeads[nextIndex]?.id) openLeadWorkspace(filteredLeads[nextIndex].id, { replace: true });
   }
 
   function markReviewedAndNext() {
@@ -670,7 +751,11 @@ export function App() {
     const currentIndex = filteredLeads.findIndex((lead) => lead.id === selectedLead.id);
     const nextLead = filteredLeads[currentIndex + 1] || filteredLeads[0];
     markReviewed(selectedLead.id);
-    setSelectedLeadId(nextLead && nextLead.id !== selectedLead.id ? nextLead.id : null);
+    if (nextLead && nextLead.id !== selectedLead.id) {
+      openLeadWorkspace(nextLead.id, { replace: true });
+    } else {
+      closeLeadWorkspace();
+    }
   }
 
   function clearFilters() {
@@ -682,15 +767,16 @@ export function App() {
   }
 
   function openReviewQueue() {
+    closeLeadWorkspace({ restore: false });
     setActiveView("Leads");
     setQuery("");
     setStageFilter("All");
     setReviewFilter("Needs Review");
     setHotOnly(false);
-    setSelectedLeadId(null);
   }
 
   function showFollowUps() {
+    closeLeadWorkspace({ restore: false });
     setActiveView("Leads");
     setQuery("");
     setStageFilter("Follow Up");
@@ -699,6 +785,7 @@ export function App() {
   }
 
   function showHotLeads() {
+    closeLeadWorkspace({ restore: false });
     setActiveView("Leads");
     setQuery("");
     setStageFilter("All");
@@ -760,7 +847,7 @@ export function App() {
     if (selectedLeadIds.length === 0) return;
     setLeads((current) => current.filter((lead) => !selectedLeadIds.includes(lead.id)));
     setSelectedLeadIds([]);
-    setSelectedLeadId(null);
+    closeLeadWorkspace({ restore: false });
   }
 
   async function resetNotesAndFollowUps() {
@@ -777,7 +864,7 @@ export function App() {
       const refreshedLeads = await fetchBackendLeads(authToken);
       setLeads(refreshedLeads);
       setSelectedLeadIds([]);
-      setSelectedLeadId(null);
+      closeLeadWorkspace();
       setStageFilter("All");
       setReviewFilter("All");
       setHotOnly(false);
@@ -929,7 +1016,7 @@ export function App() {
         </div>
       </aside>
 
-      <section className={`workspace ${isAdmin ? "admin-workspace" : "caller-workspace"}`}>
+      <section className={`workspace ${isAdmin ? "admin-workspace" : "caller-workspace"} ${selectedLead ? "lead-workspace-active" : ""}`}>
         <header className="topbar">
           <div className="search-box">
             <Search size={18} />
@@ -1083,7 +1170,7 @@ export function App() {
                         type="checkbox"
                       />
                     </label>
-                    <button className="lead-main" onClick={() => setSelectedLeadId(lead.id)}>
+                    <button className="lead-main" onClick={() => openLeadWorkspace(lead.id)}>
                       <h3>
                         {lead.address}
                         <StatusDot lead={lead} />
@@ -1105,7 +1192,7 @@ export function App() {
                       <span className="lead-meta"><b>Last At</b>{lead.lastContactedAt ? formatActivityTime(lead.lastContactedAt) : "None"}</span>
                     </div>
                     <div className="row-actions">
-                      <button onClick={() => setSelectedLeadId(lead.id)}>View</button>
+                      <button onClick={() => openLeadWorkspace(lead.id)}>View</button>
                       <a href={buildGoogleMapsUrl(lead.address)} rel="noreferrer" target="_blank">Map</a>
                       <a href={buildStreetViewUrl(lead.address)} rel="noreferrer" target="_blank">Street</a>
                       <button onClick={() => openEditForm(lead)}>Edit</button>
@@ -1128,7 +1215,7 @@ export function App() {
           ) : null}
 
           {activeView === "Pipeline" ? (
-            <PipelineView leads={leads} onViewLead={setSelectedLeadId} />
+            <PipelineView leads={leads} onViewLead={openLeadWorkspace} />
           ) : null}
 
           {activeView === "Disposition Intelligence" ? (
@@ -1216,27 +1303,22 @@ export function App() {
           </aside>
           ) : null}
         </section>
-
         {selectedLead ? (
-          <>
-            <button className="detail-backdrop" aria-label="Close lead details" onClick={() => setSelectedLeadId(null)} />
-            <LeadDetail
-              authToken={authToken}
-              currentUser={auth.user}
-              lead={selectedLead}
-              onClose={() => setSelectedLeadId(null)}
-              onEdit={() => openEditForm(selectedLead)}
+          <LeadWorkspacePage
+            authToken={authToken}
+            currentUser={auth.user}
+            lead={selectedLead}
+            onBack={closeLeadWorkspace}
+            onEdit={() => openEditForm(selectedLead)}
             onMarkReviewed={() => markReviewed(selectedLead.id)}
-              onMarkReviewedAndNext={markReviewedAndNext}
-              onNext={() => moveSelectedLead(1)}
-              onPrevious={() => moveSelectedLead(-1)}
-              onStartAgreement={() => setAgreementLead(selectedLead)}
-              onStatusChange={(status) => updateContactStatus(selectedLead.id, status)}
+            onMarkReviewedAndNext={markReviewedAndNext}
+            onNext={() => moveSelectedLead(1)}
+            onPrevious={() => moveSelectedLead(-1)}
+            onStartAgreement={() => setAgreementLead(selectedLead)}
+            onStatusChange={(status) => updateContactStatus(selectedLead.id, status)}
             onUpdate={(updates) => updateLead(selectedLead.id, updates)}
           />
-          </>
         ) : null}
-
         {agreementLead ? (
           <>
             <button className="detail-backdrop agreement-layer" aria-label="Close agreement form" onClick={() => setAgreementLead(null)} />
@@ -2970,6 +3052,147 @@ function CallScriptPanel({ lead }) {
   );
 }
 
+function LeadWorkspacePage({
+  authToken,
+  currentUser,
+  lead,
+  onBack,
+  onEdit,
+  onMarkReviewed,
+  onMarkReviewedAndNext,
+  onNext,
+  onPrevious,
+  onStartAgreement,
+  onStatusChange,
+  onUpdate
+}) {
+  const [visualMode, setVisualMode] = React.useState("street");
+  const phones = getLeadPhones(lead);
+  const primaryPhone = phones[0] || "";
+  const ownerName = getDisplayOwnerName(lead) || "Owner name needed";
+  const taxUrl = buildCountyTaxUrl(lead);
+  const mapUrl = buildGoogleMapsUrl(lead.address);
+  const streetUrl = buildStreetViewUrl(lead.address);
+  const directionsUrl = buildDirectionsUrl(lead.address);
+  const emailHref = lead.email ? `mailto:${lead.email}` : "";
+  const phoneHref = primaryPhone ? `tel:${primaryPhone.replace(/[^\d+]/g, "")}` : "";
+  const textHref = primaryPhone ? `sms:${primaryPhone.replace(/[^\d+]/g, "")}` : "";
+
+  return (
+    <section className="lead-workspace-page" aria-label="Lead workspace">
+      <header className="lead-workspace-hero">
+        <button className="ghost-button" onClick={onBack} type="button">Back to Pipeline</button>
+        <div className="lead-workspace-title">
+          <p className="eyebrow">Deal Workspace</p>
+          <h2>{lead.address || "Missing Address"}</h2>
+          <p>{ownerName} / {lead.county || "County needed"}</p>
+        </div>
+        <div className="lead-workspace-score">
+          <span>Opportunity</span>
+          <strong>{lead.score || 0}</strong>
+          <small>{lead.stage || "New Lead"}</small>
+        </div>
+      </header>
+
+      <nav className="property-command-bar" aria-label="Property command bar">
+        <a className={!phoneHref ? "disabled" : ""} href={phoneHref || undefined}>Call</a>
+        <a className={!textHref ? "disabled" : ""} href={textHref || undefined}>Text</a>
+        <a className={!emailHref ? "disabled" : ""} href={emailHref || undefined}>Email</a>
+        <a href={taxUrl} rel="noreferrer" target="_blank">County</a>
+        <a href={mapUrl} rel="noreferrer" target="_blank">Google Maps</a>
+        <a href={streetUrl} rel="noreferrer" target="_blank">Street View</a>
+        <a href={directionsUrl} rel="noreferrer" target="_blank">Directions</a>
+        {currentUser?.role === "Admin" ? <button onClick={onStartAgreement} type="button">Offer</button> : null}
+      </nav>
+
+      <div className="lead-workspace-layout">
+        <aside className="lead-workspace-rail">
+          <div>
+            <p className="eyebrow">Lead Information</p>
+            <h3>{ownerName}</h3>
+            <p>{formatPhoneList(lead) || "No phone saved"}</p>
+            <p>{lead.email || "No email saved"}</p>
+          </div>
+          <div className="workspace-rail-list">
+            <span><b>Status</b>{getLeadContactStatus(lead).label}</span>
+            <span><b>Stage</b>{lead.stage || "New Lead"}</span>
+            <span><b>APN</b>{lead.parcelNumber || "Missing"}</span>
+            <span><b>County</b>{lead.county || "Missing"}</span>
+            <span><b>Last Contact</b>{lead.lastContactedAt ? formatActivityTime(lead.lastContactedAt) : "None"}</span>
+          </div>
+          <div className="workspace-rail-tabs" aria-label="Workspace sections">
+            <span>Owner</span>
+            <span>Phones</span>
+            <span>Property</span>
+            <span>Timeline</span>
+            <span>Documents</span>
+            <span>Activity</span>
+          </div>
+        </aside>
+
+        <main className="lead-workspace-main-panel">
+          <PropertyVisualPanel address={lead.address} mode={visualMode} onModeChange={setVisualMode} />
+          <LeadDetail
+            authToken={authToken}
+            currentUser={currentUser}
+            lead={lead}
+            onClose={onBack}
+            onEdit={onEdit}
+            onMarkReviewed={onMarkReviewed}
+            onMarkReviewedAndNext={onMarkReviewedAndNext}
+            onNext={onNext}
+            onPrevious={onPrevious}
+            onStartAgreement={onStartAgreement}
+            onStatusChange={onStatusChange}
+            onUpdate={onUpdate}
+            workspaceMode
+          />
+        </main>
+
+        <aside className="lead-workspace-action-rail">
+          <p className="eyebrow">Quick Actions</p>
+          <button onClick={() => setVisualMode("street")} type="button">Street View</button>
+          <button onClick={() => setVisualMode("satellite")} type="button">Satellite</button>
+          <button onClick={() => setVisualMode("map")} type="button">Map</button>
+          <a href={taxUrl} rel="noreferrer" target="_blank">Open County Tax</a>
+          <a href={streetUrl} rel="noreferrer" target="_blank">Fullscreen Street</a>
+          {currentUser?.role === "Admin" ? <button onClick={onStartAgreement} type="button">Create Offer</button> : null}
+          <div className="workspace-future-box">
+            <span>Future-ready</span>
+            <p>Photos, parcel overlay, GIS, drone images, surveys, and AI assistant can plug into this rail.</p>
+          </div>
+        </aside>
+      </div>
+    </section>
+  );
+}
+
+function PropertyVisualPanel({ address, mode, onModeChange }) {
+  return (
+    <section className="property-visual-panel">
+      <div className="property-visual-header">
+        <div>
+          <p className="eyebrow">Property Visuals</p>
+          <h3>{mode === "satellite" ? "Satellite View" : mode === "street" ? "Street View" : "Map View"}</h3>
+        </div>
+        <div className="visual-mode-toggle">
+          {["street", "satellite", "map"].map((item) => (
+            <button className={mode === item ? "active" : ""} key={item} onClick={() => onModeChange(item)} type="button">
+              {item === "street" ? "Street" : item === "satellite" ? "Satellite" : "Map"}
+            </button>
+          ))}
+        </div>
+      </div>
+      <iframe
+        loading="lazy"
+        referrerPolicy="no-referrer-when-downgrade"
+        src={buildGoogleMapsEmbedUrl(address, mode)}
+        title={`${mode} view for ${address || "property"}`}
+      />
+      <small>Embedded view uses the property address first; parcel and GIS layers can plug in when county geometry is connected.</small>
+    </section>
+  );
+}
 function LeadDetail({
   authToken,
   currentUser,
@@ -2982,7 +3205,8 @@ function LeadDetail({
   onPrevious,
   onStartAgreement,
   onStatusChange,
-  onUpdate
+  onUpdate,
+  workspaceMode = false
 }) {
   const [showMap, setShowMap] = React.useState(false);
   const [myMapsUrl, setMyMapsUrl] = React.useState(() => safeStorageGet("chatcrm.myMapsUrl") || "");
@@ -3244,7 +3468,7 @@ function LeadDetail({
   }
 
   return (
-    <section className="lead-detail" aria-label="Lead details">
+    <section className={`lead-detail ${workspaceMode ? "lead-detail-workspace" : ""}`} aria-label="Lead details">
       <div className="panel-header">
         <div>
           <p className="eyebrow">Lead Detail</p>
@@ -6014,8 +6238,19 @@ function buildStreetViewUrl(address) {
   return `https://www.google.com/maps/search/${encodeURIComponent(address || "")}`;
 }
 
-function buildGoogleMapsEmbedUrl(address) {
-  return `https://maps.google.com/maps?q=${encodeURIComponent(address || "")}&output=embed`;
+function buildDirectionsUrl(address) {
+  return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(address || "")}`;
+}
+
+function buildGoogleMapsEmbedUrl(address, mode = "map") {
+  const query = encodeURIComponent(address || "");
+  if (mode === "satellite") {
+    return `https://maps.google.com/maps?q=${query}&t=k&z=18&output=embed`;
+  }
+  if (mode === "street") {
+    return `https://maps.google.com/maps?q=${query}&layer=c&z=18&output=embed`;
+  }
+  return `https://maps.google.com/maps?q=${query}&z=17&output=embed`;
 }
 
 function buildMyMapsEmbedUrl(value = "") {
