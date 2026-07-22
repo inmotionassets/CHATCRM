@@ -48,6 +48,40 @@ LEGACY explains the market.
 
 Acquisition, Disposition, Leadership, Buyer Network, Analytics, and future mobile apps should not each invent their own property logic. They should consume one shared Market Intelligence snapshot.
 
+## LEGACY Decision Loop
+
+Every property should move through the same intelligence lifecycle:
+
+```text
+Address
+      |
+      v
+Property Intelligence
+      |
+      v
+Market Intelligence
+      |
+      v
+Buyer Intelligence
+      |
+      v
+LEGACY Assessment
+      |
+      v
+Recommended Actions
+      |
+      v
+Disposition Execution
+      |
+      v
+Outcome
+      |
+      v
+Learning
+```
+
+Learning is what makes LEGACY stronger over time. Each completed deal should feed back into future buyer ranking, opportunity scoring, and recommended actions.
+
 ## Market Intelligence Snapshot
 
 A property snapshot should eventually answer:
@@ -86,6 +120,29 @@ MarketIntelligenceService
 Routers should call the MarketIntelligenceService for a property snapshot. The service coordinates the modules underneath.
 
 This keeps the frontend stable while the intelligence layer grows.
+
+## Decision Engine Direction
+
+As LEGACY begins making recommendations, MarketIntelligenceService should coordinate four clear decision responsibilities:
+
+```text
+MarketIntelligenceService
+
++-- AssessmentEngine
++-- RecommendationEngine
++-- EvidenceEngine
++-- LearningEngine
+```
+
+AssessmentEngine answers what the market looks like.
+
+RecommendationEngine answers what the user should do next.
+
+EvidenceEngine explains why a recommendation was made.
+
+LearningEngine records outcomes and improves future recommendations.
+
+The human still makes the final decision. LEGACY makes the human better prepared.
 
 ## User Views
 

@@ -103,6 +103,16 @@ Every release should make users more confident in LEGACY.
 
 If an insight cannot be supported, it should not be presented as fact.
 
+## 11. LEGACY Learns From Outcomes
+
+Every completed deal should improve future recommendations.
+
+LEGACY should remember what happened after a recommendation was made.
+
+If a buyer closes quickly, pays above asking, responds fast, or repeatedly buys the same property type, that outcome should strengthen future recommendations.
+
+If a recommendation fails, LEGACY should learn from that too.
+
 ## Product Philosophy
 
 LEGACY should feel like you are working alongside the best acquisitions manager on your team, not using another piece of software.
