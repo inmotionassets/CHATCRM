@@ -1053,9 +1053,6 @@ h3 {
   padding: 12px;
 }
 
-.call-script-panel.script-expanded {
-  grid-column: 1 / -1;
-}
 
 .script-header {
   align-items: start;
@@ -1148,6 +1145,21 @@ h3 {
 .rebuttal-list {
   display: grid;
   gap: 6px;
+}
+
+.script-details[open] .rebuttal-list {
+  max-height: 280px;
+  overflow-y: auto;
+  padding-right: 8px;
+}
+
+.script-details[open] .rebuttal-list::-webkit-scrollbar {
+  width: 8px;
+}
+
+.script-details[open] .rebuttal-list::-webkit-scrollbar-thumb {
+  background: rgba(15, 159, 110, 0.36);
+  border-radius: 999px;
 }
 
 .rebuttal-list strong {
