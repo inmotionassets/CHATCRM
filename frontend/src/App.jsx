@@ -3004,9 +3004,10 @@ function CallScriptPanel({ lead }) {
     .replace("{ownerName}", ownerName)
     .replace("{propertyAddress}", propertyAddress);
   const voicemail = callScript.voicemail.replace("{propertyAddress}", propertyAddress);
+  const [showRebuttals, setShowRebuttals] = React.useState(false);
 
   return (
-    <section className="call-script-panel" aria-label="Call script">
+    <section className={`call-script-panel ${showRebuttals ? "script-expanded" : ""}`} aria-label="Call script">
       <div className="script-header">
         <div>
           <p className="eyebrow">Call Script</p>
@@ -3040,8 +3041,8 @@ function CallScriptPanel({ lead }) {
         ))}
       </div>
 
-      <details className="script-details">
-        <summary>Rebuttals + Voicemail</summary>
+      <details className="script-details" onToggle={(event) => setShowRebuttals(event.currentTarget.open)} open={showRebuttals}>
+        <summary>{showRebuttals ? "Hide Rebuttals + Voicemail" : "Show Rebuttals + Voicemail"}</summary>
         <div className="rebuttal-list">
           {callScript.rebuttals.map((item) => (
             <p key={item.prompt}>

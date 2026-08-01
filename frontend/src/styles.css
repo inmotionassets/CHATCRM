@@ -991,12 +991,14 @@ h3 {
 }
 
 .call-workspace {
+  align-items: start;
   display: grid;
   gap: 10px;
   grid-template-columns: minmax(250px, 0.8fr) minmax(390px, 1.2fr);
 }
 
 .phone-stack {
+  align-self: start;
   background: var(--panel-soft);
   border: 1px solid var(--border);
   border-radius: 7px;
@@ -1049,6 +1051,10 @@ h3 {
   display: grid;
   gap: 10px;
   padding: 12px;
+}
+
+.call-script-panel.script-expanded {
+  grid-column: 1 / -1;
 }
 
 .script-header {
