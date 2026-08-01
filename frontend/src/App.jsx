@@ -3081,6 +3081,7 @@ function LeadWorkspacePage({
   const status = getLeadContactStatus(lead);
   const analyzedAt = lead.lastContactedAt || lead.updatedAt || lead.createdAt || "";
   const canCreateOffer = currentUser?.role === "Admin";
+  const taxLabel = `${lead.county || ""} ${lead.source || ""} ${lead.address || ""}`.toLowerCase().includes("dallas") ? "Dallas Tax" : "County Tax";
 
   return (
     <section className="lead-workspace-page" aria-label="Lead workspace">
@@ -3107,6 +3108,7 @@ function LeadWorkspacePage({
         <a className={`primary-command ${!phoneHref ? "disabled" : ""}`} href={phoneHref || undefined}>Call</a>
         <a className={!textHref ? "disabled" : ""} href={textHref || undefined}>Text</a>
         <a className={!emailHref ? "disabled" : ""} href={emailHref || undefined}>Email</a>
+        <a className="tax-command" href={taxUrl} rel="noreferrer" target="_blank">{taxLabel}</a>
         {canCreateOffer ? <button onClick={onStartAgreement} type="button">Create Offer</button> : null}
         <details className="property-tools-menu">
           <summary>Property Tools</summary>

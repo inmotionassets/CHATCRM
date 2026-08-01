@@ -5513,6 +5513,18 @@ textarea::placeholder {
   color: #fff;
 }
 
+.property-command-bar .tax-command {
+  background: linear-gradient(135deg, #fff7d6, #fde68a);
+  border-color: rgba(245, 179, 0, 0.58);
+  color: #7a4b00;
+}
+
+:root[data-theme="dark"] .property-command-bar .tax-command {
+  background: linear-gradient(135deg, rgba(245, 179, 0, 0.24), rgba(245, 179, 0, 0.12));
+  border-color: rgba(245, 179, 0, 0.46);
+  color: #f8d56b;
+}
+
 .property-command-bar .disabled {
   opacity: 0.4;
   pointer-events: none;
