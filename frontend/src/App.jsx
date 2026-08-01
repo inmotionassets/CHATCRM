@@ -374,6 +374,12 @@ export function App() {
     if (options.restore !== false) restoreLeadReturnContext();
   }
 
+  function navigateMainView(view) {
+    closeLeadWorkspace({ restore: false });
+    setIsFormOpen(false);
+    setActiveView(view);
+    window.setTimeout(() => window.scrollTo({ top: 0, behavior: "auto" }), 0);
+  }
   React.useEffect(() => {
     function syncLeadRoute() {
       const routeLeadId = getLeadIdFromPath();
@@ -995,7 +1001,7 @@ export function App() {
             <button
               className={`nav-item ${activeView === view ? "active" : ""}`}
               key={view}
-              onClick={() => setActiveView(view)}
+              onClick={() => navigateMainView(view)}
             >
               {view}
             </button>
