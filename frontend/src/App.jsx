@@ -3357,6 +3357,7 @@ function LeadDetail({
   const [activities, setActivities] = React.useState([]);
   const [leadLock, setLeadLock] = React.useState(null);
   const [activityMessage, setActivityMessage] = React.useState("");
+  const [isLegacyWorkspaceOpen, setIsLegacyWorkspaceOpen] = React.useState(false);
   const notesSnapshotRef = React.useRef(lead.notes || "");
   const ownerPlaceholder =
     rawOwnerName && rawOwnerName !== "Unknown Owner"
@@ -3427,6 +3428,7 @@ function LeadDetail({
     setActivities([]);
     setLeadLock(null);
     setActivityMessage("");
+    setIsLegacyWorkspaceOpen(false);
     notesSnapshotRef.current = lead.notes || "";
   }, [lead.id]);
 
@@ -3647,13 +3649,35 @@ function LeadDetail({
       ) : null}
 
       {canUseAdminDealTools ? (
-        <PropertyIntelligenceWorkspace
-          lead={lead}
-          message={propertyWorkspaceMessage}
-          snapshot={propertyWorkspace}
-          taxUrl={taxUrl}
-          authToken={authToken}
-        />
+        workspaceMode ? (
+          <>
+            <LegacyWorkspaceLauncher
+              lead={lead}
+              message={propertyWorkspaceMessage}
+              onOpen={() => setIsLegacyWorkspaceOpen(true)}
+              snapshot={propertyWorkspace}
+            />
+            {isLegacyWorkspaceOpen ? (
+              <LegacyWorkspaceModal lead={lead} onClose={() => setIsLegacyWorkspaceOpen(false)}>
+                <PropertyIntelligenceWorkspace
+                  lead={lead}
+                  message={propertyWorkspaceMessage}
+                  snapshot={propertyWorkspace}
+                  taxUrl={taxUrl}
+                  authToken={authToken}
+                />
+              </LegacyWorkspaceModal>
+            ) : null}
+          </>
+        ) : (
+          <PropertyIntelligenceWorkspace
+            lead={lead}
+            message={propertyWorkspaceMessage}
+            snapshot={propertyWorkspace}
+            taxUrl={taxUrl}
+            authToken={authToken}
+          />
+        )
       ) : null}
 
       <div className="call-workspace">
@@ -3687,7 +3711,7 @@ function LeadDetail({
       </div>
 
       {canUseAdminDealTools ? (
-      <details className="tool-section" open>
+      <details className="tool-section workspace-tool-section" open={!workspaceMode}>
         <summary>Property / Offer Tools</summary>
         <section className="parcel-intelligence-panel simple-parcel-panel">
           <div className="panel-header compact-header">
@@ -3962,7 +3986,7 @@ function LeadDetail({
         </section>
       ) : null}
 
-      <label className="detail-field">
+      <label className="detail-field workspace-followup-field">
         Follow-Up Date
         <input
           type="date"
@@ -3971,7 +3995,7 @@ function LeadDetail({
         />
       </label>
 
-      <label className="detail-field">
+      <label className="detail-field workspace-notes-field">
         Notes
         <textarea value={lead.notes || ""} onBlur={handleNotesBlur} onChange={(event) => onUpdate({ notes: event.target.value })} />
       </label>
@@ -4008,6 +4032,57 @@ function LeadDetail({
   );
 }
 
+function LegacyWorkspaceLauncher({ lead, message, onOpen, snapshot }) {
+  const intelligence = snapshot?.marketIntelligence || {};
+  const buyers = intelligence.mostProbableBuyers || [];
+  const assessment = intelligence.assessment || snapshot?.assessment || {};
+  const confidence = intelligence.workspaceHeader?.confidence || assessment?.confidence?.score || lead.score || 0;
+  const summary = assessment.summary || intelligence.summary || message || "Open the full market map, buyer evidence, and property intelligence when you need the deeper research.";
+
+  return (
+    <section className="legacy-launcher-card" aria-label="LEGACY workspace launcher">
+      <div>
+        <p className="eyebrow">LEGACY Workspace</p>
+        <h3>Market research is tucked away.</h3>
+        <p>{summary}</p>
+      </div>
+      <div className="legacy-launcher-meta">
+        <span><b>Confidence</b>{confidence ? `${confidence}%` : "Building"}</span>
+        <span><b>Buyer Matches</b>{buyers.length || "Open to review"}</span>
+        <span><b>County</b>{lead.county || "Missing"}</span>
+      </div>
+      <button className="primary-button" onClick={onOpen} type="button">Open LEGACY Workspace</button>
+    </section>
+  );
+}
+
+function LegacyWorkspaceModal({ children, lead, onClose }) {
+  React.useEffect(() => {
+    function handleKeyDown(event) {
+      if (event.key === "Escape") onClose();
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
+
+  return (
+    <div className="lead-workspace-modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }} role="presentation">
+      <section aria-label="LEGACY Workspace" aria-modal="true" className="lead-workspace-modal" role="dialog">
+        <div className="lead-workspace-modal-header">
+          <div>
+            <p className="eyebrow">LEGACY Workspace</p>
+            <h2>{lead.address || "Property Intelligence"}</h2>
+          </div>
+          <button className="ghost-button" onClick={onClose} type="button">Close</button>
+        </div>
+        <div className="lead-workspace-modal-body">
+          {children}
+        </div>
+      </section>
+    </div>
+  );
+}
 function PropertyIntelligenceWorkspace({ authToken, lead, message, snapshot, taxUrl }) {
   const [selectedNarrativeId, setSelectedNarrativeId] = React.useState("");
   const [selectedBuyerKey, setSelectedBuyerKey] = React.useState("");

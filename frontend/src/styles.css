@@ -5829,7 +5829,203 @@ textarea::placeholder {
   gap: 10px;
 }
 
-@media (max-width: 1180px) {
+
+/* Lead Workspace cleanup */
+.legacy-launcher-card {
+  align-items: center;
+  background:
+    linear-gradient(135deg, rgba(15, 159, 110, 0.12), rgba(245, 179, 0, 0.1)),
+    var(--panel);
+  border: 1px solid rgba(15, 159, 110, 0.24);
+  border-left: 4px solid #0f9f6e;
+  border-radius: 8px;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(0, 1fr) minmax(230px, 0.72fr) auto;
+  padding: 13px;
+}
+
+.legacy-launcher-card h3 {
+  margin: 0 0 4px;
+}
+
+.legacy-launcher-card p {
+  color: var(--muted);
+  line-height: 1.4;
+  margin: 0;
+}
+
+.legacy-launcher-meta {
+  display: grid;
+  gap: 7px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.legacy-launcher-meta span {
+  background: rgba(255, 255, 255, 0.62);
+  border: 1px solid rgba(15, 159, 110, 0.18);
+  border-radius: 7px;
+  color: var(--text);
+  padding: 8px;
+}
+
+:root[data-theme="dark"] .legacy-launcher-meta span {
+  background: rgba(12, 20, 28, 0.56);
+}
+
+.legacy-launcher-meta b {
+  color: var(--muted-strong);
+  display: block;
+  font-size: 0.66rem;
+  text-transform: uppercase;
+}
+
+.lead-workspace-modal-backdrop {
+  align-items: center;
+  background: rgba(4, 10, 18, 0.72);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  padding: 18px;
+  position: fixed;
+  z-index: 1200;
+}
+
+.lead-workspace-modal {
+  background: var(--page);
+  border: 1px solid rgba(245, 179, 0, 0.28);
+  border-radius: 10px;
+  box-shadow: 0 26px 80px rgba(0, 0, 0, 0.36);
+  display: grid;
+  gap: 12px;
+  max-height: 92vh;
+  max-width: 1280px;
+  overflow: hidden;
+  padding: 14px;
+  width: min(94vw, 1280px);
+}
+
+.lead-workspace-modal-header {
+  align-items: center;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  padding: 12px;
+}
+
+.lead-workspace-modal-header h2 {
+  margin: 0;
+}
+
+.lead-workspace-modal-body {
+  max-height: calc(92vh - 96px);
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.lead-detail.lead-detail-workspace .detail-nav {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  gap: 12px;
+  padding: 10px;
+}
+
+.lead-detail.lead-detail-workspace .detail-nav .secondary-button {
+  border: 0;
+  color: #fff;
+  font-size: 1rem;
+  font-weight: 900;
+  min-height: 48px;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.2);
+}
+
+.lead-detail.lead-detail-workspace .detail-nav .secondary-button:first-child {
+  background: linear-gradient(135deg, #334155, #2563eb);
+}
+
+.lead-detail.lead-detail-workspace .detail-nav .secondary-button:last-child {
+  background: linear-gradient(135deg, #08745f, #0f9f6e);
+  box-shadow: 0 12px 22px rgba(15, 159, 110, 0.2);
+}
+
+.lead-detail.lead-detail-workspace .workspace-followup-field,
+.lead-detail.lead-detail-workspace .workspace-notes-field {
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.lead-detail.lead-detail-workspace .workspace-followup-field {
+  background: linear-gradient(135deg, rgba(37, 99, 235, 0.1), rgba(255, 255, 255, 0.72));
+  border: 1px solid rgba(37, 99, 235, 0.22);
+  border-left: 4px solid #2563eb;
+}
+
+.lead-detail.lead-detail-workspace .workspace-notes-field {
+  background: linear-gradient(135deg, rgba(245, 179, 0, 0.16), rgba(255, 255, 255, 0.78));
+  border: 1px solid rgba(245, 179, 0, 0.26);
+  border-left: 4px solid var(--gold);
+}
+
+:root[data-theme="dark"] .lead-detail.lead-detail-workspace .workspace-followup-field {
+  background: linear-gradient(135deg, rgba(96, 165, 250, 0.14), rgba(24, 34, 52, 0.72));
+}
+
+:root[data-theme="dark"] .lead-detail.lead-detail-workspace .workspace-notes-field {
+  background: linear-gradient(135deg, rgba(251, 191, 36, 0.15), rgba(24, 34, 52, 0.78));
+}
+
+.lead-detail.lead-detail-workspace .workspace-notes-field textarea {
+  background: rgba(255, 255, 255, 0.74);
+  border-color: rgba(245, 179, 0, 0.34);
+  min-height: 150px;
+}
+
+:root[data-theme="dark"] .lead-detail.lead-detail-workspace .workspace-notes-field textarea {
+  background: rgba(15, 23, 42, 0.76);
+}
+
+.lead-detail.lead-detail-workspace .workspace-tool-section {
+  background: var(--panel);
+}
+
+.lead-detail.lead-detail-workspace .workspace-tool-section summary {
+  align-items: center;
+  background: var(--panel-soft);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  display: flex;
+  min-height: 42px;
+  padding: 10px;
+}
+
+@media (max-width: 980px) {
+  .legacy-launcher-card {
+    grid-template-columns: 1fr;
+  }
+
+  .legacy-launcher-meta {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 680px) {
+  .legacy-launcher-meta {
+    grid-template-columns: 1fr;
+  }
+
+  .lead-workspace-modal-backdrop {
+    padding: 8px;
+  }
+
+  .lead-workspace-modal {
+    max-height: 96vh;
+    width: 100%;
+  }
+}@media (max-width: 1180px) {
   .lead-workspace-hero,
   .lead-workspace-assessment-card,
   .lead-workspace-visual-grid {
