@@ -56,6 +56,10 @@ def sign_onboarding_agreement(payload: AgreementSignRequest, current_user: Curre
 
 @router.get("/onboarding/agreement")
 def download_signed_onboarding_agreement(current_user: CurrentUser):
+    refreshed_user = build_user(current_user.username) or current_user
+    if not refreshed_user.agreement_signed:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Signed agreement not found")
+
     file_path = get_or_build_signed_agreement(current_user.username)
     if not file_path.exists():
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Signed agreement not found")
@@ -72,8 +76,11 @@ def admin_onboarding_tracker(current_user: CurrentUser):
 @router.get("/admin/onboarding/{username}/agreement")
 def download_admin_signed_onboarding_agreement(username: str, current_user: CurrentUser):
     require_admin(current_user)
-    if not build_user(username):
+    target_user = build_user(username)
+    if not target_user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    if not target_user.agreement_signed:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Signed agreement not found")
 
     file_path = get_or_build_signed_agreement(username)
     if not file_path.exists():

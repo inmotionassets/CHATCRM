@@ -23,7 +23,7 @@ from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, Tabl
 
 SECRET_KEY = "chatcrm-local-dev-secret-change-before-production"
 TOKEN_TTL_SECONDS = 60 * 60 * 12
-AGREEMENT_VERSION = "chatcrm-partner-agreement-v2"
+AGREEMENT_VERSION = "chatcrm-partner-agreement-v3-reset-2026-08-03"
 DATABASE_PATH = Path(os.getenv("DATABASE_PATH", Path(__file__).resolve().parents[1] / "chatcrm.db"))
 RAW_DATABASE_URL = os.getenv("DATABASE_URL", "")
 CONTRACTS_PATH = Path(__file__).resolve().parents[1] / "contracts"
@@ -119,8 +119,8 @@ USERS = {
         "role": "Admin",
     },
     "don": {
-        "password_hash": "49026c6eb762d3faf6ea539138fc6f24e9e0e528dc05bfa47fca96c6510c617f",
-        "name": "Don",
+        "password_hash": "0a7cd0e571d32201ed4c81492667dfd36a5b89bdfdbed9264a202a35e0ce1c7d",
+        "name": "Donatello",
         "role": "Admin",
     },
     "acq-caller-01": {
@@ -290,6 +290,14 @@ def clean_email(value: str) -> str:
     return email
 
 
+def is_current_agreement_signed(profile: UserProfile) -> bool:
+    return bool(
+        profile.signature.strip()
+        and profile.signed_at.strip()
+        and profile.agreement_version.strip() == AGREEMENT_VERSION
+    )
+
+
 def build_user(username: str) -> User | None:
     clean_username = username.lower().strip()
     record = USERS.get(clean_username)
@@ -297,9 +305,8 @@ def build_user(username: str) -> User | None:
         return None
 
     profile = load_profile(clean_username)
-    is_admin = record["role"] == "Admin"
-    profile_complete = is_admin or bool(record.get("profile_complete")) or bool(profile.name.strip() and profile.email.strip())
-    agreement_signed = is_admin or bool(record.get("agreement_signed")) or bool(profile.signature.strip() and profile.signed_at.strip())
+    profile_complete = bool(profile.name.strip() and profile.email.strip())
+    agreement_signed = is_current_agreement_signed(profile)
 
     return User(
         username=clean_username,
@@ -383,15 +390,15 @@ def signed_agreement_path(username: str) -> Path:
 
 
 def get_or_build_signed_agreement(username: str) -> Path:
+    profile = load_profile(username)
+    if not is_current_agreement_signed(profile):
+        return signed_agreement_path(f"{username}-not-signed")
+
     file_path = signed_agreement_path(username)
     if file_path.exists():
         return file_path
 
-    profile = load_profile(username)
-    if profile.signature.strip() and profile.signed_at.strip():
-        return build_signed_partner_pdf(profile)
-
-    return file_path
+    return build_signed_partner_pdf(profile)
 
 
 def build_signed_partner_pdf(profile: UserProfile) -> Path:
@@ -471,10 +478,9 @@ def list_onboarding_statuses() -> list[OnboardingStatus]:
     for username, record in USERS.items():
         profile = load_profile(username)
         user = build_user(username)
-        signed_by_profile = bool(profile.signature.strip() and profile.signed_at.strip())
-        signed_by_record = bool(record.get("agreement_signed")) or record["role"] == "Admin"
-        agreement_signed = signed_by_profile or signed_by_record
-        has_download = signed_by_profile or signed_agreement_path(username).exists()
+        signed_by_profile = is_current_agreement_signed(profile)
+        agreement_signed = signed_by_profile
+        has_download = signed_by_profile and signed_agreement_path(username).exists()
 
         statuses.append(
             OnboardingStatus(

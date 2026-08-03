@@ -607,10 +607,10 @@ export function App() {
     return <LoginPage error={loginError} onLogin={login} />;
   }
 
-  const needsCallerOnboarding =
-    auth?.user?.role === "Acquisition" && (!auth.user.profile_complete || !auth.user.agreement_signed);
+  const needsOnboarding =
+    ["Admin", "Acquisition"].includes(auth?.user?.role) && (!auth.user.profile_complete || !auth.user.agreement_signed);
 
-  if (needsCallerOnboarding) {
+  if (needsOnboarding) {
     return (
       <OnboardingPage
         message={onboardingMessage}
@@ -1432,7 +1432,7 @@ function OnboardingPage({ message, onDownloadAgreement, onLogout, onSaveProfile,
           <ChatCrmLogo />
           <div>
             <p className="eyebrow">ChatCRM Team Access</p>
-            <h1>Complete Your Caller Setup</h1>
+            <h1>Complete Your Team Setup</h1>
           </div>
         </div>
 
@@ -2795,7 +2795,7 @@ function TrainingView() {
 function TeamOnboardingView({ authToken, message, onRefresh, rows }) {
   const signedCount = rows.filter((row) => row.agreementSigned).length;
   const profileCount = rows.filter((row) => row.profileComplete).length;
-  const missingNames = rows.filter((row) => !row.name && row.role !== "Admin").length;
+  const missingNames = rows.filter((row) => !row.name).length;
 
   async function downloadAgreement(row) {
     try {
@@ -2851,7 +2851,7 @@ function TeamOnboardingView({ authToken, message, onRefresh, rows }) {
                 <td>{row.email || "Waiting"}</td>
                 <td><StatusPill good={row.profileComplete} label={row.profileComplete ? "Complete" : "Missing"} /></td>
                 <td><StatusPill good={row.agreementSigned} label={row.agreementSigned ? "Signed" : "Not signed"} /></td>
-                <td>{row.signedAt ? formatActivityTime(row.signedAt) : row.role === "Admin" ? "Admin" : "Waiting"}</td>
+                <td>{row.signedAt ? formatActivityTime(row.signedAt) : "Waiting"}</td>
                 <td>
                   {row.downloadUrl ? (
                     <button className="mini-action-button" onClick={() => downloadAgreement(row)}>Download</button>
