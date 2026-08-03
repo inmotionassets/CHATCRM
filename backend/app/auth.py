@@ -118,6 +118,11 @@ USERS = {
         "name": "Shawn",
         "role": "Admin",
     },
+    "don": {
+        "password_hash": "49026c6eb762d3faf6ea539138fc6f24e9e0e528dc05bfa47fca96c6510c617f",
+        "name": "Don",
+        "role": "Admin",
+    },
     "acq-caller-01": {
         "password_hash": "12375b2b2a40278bce9fa69aa16f73db07959759a049603fecb98460d671d3d7",
         "name": "Acquisition Caller 01",
