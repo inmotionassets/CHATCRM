@@ -6114,3 +6114,172 @@ textarea::placeholder {
     min-height: 320px;
   }
 }
+
+/* Contact Intelligence v1 */
+.contact-call-column {
+  align-self: start;
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.contact-intel-panel {
+  background:
+    linear-gradient(135deg, rgba(15, 159, 110, 0.1), rgba(245, 179, 0, 0.08)),
+    var(--panel-soft);
+  border: 1px solid rgba(15, 159, 110, 0.2);
+  border-left: 4px solid #0f9f6e;
+  border-radius: 8px;
+  display: grid;
+  gap: 9px;
+  padding: 10px;
+}
+
+.contact-intel-header {
+  align-items: start;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+}
+
+.contact-intel-header h3 {
+  font-size: 1rem;
+  margin: 0;
+}
+
+.contact-refresh-button,
+.contact-intel-actions button,
+.contact-intel-actions a {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 0.76rem;
+  font-weight: 850;
+  min-height: 30px;
+  padding: 6px 9px;
+  text-decoration: none;
+}
+
+.contact-refresh-button {
+  background: #0f9f6e;
+  border-color: #0f9f6e;
+  color: #fff;
+  white-space: nowrap;
+}
+
+.contact-refresh-button:disabled {
+  cursor: wait;
+  opacity: 0.72;
+}
+
+.contact-intel-message,
+.contact-intel-warning,
+.contact-empty-card p {
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.35;
+  margin: 0;
+}
+
+.contact-best-card,
+.contact-empty-card {
+  background: rgba(255, 255, 255, 0.58);
+  border: 1px solid rgba(15, 159, 110, 0.16);
+  border-radius: 8px;
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+}
+
+:root[data-theme="dark"] .contact-best-card,
+:root[data-theme="dark"] .contact-empty-card {
+  background: rgba(12, 20, 28, 0.52);
+}
+
+.contact-best-card > span {
+  color: var(--muted-strong);
+  font-size: 0.68rem;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.contact-best-card strong,
+.contact-empty-card strong {
+  color: var(--text);
+  font-size: 1rem;
+}
+
+.contact-intel-badges,
+.contact-intel-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.contact-intel-badges small {
+  background: rgba(15, 159, 110, 0.12);
+  border: 1px solid rgba(15, 159, 110, 0.18);
+  border-radius: 999px;
+  color: var(--muted-strong);
+  font-size: 0.68rem;
+  font-weight: 800;
+  padding: 4px 7px;
+}
+
+.contact-intel-warning {
+  background: rgba(245, 179, 0, 0.16);
+  border: 1px solid rgba(245, 179, 0, 0.28);
+  border-radius: 7px;
+  color: var(--muted-strong);
+  padding: 8px;
+}
+
+.contact-extra-list,
+.contact-source-list {
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
+
+.contact-extra-list summary,
+.contact-source-list summary {
+  color: var(--accent-dark);
+  cursor: pointer;
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
+.contact-extra-list div,
+.contact-source-list div {
+  display: grid;
+  gap: 6px;
+  margin-top: 7px;
+}
+
+.contact-extra-list span {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+}
+
+.contact-extra-list small {
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.contact-source-list a {
+  color: var(--accent-dark);
+  font-size: 0.8rem;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+@media (max-width: 980px) {
+  .contact-intel-header,
+  .contact-extra-list span {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}

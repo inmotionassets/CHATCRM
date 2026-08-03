@@ -3367,6 +3367,9 @@ function LeadDetail({
   const [leadLock, setLeadLock] = React.useState(null);
   const [activityMessage, setActivityMessage] = React.useState("");
   const [isLegacyWorkspaceOpen, setIsLegacyWorkspaceOpen] = React.useState(false);
+  const [contactIntelligence, setContactIntelligence] = React.useState(null);
+  const [contactIntelligenceMessage, setContactIntelligenceMessage] = React.useState("");
+  const [isRefreshingContacts, setIsRefreshingContacts] = React.useState(false);
   const notesSnapshotRef = React.useRef(lead.notes || "");
   const ownerPlaceholder =
     rawOwnerName && rawOwnerName !== "Unknown Owner"
@@ -3474,6 +3477,33 @@ function LeadDetail({
     };
   }, [authToken, lead.id]);
 
+  React.useEffect(() => {
+    let cancelled = false;
+    setContactIntelligence(null);
+    setContactIntelligenceMessage("Loading Contact Intelligence...");
+
+    async function hydrateContactIntelligence() {
+      if (!authToken || !lead.id) {
+        setContactIntelligenceMessage("");
+        return;
+      }
+
+      try {
+        const snapshot = await fetchContactIntelligence(lead.id, authToken);
+        if (!cancelled) {
+          setContactIntelligence(snapshot);
+          setContactIntelligenceMessage(snapshot.message || "");
+        }
+      } catch {
+        if (!cancelled) setContactIntelligenceMessage("Contact Intelligence will load once the backend responds.");
+      }
+    }
+
+    hydrateContactIntelligence();
+    return () => {
+      cancelled = true;
+    };
+  }, [authToken, lead.id]);
   function saveMyMapsUrl(value) {
     setMyMapsUrl(value);
     safeStorageSet("chatcrm.myMapsUrl", value);
@@ -3528,6 +3558,58 @@ function LeadDetail({
     }
   }
 
+  function applyContactIntelligenceNumbers(snapshot) {
+    const intelligencePhones = getContactIntelligencePhones(snapshot);
+    if (!intelligencePhones.length) return;
+
+    const existingKeys = new Set(getLeadPhones(lead).map(normalizePhone));
+    const mergedPhones = [...getLeadPhones(lead)];
+    intelligencePhones.forEach((phone) => {
+      const key = normalizePhone(phone);
+      if (key && !existingKeys.has(key)) {
+        existingKeys.add(key);
+        mergedPhones.push(phone);
+      }
+    });
+
+    if (mergedPhones.length !== getLeadPhones(lead).length) {
+      onUpdate({ phone: mergedPhones[0] || lead.phone, phones: mergedPhones });
+    }
+  }
+
+  async function refreshContactIntelligence() {
+    if (!authToken || !lead.id) return;
+    setIsRefreshingContacts(true);
+    setContactIntelligenceMessage("Running free Contact Intelligence...");
+
+    try {
+      const snapshot = await enrichLeadContactIntelligence(lead.id, authToken);
+      setContactIntelligence(snapshot);
+      setContactIntelligenceMessage(snapshot.message || "Contact Intelligence updated.");
+      applyContactIntelligenceNumbers(snapshot);
+    } catch {
+      setContactIntelligenceMessage("Could not run Contact Intelligence yet. Confirm the backend is online.");
+    } finally {
+      setIsRefreshingContacts(false);
+    }
+  }
+
+  async function handleContactFeedback(contactId, feedbackType) {
+    if (!authToken || !lead.id || !contactId) return;
+
+    try {
+      const snapshot = await sendContactFeedback(lead.id, contactId, feedbackType, authToken);
+      setContactIntelligence(snapshot);
+      setContactIntelligenceMessage("Contact feedback saved.");
+      addLeadActivity({
+        actionType: "note_added",
+        callOutcome: "Contact Intelligence",
+        notes: `Contact marked ${formatContactStatusLabel(feedbackType)}.`
+      });
+    } catch {
+      setContactIntelligenceMessage("Could not save contact feedback yet.");
+    }
+  }
   async function addLeadActivity(activity) {
     if (!authToken || !lead.id) return null;
 
@@ -3690,27 +3772,36 @@ function LeadDetail({
       ) : null}
 
       <div className="call-workspace">
-        {phones.length > 0 ? (
-          <section className="phone-stack" aria-label="Phone numbers">
-            <p>Phone Numbers</p>
-            <div>
-              {phones.map((phone) => (
-                <span className="phone-action-group" key={phone}>
-                  <a href={`tel:${phone.replace(/[^\d+]/g, "")}`} onClick={() => handleCallClick(phone)}>{formatPhone(phone)}</a>
-                  <a href={buildGoogleVoiceUrl(phone)} onClick={() => handleCallClick(phone)} rel="noreferrer" target="_blank">Voice</a>
-                </span>
-              ))}
-            </div>
-          </section>
-        ) : (
-          <section className="phone-stack" aria-label="Phone numbers">
-            <p>Phone Numbers</p>
-            <span className="missing-copy">No phone numbers saved yet.</span>
-          </section>
-        )}
+        <div className="contact-call-column">
+          {phones.length > 0 ? (
+            <section className="phone-stack" aria-label="Phone numbers">
+              <p>Phone Numbers</p>
+              <div>
+                {phones.map((phone) => (
+                  <span className="phone-action-group" key={phone}>
+                    <a href={`tel:${phone.replace(/[^\d+]/g, "")}`} onClick={() => handleCallClick(phone)}>{formatPhone(phone)}</a>
+                    <a href={buildGoogleVoiceUrl(phone)} onClick={() => handleCallClick(phone)} rel="noreferrer" target="_blank">Voice</a>
+                  </span>
+                ))}
+              </div>
+            </section>
+          ) : (
+            <section className="phone-stack" aria-label="Phone numbers">
+              <p>Phone Numbers</p>
+              <span className="missing-copy">No phone numbers saved yet.</span>
+            </section>
+          )}
+          <ContactIntelligencePanel
+            isRefreshing={isRefreshingContacts}
+            message={contactIntelligenceMessage}
+            onCall={handleCallClick}
+            onFeedback={handleContactFeedback}
+            onRefresh={refreshContactIntelligence}
+            snapshot={contactIntelligence}
+          />
+        </div>
         <CallScriptPanel lead={lead} />
       </div>
-
       <div className="detail-grid">
         <DetailItem label="Email" value={lead.email || "Missing"} />
         <DetailItem label="Stage" value={lead.stage} />
@@ -4041,6 +4132,98 @@ function LeadDetail({
   );
 }
 
+function ContactIntelligencePanel({ isRefreshing, message, onCall, onFeedback, onRefresh, snapshot }) {
+  const contacts = Array.isArray(snapshot?.contacts) ? snapshot.contacts : [];
+  const bestContact = snapshot?.bestContact || contacts[0] || null;
+  const phoneContacts = contacts.filter((contact) => contact.contactType === "phone");
+  const sourceLinks = Array.isArray(snapshot?.sourceUrls) ? snapshot.sourceUrls : [];
+  const bestPhone = bestContact?.contactType === "phone" ? bestContact.normalizedValue || bestContact.value : "";
+  const canCall = Boolean(
+    bestPhone &&
+    bestContact?.contactType === "phone" &&
+    !bestContact.doNotCall &&
+    !bestContact.wrongNumber &&
+    !bestContact.disconnected
+  );
+
+  function copyContactValue(value) {
+    if (!value) return;
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(value).catch(() => {});
+    }
+  }
+
+  return (
+    <section className="contact-intel-panel" aria-label="Contact Intelligence">
+      <div className="contact-intel-header">
+        <div>
+          <p className="eyebrow">Contact Intelligence</p>
+          <h3>Free Check</h3>
+        </div>
+        <button className="contact-refresh-button" disabled={isRefreshing} onClick={onRefresh} type="button">
+          {isRefreshing ? "Checking..." : "Run Free Check"}
+        </button>
+      </div>
+
+      {message ? <p className="contact-intel-message">{message}</p> : null}
+
+      {bestContact ? (
+        <div className="contact-best-card">
+          <span>Best Contact</span>
+          <strong>{bestContact.displayValue || bestContact.value}</strong>
+          <div className="contact-intel-badges">
+            <small>{snapshot?.confidence || bestContact.sourceConfidence || 0}% confidence</small>
+            <small>{formatContactStatusLabel(bestContact.status || "unverified")}</small>
+            <small>{bestContact.source || "Unknown source"}</small>
+          </div>
+          <div className="contact-intel-actions">
+            {canCall ? <a href={`tel:${bestPhone}`} onClick={() => onCall(bestPhone)}>Call</a> : null}
+            {canCall ? <a href={buildGoogleVoiceUrl(bestPhone)} onClick={() => onCall(bestPhone)} rel="noreferrer" target="_blank">Voice</a> : null}
+            <button onClick={() => copyContactValue(bestContact.displayValue || bestContact.value)} type="button">Copy</button>
+            <button onClick={() => onFeedback(bestContact.id, "confirmed_owner")} type="button">Confirmed</button>
+            <button onClick={() => onFeedback(bestContact.id, "wrong_number")} type="button">Wrong #</button>
+            <button onClick={() => onFeedback(bestContact.id, "disconnected")} type="button">Disconnected</button>
+            <button onClick={() => onFeedback(bestContact.id, "do_not_call")} type="button">DNC</button>
+          </div>
+        </div>
+      ) : (
+        <div className="contact-empty-card">
+          <strong>No free number found yet.</strong>
+          <p>Run the free check to attach public lookup paths. Private owner cells usually need paid skip tracing.</p>
+        </div>
+      )}
+
+      {phoneContacts.length > 1 ? (
+        <details className="contact-extra-list">
+          <summary>{phoneContacts.length - 1} more number{phoneContacts.length - 1 === 1 ? "" : "s"}</summary>
+          <div>
+            {phoneContacts.slice(1).map((contact) => (
+              <span key={contact.id}>
+                <b>{contact.displayValue || contact.value}</b>
+                <small>{formatContactStatusLabel(contact.status || "unverified")}</small>
+              </span>
+            ))}
+          </div>
+        </details>
+      ) : null}
+
+      {snapshot?.needsPaidSkipTrace ? (
+        <p className="contact-intel-warning">Free sources did not return a new verified private phone. Mark this for licensed skip trace when deeper coverage is needed.</p>
+      ) : null}
+
+      {sourceLinks.length ? (
+        <details className="contact-source-list">
+          <summary>Public source paths</summary>
+          <div>
+            {sourceLinks.slice(0, 4).map((source) => (
+              <a href={source.url} key={source.url} rel="noreferrer" target="_blank">{source.label}</a>
+            ))}
+          </div>
+        </details>
+      ) : null}
+    </section>
+  );
+}
 function LegacyWorkspaceLauncher({ lead, message, onOpen, snapshot }) {
   const intelligence = snapshot?.marketIntelligence || {};
   const buyers = intelligence.mostProbableBuyers || [];
@@ -5371,6 +5554,47 @@ async function lockLeadForUser(leadId, token) {
   return sanitizeLeadLock(await response.json());
 }
 
+async function fetchContactIntelligence(leadId, token) {
+  const response = await fetch(`${apiBaseUrl}/contact-intelligence/leads/${encodeURIComponent(leadId)}`, {
+    headers: authHeaders(token)
+  });
+
+  if (!response.ok) {
+    throw new Error("Contact Intelligence fetch failed");
+  }
+
+  return sanitizeContactIntelligence(await response.json());
+}
+
+async function enrichLeadContactIntelligence(leadId, token) {
+  const response = await fetch(`${apiBaseUrl}/contact-intelligence/leads/${encodeURIComponent(leadId)}/enrich`, {
+    method: "POST",
+    headers: authHeaders(token)
+  });
+
+  if (!response.ok) {
+    throw new Error("Contact Intelligence enrichment failed");
+  }
+
+  return sanitizeContactIntelligence(await response.json());
+}
+
+async function sendContactFeedback(leadId, contactId, feedbackType, token) {
+  const response = await fetch(`${apiBaseUrl}/contact-intelligence/contacts/${encodeURIComponent(contactId)}/feedback`, {
+    method: "POST",
+    headers: {
+      ...authHeaders(token),
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ leadId, feedbackType })
+  });
+
+  if (!response.ok) {
+    throw new Error("Contact feedback failed");
+  }
+
+  return sanitizeContactIntelligence(await response.json());
+}
 async function fetchRecentTeamActivity(token) {
   const response = await fetch(`${apiBaseUrl}/leads/activity/recent`, {
     headers: authHeaders(token)
@@ -5707,6 +5931,87 @@ function authHeaders(token) {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
+function sanitizeContactIntelligence(snapshot = {}) {
+  const contacts = Array.isArray(snapshot.contacts) ? snapshot.contacts.map(sanitizeContactRecord).filter(Boolean) : [];
+  const bestContactId = safeText(snapshot.bestContact?.id);
+  const bestContact = contacts.find((contact) => contact.id === bestContactId) || (snapshot.bestContact ? sanitizeContactRecord(snapshot.bestContact) : contacts[0] || null);
+
+  return {
+    leadId: safeText(snapshot.leadId),
+    ownerName: safeText(snapshot.ownerName),
+    propertyAddress: safeText(snapshot.propertyAddress),
+    provider: safeText(snapshot.provider || "free_public"),
+    status: safeText(snapshot.status || "not_enriched"),
+    bestContact,
+    contacts,
+    sourceUrls: Array.isArray(snapshot.sourceUrls)
+      ? snapshot.sourceUrls
+          .map((source) => ({
+            label: safeText(source.label || "Public source"),
+            url: safeText(source.url),
+            sourceType: safeText(source.sourceType),
+            confidence: clampScore(source.confidence),
+            notes: safeText(source.notes)
+          }))
+          .filter((source) => source.url)
+      : [],
+    confidence: clampScore(snapshot.confidence),
+    needsPaidSkipTrace: Boolean(snapshot.needsPaidSkipTrace),
+    message: safeText(snapshot.message),
+    limitations: Array.isArray(snapshot.limitations) ? snapshot.limitations.map(safeText).filter(Boolean) : [],
+    updatedAt: safeText(snapshot.updatedAt)
+  };
+}
+
+function sanitizeContactRecord(contact = {}) {
+  const value = safeText(contact.value || contact.displayValue);
+  const normalizedValue = safeText(contact.normalizedValue || normalizePhone(value));
+  if (!value && !normalizedValue) return null;
+
+  return {
+    id: safeText(contact.id || `${contact.contactType || "contact"}-${normalizedValue || value}`),
+    leadId: safeText(contact.leadId),
+    contactType: safeText(contact.contactType || "phone"),
+    value,
+    displayValue: safeText(contact.displayValue || value),
+    normalizedValue,
+    source: safeText(contact.source || "Unknown source"),
+    sourceUrl: safeText(contact.sourceUrl),
+    sourceConfidence: clampScore(contact.sourceConfidence),
+    lineType: safeText(contact.lineType || "unknown"),
+    carrier: safeText(contact.carrier),
+    isMobile: Boolean(contact.isMobile),
+    isLandline: Boolean(contact.isLandline),
+    isVoip: Boolean(contact.isVoip),
+    isCallable: Boolean(contact.isCallable),
+    isTextable: Boolean(contact.isTextable),
+    isPrimary: Boolean(contact.isPrimary),
+    priorityRank: Number(contact.priorityRank) || 99,
+    status: safeText(contact.status || "unverified"),
+    doNotCall: Boolean(contact.doNotCall),
+    doNotText: Boolean(contact.doNotText),
+    disconnected: Boolean(contact.disconnected),
+    wrongNumber: Boolean(contact.wrongNumber),
+    verifiedOwner: Boolean(contact.verifiedOwner),
+    lastAttemptedAt: safeText(contact.lastAttemptedAt),
+    lastResult: safeText(contact.lastResult),
+    evidence: Array.isArray(contact.evidence) ? contact.evidence.map(safeText).filter(Boolean) : [],
+    updatedAt: safeText(contact.updatedAt)
+  };
+}
+
+function getContactIntelligencePhones(snapshot = {}) {
+  return (Array.isArray(snapshot.contacts) ? snapshot.contacts : [])
+    .filter((contact) => contact.contactType === "phone" && !contact.doNotCall && !contact.wrongNumber && !contact.disconnected)
+    .map((contact) => contact.displayValue || contact.value)
+    .filter(Boolean);
+}
+
+function formatContactStatusLabel(value = "") {
+  const label = safeText(value).replace(/[_-]+/g, " ").trim();
+  if (!label) return "Unknown";
+  return label.replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
 function normalizeCountyName(value = "") {
   return safeText(value).toLowerCase().replace("county", "").trim();
 }
