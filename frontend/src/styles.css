@@ -573,6 +573,13 @@ h3 {
   color: #d64545;
 }
 
+.bulk-message {
+  color: var(--muted-strong);
+  flex-basis: 100%;
+  font-size: 0.78rem;
+  font-weight: 750;
+}
+
 .status-legend strong {
   color: var(--muted-strong);
   font-size: 0.78rem;

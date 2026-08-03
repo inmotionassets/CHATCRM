@@ -324,6 +324,7 @@ export function App() {
   const [saveStatus, setSaveStatus] = React.useState("Connecting...");
   const [theme, setTheme] = React.useState(() => safeStorageGet("chatcrm.theme") || "light");
   const [selectedLeadIds, setSelectedLeadIds] = React.useState([]);
+  const [contactBatchMessage, setContactBatchMessage] = React.useState("");
   const [agreementLead, setAgreementLead] = React.useState(null);
   const [buyerMessage, setBuyerMessage] = React.useState("");
   const [onboardingMessage, setOnboardingMessage] = React.useState("");
@@ -857,6 +858,39 @@ export function App() {
     closeLeadWorkspace({ restore: false });
   }
 
+  async function enrichSelectedContacts() {
+    if (!isAdmin || !authToken) return;
+    if (selectedLeadIds.length === 0) {
+      setContactBatchMessage("Select up to 10 leads before enriching selected contacts.");
+      return;
+    }
+
+    if (selectedLeadIds.length > 10) {
+      setContactBatchMessage("Select 10 leads or fewer for the test batch.");
+      return;
+    }
+
+    setContactBatchMessage(`Checking ${selectedLeadIds.length} selected lead${selectedLeadIds.length === 1 ? "" : "s"}...`);
+    try {
+      const result = await enrichSelectedLeadContacts(selectedLeadIds, authToken);
+      setContactBatchMessage(result.message || "Selected contact enrichment checked.");
+    } catch {
+      setContactBatchMessage("Could not enrich selected contacts. Confirm backend is online and max 10 leads are selected.");
+    }
+  }
+
+  async function enrichMissingContacts() {
+    if (!isAdmin || !authToken) return;
+    setContactBatchMessage("Checking missing contacts queue...");
+
+    try {
+      const result = await enrichMissingLeadContacts(authToken);
+      setContactBatchMessage(result.message || "Missing-contact enrichment checked.");
+    } catch {
+      setContactBatchMessage("Could not enrich missing contacts yet. Confirm backend is online.");
+    }
+  }
+
   async function resetNotesAndFollowUps() {
     if (!isAdmin || !authToken) return;
     const confirmed = window.confirm(
@@ -1159,8 +1193,11 @@ export function App() {
                 onApplyStatus={applyBulkStatus}
                 onClear={() => setSelectedLeadIds([])}
                 onDelete={deleteSelectedLeads}
+                onEnrichMissing={enrichMissingContacts}
+                onEnrichSelected={enrichSelectedContacts}
                 onRemoveDuplicates={removeDuplicateLeads}
                 onToggleAll={toggleAllVisible}
+                providerMessage={contactBatchMessage}
                 selectedCount={selectedLeadIds.length}
               />
             ) : null}
@@ -5031,8 +5068,11 @@ function BulkToolbar({
   onApplyStatus,
   onClear,
   onDelete,
+  onEnrichMissing,
+  onEnrichSelected,
   onRemoveDuplicates,
   onToggleAll,
+  providerMessage,
   selectedCount
 }) {
   return (
@@ -5057,9 +5097,12 @@ function BulkToolbar({
         ))}
       </select>
 
+      <button disabled={selectedCount === 0} onClick={onEnrichSelected}>Enrich Selected</button>
+      <button onClick={onEnrichMissing}>Enrich Missing Contacts</button>
       <button onClick={onRemoveDuplicates}>Remove Duplicates</button>
       <button onClick={onClear}>Clear</button>
       <button className="danger-button" onClick={onDelete}>Delete Selected</button>
+      {providerMessage ? <span className="bulk-message">{providerMessage}</span> : null}
     </section>
   );
 }
@@ -5593,6 +5636,36 @@ async function enrichLeadContactIntelligence(leadId, token) {
   }
 
   return sanitizeContactIntelligence(await response.json());
+}
+
+async function enrichSelectedLeadContacts(leadIds, token) {
+  const response = await fetch(`${apiBaseUrl}/contact-intelligence/enrich-selected`, {
+    method: "POST",
+    headers: {
+      ...authHeaders(token),
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ leadIds })
+  });
+
+  if (!response.ok) {
+    throw new Error("Selected Contact Intelligence enrichment failed");
+  }
+
+  return response.json();
+}
+
+async function enrichMissingLeadContacts(token) {
+  const response = await fetch(`${apiBaseUrl}/contact-intelligence/enrich-missing`, {
+    method: "POST",
+    headers: authHeaders(token)
+  });
+
+  if (!response.ok) {
+    throw new Error("Missing Contact Intelligence enrichment failed");
+  }
+
+  return response.json();
 }
 
 async function sendContactFeedback(leadId, contactId, feedbackType, token) {
