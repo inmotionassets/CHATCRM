@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import os
+import json
 import re
 from datetime import datetime, timezone
 from hashlib import sha1
 from typing import Any
+from urllib import request
 from urllib.parse import quote_plus
 
 from pydantic import BaseModel, Field
@@ -35,7 +37,12 @@ class LeadContact(BaseModel):
     source: str = "existing_data"
     sourceUrl: str = ""
     sourceConfidence: int = 0
+    provider: str = ""
+    matchConfidence: int = 0
+    ownerNameMatch: int = 0
+    addressMatch: int = 0
     lineType: str = "unknown"
+    phoneType: str = "unknown"
     carrier: str = ""
     isMobile: bool = False
     isLandline: bool = False
@@ -52,6 +59,8 @@ class LeadContact(BaseModel):
     verifiedOwner: bool = False
     lastAttemptedAt: str = ""
     lastResult: str = ""
+    lastVerifiedDate: str = ""
+    enrichmentRunId: str = ""
     evidence: list[str] = Field(default_factory=list)
     updatedAt: str = ""
 
@@ -67,6 +76,9 @@ class ContactIntelligenceSnapshot(BaseModel):
     sourceUrls: list[ContactSourceLink] = Field(default_factory=list)
     confidence: int = 0
     needsPaidSkipTrace: bool = False
+    paidProviderConfigured: bool = False
+    refreshRecommended: bool = False
+    enrichmentRunId: str = ""
     message: str = ""
     limitations: list[str] = Field(default_factory=list)
     updatedAt: str = ""
@@ -224,11 +236,216 @@ class MockContactProvider(ContactIntelligenceProvider):
         )
 
 
+class BatchDataContactProvider(ContactIntelligenceProvider):
+    provider_name = "batchdata"
+
+    def __init__(
+        self,
+        api_key: str | None = None,
+        base_url: str | None = None,
+        endpoint: str | None = None,
+        request_json: Any | None = None,
+    ):
+        self.api_key = (api_key if api_key is not None else os.getenv("BATCHDATA_API_KEY", "")).strip()
+        self.base_url = (base_url or os.getenv("BATCHDATA_BASE_URL") or "https://api.batchdata.io").rstrip("/")
+        self.endpoint = endpoint or os.getenv("BATCHDATA_SKIPTRACE_ENDPOINT") or "/skiptrace/bulk"
+        self.full_url = os.getenv("BATCHDATA_SKIPTRACE_URL", "").strip()
+        self.payload_style = (os.getenv("BATCHDATA_PAYLOAD_STYLE") or "array").strip().lower()
+        self.request_json = request_json or self._post_json
+
+    def is_configured(self) -> bool:
+        return bool(self.api_key)
+
+    def enrich_property_owner(self, lead: Any) -> ContactIntelligenceSnapshot:
+        lead_data = lead_to_dict(lead)
+        lead_id = str(lead_data.get("id") or "")
+        timestamp = current_timestamp()
+        run_id = provider_run_id(lead_id, self.provider_name, timestamp)
+
+        if not self.is_configured():
+            return ContactIntelligenceSnapshot(
+                leadId=lead_id,
+                ownerName=owner_name(lead_data),
+                propertyAddress=str(lead_data.get("address") or ""),
+                provider=self.provider_name,
+                status="provider_not_configured",
+                sourceUrls=build_public_source_links(lead_data),
+                needsPaidSkipTrace=True,
+                paidProviderConfigured=False,
+                enrichmentRunId=run_id,
+                message="Paid enrichment provider not configured. Add BATCHDATA_API_KEY on the backend to enable real skip tracing.",
+                limitations=free_limitations(),
+                updatedAt=timestamp,
+            )
+
+        try:
+            raw_result = self.request_json(self.build_payload(lead_data))
+        except Exception as exc:
+            return ContactIntelligenceSnapshot(
+                leadId=lead_id,
+                ownerName=owner_name(lead_data),
+                propertyAddress=str(lead_data.get("address") or ""),
+                provider=self.provider_name,
+                status="failed",
+                sourceUrls=build_public_source_links(lead_data),
+                needsPaidSkipTrace=True,
+                paidProviderConfigured=True,
+                enrichmentRunId=run_id,
+                message=f"BatchData enrichment failed: {str(exc)[:160]}",
+                updatedAt=timestamp,
+            )
+
+        contacts = self.contacts_from_response(raw_result, lead_data, lead_id, run_id, timestamp)
+        return ContactIntelligenceSnapshot(
+            leadId=lead_id,
+            ownerName=owner_name(lead_data),
+            propertyAddress=str(lead_data.get("address") or ""),
+            provider=self.provider_name,
+            status="enriched" if contacts else "unmatched",
+            contacts=contacts,
+            sourceUrls=build_public_source_links(lead_data),
+            needsPaidSkipTrace=not bool(contacts),
+            paidProviderConfigured=True,
+            enrichmentRunId=run_id,
+            message="BatchData enrichment completed." if contacts else "BatchData returned no new contacts for this lead.",
+            updatedAt=timestamp,
+        )
+
+    def build_payload(self, lead_data: dict[str, Any]) -> Any:
+        record = build_enrichment_record(lead_data)
+        if self.payload_style == "properties":
+            return {"properties": [record]}
+        return [record]
+
+    def contacts_from_response(
+        self,
+        raw_result: Any,
+        lead_data: dict[str, Any],
+        lead_id: str,
+        run_id: str,
+        timestamp: str,
+    ) -> list[LeadContact]:
+        items = extract_provider_result_items(raw_result)
+        contacts: list[LeadContact] = []
+        owner_match = 0
+        address_match = 0
+
+        for item_index, item in enumerate(items, start=1):
+            if not isinstance(item, dict):
+                continue
+            owner_match = max(owner_match, simple_match_score(owner_name(lead_data), coalesce(item, ["owner_name", "ownerName", "name"])))
+            address_match = max(address_match, simple_match_score(str(lead_data.get("address") or ""), coalesce(item, ["address", "property_address", "propertyAddress"])))
+            provider_confidence = score_to_int(coalesce(item, ["confidence_score", "confidence", "matchConfidence", "match_score"]))
+
+            for phone_index, phone_data in enumerate(extract_provider_phone_entries(item), start=1):
+                digits = normalize_phone(phone_data.get("value", ""))
+                if not is_valid_us_phone(digits):
+                    continue
+
+                phone_type = str(phone_data.get("phoneType") or phone_data.get("lineType") or "unknown").lower()
+                dnc = boolish(phone_data.get("dnc")) or boolish(phone_data.get("dnc_status")) or boolish(phone_data.get("doNotCall"))
+                confidence = max(score_to_int(phone_data.get("confidence")), provider_confidence, 72)
+                contacts.append(
+                    LeadContact(
+                        id=contact_id(lead_id, "phone", digits),
+                        leadId=lead_id,
+                        contactType="phone",
+                        value=format_phone(digits),
+                        displayValue=format_phone(digits),
+                        normalizedValue=digits,
+                        source="BatchData",
+                        sourceConfidence=confidence,
+                        provider=self.provider_name,
+                        matchConfidence=confidence,
+                        ownerNameMatch=owner_match,
+                        addressMatch=address_match,
+                        lineType=phone_type or "unknown",
+                        phoneType=phone_type or "unknown",
+                        carrier=str(phone_data.get("carrier") or ""),
+                        isMobile=phone_type in {"mobile", "wireless", "cell"},
+                        isLandline=phone_type in {"landline", "fixed"},
+                        isVoip=phone_type == "voip",
+                        isCallable=not dnc,
+                        isTextable=(phone_type in {"mobile", "wireless", "cell", "unknown"}) and not dnc,
+                        priorityRank=item_index * 10 + phone_index,
+                        status="do_not_call" if dnc else "enriched",
+                        doNotCall=dnc,
+                        doNotText=dnc,
+                        lastVerifiedDate=str(phone_data.get("lastVerifiedDate") or phone_data.get("last_verified_date") or timestamp),
+                        enrichmentRunId=run_id,
+                        evidence=[
+                            "Returned by licensed BatchData enrichment.",
+                            f"Owner match: {owner_match}%.",
+                            f"Address match: {address_match}%.",
+                        ],
+                        updatedAt=timestamp,
+                    )
+                )
+
+            for email_index, email_data in enumerate(extract_provider_email_entries(item), start=1):
+                email = str(email_data.get("value") or "").strip().lower()
+                if "@" not in email:
+                    continue
+                confidence = max(score_to_int(email_data.get("confidence")), provider_confidence, 65)
+                contacts.append(
+                    LeadContact(
+                        id=contact_id(lead_id, "email", email),
+                        leadId=lead_id,
+                        contactType="email",
+                        value=email,
+                        displayValue=email,
+                        normalizedValue=email,
+                        source="BatchData",
+                        sourceConfidence=confidence,
+                        provider=self.provider_name,
+                        matchConfidence=confidence,
+                        ownerNameMatch=owner_match,
+                        addressMatch=address_match,
+                        isCallable=False,
+                        isTextable=False,
+                        priorityRank=60 + item_index * 10 + email_index,
+                        status="enriched",
+                        lastVerifiedDate=str(email_data.get("lastVerifiedDate") or email_data.get("last_verified_date") or timestamp),
+                        enrichmentRunId=run_id,
+                        evidence=[
+                            "Returned by licensed BatchData enrichment.",
+                            f"Owner match: {owner_match}%.",
+                            f"Address match: {address_match}%.",
+                        ],
+                        updatedAt=timestamp,
+                    )
+                )
+
+        return contacts
+
+    def _post_json(self, payload: Any) -> Any:
+        body = json.dumps(payload).encode("utf-8")
+        api_request = request.Request(
+            self.endpoint_url(),
+            data=body,
+            headers={
+                "Accept": "application/json",
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
+        with request.urlopen(api_request, timeout=30) as response:
+            return json.loads(response.read().decode("utf-8"))
+
+    def endpoint_url(self) -> str:
+        if self.full_url:
+            return self.full_url
+        return f"{self.base_url}/{self.endpoint.lstrip('/')}"
+
 class ContactIntelligenceService:
-    def __init__(self, provider_name: str | None = None):
+    def __init__(self, provider_name: str | None = None, public_provider: ContactIntelligenceProvider | None = None):
         self.provider_name = (provider_name or os.getenv("CONTACT_INTELLIGENCE_PROVIDER") or "free_public").strip().lower()
         self.existing_provider = ExistingDataProvider()
-        self.public_provider = self._provider_for_name(self.provider_name)
+        self.public_provider = public_provider or self._provider_for_name(self.provider_name)
+
+    def provider_configured(self) -> bool:
+        return bool(getattr(self.public_provider, "is_configured", lambda: self.provider_name in {"free_public", "mock"})())
 
     def build_snapshot(self, lead: Any, enrich: bool = False) -> ContactIntelligenceSnapshot:
         existing_snapshot = self.existing_provider.enrich_property_owner(lead)
@@ -320,13 +537,176 @@ class ContactIntelligenceService:
 
             updated_contacts.append(contact.model_copy(update=updates))
 
-        return normalize_snapshot(snapshot.model_copy(update={"contacts": updated_contacts, "updatedAt": timestamp}))
+        phone_contacts = [contact for contact in updated_contacts if contact.contactType == "phone"]
+        refresh_recommended = bool(phone_contacts) and not any(
+            contact.isCallable and not contact.doNotCall and not contact.wrongNumber and not contact.disconnected
+            for contact in phone_contacts
+        )
+        return normalize_snapshot(
+            snapshot.model_copy(update={"contacts": updated_contacts, "refreshRecommended": refresh_recommended, "updatedAt": timestamp})
+        )
 
     def _provider_for_name(self, provider_name: str) -> ContactIntelligenceProvider:
+        if provider_name == "batchdata":
+            return BatchDataContactProvider()
         if provider_name == "mock":
             return MockContactProvider()
         return FreePublicProvider()
 
+
+def build_enrichment_record(lead_data: dict[str, Any]) -> dict[str, Any]:
+    city, state, zip_code = extract_address_parts(lead_data)
+    address = str(lead_data.get("address") or "").strip()
+    return {
+        "owner_name": owner_name(lead_data),
+        "property_address": address,
+        "address": address,
+        "mailing_address": str(lead_data.get("mailingAddress") or lead_data.get("mailing_address") or ""),
+        "apn": str(lead_data.get("parcelNumber") or lead_data.get("apn") or ""),
+        "parcel_id": str(lead_data.get("parcelNumber") or lead_data.get("apn") or ""),
+        "city": city,
+        "state": state or "TX",
+        "zip_code": zip_code,
+        "county": str(lead_data.get("county") or ""),
+    }
+
+
+def extract_address_parts(lead_data: dict[str, Any]) -> tuple[str, str, str]:
+    address = str(lead_data.get("address") or "")
+    city = str(lead_data.get("city") or "").strip()
+    state = str(lead_data.get("state") or "").strip()
+    zip_code = str(lead_data.get("zip") or lead_data.get("zipCode") or lead_data.get("postalCode") or "").strip()
+
+    if not zip_code:
+        match = re.search(r"\b\d{5}(?:-\d{4})?\b", address)
+        if match:
+            zip_code = match.group(0)[:5]
+    if not state and re.search(r"\bTX\b|\bTexas\b", address, re.IGNORECASE):
+        state = "TX"
+    if not city:
+        compact = re.sub(r"\bTX\b|\bTexas\b|\b\d{5}(?:-\d{4})?\b", "", address, flags=re.IGNORECASE).strip(" ,")
+        pieces = [piece.strip() for piece in compact.split(",") if piece.strip()]
+        if len(pieces) >= 2:
+            city = pieces[-1]
+    return city, state, zip_code
+
+
+def provider_run_id(lead_id: str, provider_name: str, timestamp: str) -> str:
+    digest = sha1(f"{lead_id}:{provider_name}:{timestamp}".encode("utf-8")).hexdigest()[:12]
+    return f"run-{digest}"
+
+
+def extract_provider_result_items(raw_result: Any) -> list[dict[str, Any]]:
+    if isinstance(raw_result, list):
+        return [item for item in raw_result if isinstance(item, dict)]
+    if not isinstance(raw_result, dict):
+        return []
+
+    for key in ["results", "data", "records", "properties", "matches"]:
+        value = raw_result.get(key)
+        if isinstance(value, list):
+            return [item for item in value if isinstance(item, dict)]
+        if isinstance(value, dict):
+            nested = extract_provider_result_items(value)
+            if nested:
+                return nested
+
+    return [raw_result]
+
+
+def extract_provider_phone_entries(item: dict[str, Any]) -> list[dict[str, Any]]:
+    entries: list[dict[str, Any]] = []
+    for key in [
+        "phones",
+        "phone_numbers",
+        "phoneNumbers",
+        "mobilePhones",
+        "landlinePhones",
+        "mobile_phone",
+        "landline_phone",
+        "phone_number",
+        "phone",
+    ]:
+        value = item.get(key)
+        if value is None:
+            continue
+        entries.extend(normalize_provider_contact_entries(value, key))
+    return entries
+
+
+def extract_provider_email_entries(item: dict[str, Any]) -> list[dict[str, Any]]:
+    entries: list[dict[str, Any]] = []
+    for key in ["emails", "email_addresses", "emailAddresses", "email"]:
+        value = item.get(key)
+        if value is None:
+            continue
+        entries.extend(normalize_provider_contact_entries(value, key))
+    return entries
+
+
+def normalize_provider_contact_entries(value: Any, field_name: str) -> list[dict[str, Any]]:
+    if isinstance(value, list):
+        entries: list[dict[str, Any]] = []
+        for item in value:
+            entries.extend(normalize_provider_contact_entries(item, field_name))
+        return entries
+    if isinstance(value, dict):
+        contact_value = coalesce(value, ["value", "phone", "phoneNumber", "phone_number", "number", "email", "emailAddress"])
+        if not contact_value:
+            return []
+        return [
+            {
+                **value,
+                "value": contact_value,
+                "phoneType": coalesce(value, ["phoneType", "phone_type", "lineType", "line_type", "type"]) or inferred_phone_type(field_name),
+                "lineType": coalesce(value, ["lineType", "line_type", "phoneType", "phone_type", "type"]) or inferred_phone_type(field_name),
+                "confidence": coalesce(value, ["confidence", "confidence_score", "score"]),
+            }
+        ]
+    text_value = str(value or "").strip()
+    return [{"value": text_value, "phoneType": inferred_phone_type(field_name), "lineType": inferred_phone_type(field_name)}] if text_value else []
+
+
+def inferred_phone_type(field_name: str) -> str:
+    lower = field_name.lower()
+    if "mobile" in lower:
+        return "mobile"
+    if "landline" in lower:
+        return "landline"
+    return "unknown"
+
+
+def coalesce(data: dict[str, Any], keys: list[str]) -> Any:
+    for key in keys:
+        value = data.get(key)
+        if value not in (None, "", []):
+            return value
+    return ""
+
+
+def score_to_int(value: Any) -> int:
+    try:
+        score = float(value)
+    except (TypeError, ValueError):
+        return 0
+    if score <= 1:
+        score *= 100
+    return max(0, min(100, int(round(score))))
+
+
+def boolish(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in {"1", "true", "yes", "y", "dnc", "do_not_call"}
+
+
+def simple_match_score(expected: str, returned: Any) -> int:
+    expected_tokens = set(re.findall(r"[a-z0-9]+", str(expected or "").lower()))
+    returned_tokens = set(re.findall(r"[a-z0-9]+", str(returned or "").lower()))
+    if not expected_tokens or not returned_tokens:
+        return 0
+    overlap = expected_tokens.intersection(returned_tokens)
+    return int(round((len(overlap) / max(len(expected_tokens), 1)) * 100))
 
 def merge_snapshots(
     existing_snapshot: ContactIntelligenceSnapshot,
@@ -341,16 +721,32 @@ def merge_snapshots(
 
     source_urls = dedupe_source_links([*existing_snapshot.sourceUrls, *provider_snapshot.sourceUrls])
     contacts = list(contacts_by_key.values())
-    has_callable = any(contact.contactType == "phone" and contact.isCallable and not contact.doNotCall for contact in contacts)
-    status = "ready" if has_callable else provider_snapshot.status or existing_snapshot.status
-    needs_paid = provider_snapshot.needsPaidSkipTrace and not has_callable
+    phone_contacts = [contact for contact in contacts if contact.contactType == "phone"]
+    has_callable = any(
+        contact.isCallable and not contact.doNotCall and not contact.wrongNumber and not contact.disconnected
+        for contact in phone_contacts
+    )
+    all_phone_contacts_bad = bool(phone_contacts) and not has_callable
+    if provider_snapshot.status in {"enriched", "provider_not_configured", "failed", "unmatched"}:
+        status = provider_snapshot.status
+    else:
+        status = "ready" if has_callable else provider_snapshot.status or existing_snapshot.status
+    needs_paid = (provider_snapshot.needsPaidSkipTrace or not has_callable) and not has_callable
+    paid_configured = provider_snapshot.paidProviderConfigured or existing_snapshot.paidProviderConfigured
+    refresh_recommended = all_phone_contacts_bad or provider_snapshot.refreshRecommended or existing_snapshot.refreshRecommended
 
-    if has_callable:
+    if provider_snapshot.status == "provider_not_configured":
+        message = provider_snapshot.message
+    elif has_callable and provider_snapshot.status == "enriched":
+        message = "New provider contacts were added and ranked. Use feedback buttons to teach Contact Intelligence."
+    elif has_callable:
         message = "Best existing/imported number is ready. Use feedback buttons to teach Contact Intelligence."
+    elif refresh_recommended:
+        message = "Every known number is unusable. Refresh enrichment is recommended."
     elif contacts:
         message = "Only partial contact data is available. A licensed skip trace may be needed for better phone coverage."
     else:
-        message = provider_snapshot.message or "No free contact data found. Paid skip trace is likely needed."
+        message = provider_snapshot.message or "No contact data found. Paid skip trace is likely needed."
 
     return ContactIntelligenceSnapshot(
         leadId=existing_snapshot.leadId or provider_snapshot.leadId,
@@ -361,6 +757,9 @@ def merge_snapshots(
         contacts=contacts,
         sourceUrls=source_urls,
         needsPaidSkipTrace=needs_paid,
+        paidProviderConfigured=paid_configured,
+        refreshRecommended=refresh_recommended,
+        enrichmentRunId=provider_snapshot.enrichmentRunId or existing_snapshot.enrichmentRunId,
         message=message,
         limitations=free_limitations() if needs_paid or not has_callable else [],
         updatedAt=current_timestamp(),

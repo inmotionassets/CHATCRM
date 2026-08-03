@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from .routers import agreements, auth, buyers, contact_intelligence, counties, disposition, imports, leads, outcomes, parcels
 
 app = FastAPI(title="ChatCRM API")
-BUILD_ID = "contact-intelligence-free-v1"
+BUILD_ID = "contact-intelligence-provider-v2"
 
 app.add_middleware(
     CORSMiddleware,

@@ -3578,6 +3578,10 @@ function LeadDetail({
   }
 
   async function refreshContactIntelligence() {
+    if (!canUseAdminDealTools) {
+      setContactIntelligenceMessage("Real contact enrichment is Admin-only.");
+      return;
+    }
     if (!authToken || !lead.id) return;
     setIsRefreshingContacts(true);
     setContactIntelligenceMessage("Running free Contact Intelligence...");
@@ -3792,6 +3796,7 @@ function LeadDetail({
             </section>
           )}
           <ContactIntelligencePanel
+            canEnrichContacts={canUseAdminDealTools}
             isRefreshing={isRefreshingContacts}
             message={contactIntelligenceMessage}
             onCall={handleCallClick}
@@ -4132,7 +4137,7 @@ function LeadDetail({
   );
 }
 
-function ContactIntelligencePanel({ isRefreshing, message, onCall, onFeedback, onRefresh, snapshot }) {
+function ContactIntelligencePanel({ canEnrichContacts = false, isRefreshing, message, onCall, onFeedback, onRefresh, snapshot }) {
   const contacts = Array.isArray(snapshot?.contacts) ? snapshot.contacts : [];
   const bestContact = snapshot?.bestContact || contacts[0] || null;
   const phoneContacts = contacts.filter((contact) => contact.contactType === "phone");
@@ -4145,6 +4150,9 @@ function ContactIntelligencePanel({ isRefreshing, message, onCall, onFeedback, o
     !bestContact.wrongNumber &&
     !bestContact.disconnected
   );
+  const isPaidProvider = snapshot?.provider === "batchdata";
+  const providerReady = Boolean(snapshot?.paidProviderConfigured);
+  const refreshLabel = !canEnrichContacts ? "Admin Only" : isRefreshing ? "Checking..." : isPaidProvider && providerReady ? "Enrich Contact" : "Check Provider";
 
   function copyContactValue(value) {
     if (!value) return;
@@ -4158,10 +4166,10 @@ function ContactIntelligencePanel({ isRefreshing, message, onCall, onFeedback, o
       <div className="contact-intel-header">
         <div>
           <p className="eyebrow">Contact Intelligence</p>
-          <h3>Free Check</h3>
+          <h3>{isPaidProvider ? "Provider Enrichment" : "Free Check"}</h3>
         </div>
-        <button className="contact-refresh-button" disabled={isRefreshing} onClick={onRefresh} type="button">
-          {isRefreshing ? "Checking..." : "Run Free Check"}
+        <button className="contact-refresh-button" disabled={isRefreshing || !canEnrichContacts} onClick={onRefresh} type="button">
+          {refreshLabel}
         </button>
       </div>
 
@@ -4207,8 +4215,16 @@ function ContactIntelligencePanel({ isRefreshing, message, onCall, onFeedback, o
         </details>
       ) : null}
 
+      {snapshot?.status === "provider_not_configured" ? (
+        <p className="contact-intel-warning">Paid enrichment provider not configured. Add the backend API key before running real skip trace.</p>
+      ) : null}
+
+      {snapshot?.refreshRecommended ? (
+        <p className="contact-intel-warning">Refresh recommended: known numbers are wrong, disconnected, or blocked.</p>
+      ) : null}
+
       {snapshot?.needsPaidSkipTrace ? (
-        <p className="contact-intel-warning">Free sources did not return a new verified private phone. Mark this for licensed skip trace when deeper coverage is needed.</p>
+        <p className="contact-intel-warning">No new verified private phone was returned yet. Keep free/manual mode or connect a licensed provider.</p>
       ) : null}
 
       {sourceLinks.length ? (
@@ -5957,6 +5973,9 @@ function sanitizeContactIntelligence(snapshot = {}) {
       : [],
     confidence: clampScore(snapshot.confidence),
     needsPaidSkipTrace: Boolean(snapshot.needsPaidSkipTrace),
+    paidProviderConfigured: Boolean(snapshot.paidProviderConfigured),
+    refreshRecommended: Boolean(snapshot.refreshRecommended),
+    enrichmentRunId: safeText(snapshot.enrichmentRunId),
     message: safeText(snapshot.message),
     limitations: Array.isArray(snapshot.limitations) ? snapshot.limitations.map(safeText).filter(Boolean) : [],
     updatedAt: safeText(snapshot.updatedAt)
@@ -5978,7 +5997,12 @@ function sanitizeContactRecord(contact = {}) {
     source: safeText(contact.source || "Unknown source"),
     sourceUrl: safeText(contact.sourceUrl),
     sourceConfidence: clampScore(contact.sourceConfidence),
+    provider: safeText(contact.provider),
+    matchConfidence: clampScore(contact.matchConfidence),
+    ownerNameMatch: clampScore(contact.ownerNameMatch),
+    addressMatch: clampScore(contact.addressMatch),
     lineType: safeText(contact.lineType || "unknown"),
+    phoneType: safeText(contact.phoneType || contact.lineType || "unknown"),
     carrier: safeText(contact.carrier),
     isMobile: Boolean(contact.isMobile),
     isLandline: Boolean(contact.isLandline),
@@ -5995,6 +6019,8 @@ function sanitizeContactRecord(contact = {}) {
     verifiedOwner: Boolean(contact.verifiedOwner),
     lastAttemptedAt: safeText(contact.lastAttemptedAt),
     lastResult: safeText(contact.lastResult),
+    lastVerifiedDate: safeText(contact.lastVerifiedDate),
+    enrichmentRunId: safeText(contact.enrichmentRunId),
     evidence: Array.isArray(contact.evidence) ? contact.evidence.map(safeText).filter(Boolean) : [],
     updatedAt: safeText(contact.updatedAt)
   };
