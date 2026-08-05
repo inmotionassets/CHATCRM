@@ -94,6 +94,11 @@ const contactStatuses = [
 const mainViews = ["Leads", "Pipeline", "Disposition Intelligence", "Property Intelligence", "Buyer Network", "Imports", "Analytics", "Training"];
 const dispositionViews = ["Disposition Intelligence", "Buyer Network", "Pipeline", "Training", "Profile"];
 const callerViews = ["Dashboard", "Leads", "Training", "Leaderboard", "Profile"];
+const ownerAccessUsernames = new Set(["virgo"]);
+
+function hasChatCrmOwnerAccess(user = {}) {
+  return ownerAccessUsernames.has(String(user?.username || "").trim().toLowerCase());
+}
 const commissionTiers = [
   { min: 0, max: 9999, rate: 0.15, label: "$0 - $9,999" },
   { min: 10000, max: 19999, rate: 0.2, label: "$10,000 - $19,999" },
@@ -335,6 +340,7 @@ export function App() {
   const cadFileInputRef = React.useRef(null);
   const leadReturnContextRef = React.useRef(loadLeadReturnContext());
   const authToken = auth?.accessToken || "";
+  const hasFullAccess = hasChatCrmOwnerAccess(auth?.user);
   const isAdmin = auth?.user?.role === "Admin";
   const isDisposition = auth?.user?.role === "Disposition";
   const visibleMainViews = isAdmin ? [...mainViews, "Team"] : isDisposition ? dispositionViews : callerViews;
@@ -493,7 +499,9 @@ export function App() {
       if (!authToken) return;
       try {
         const user = await fetchCurrentUser(authToken);
-        if (!cancelled) updateStoredAuthUser(user);
+        if (!cancelled) {
+          updateStoredAuthUser(user);
+        }
       } catch {
         // Keep the existing session; protected API calls will handle expired tokens.
       }
@@ -518,6 +526,12 @@ export function App() {
 
     async function hydrateLeads() {
       if (!authToken) return;
+      if (!hasFullAccess) {
+        setLeads([]);
+        setBackendReady(false);
+        setSaveStatus("Paused");
+        return;
+      }
       try {
         const storedLeads = await fetchBackendLeads(authToken);
         if (cancelled) return;
@@ -537,13 +551,16 @@ export function App() {
     return () => {
       cancelled = true;
     };
-  }, [authToken]);
+  }, [authToken, hasFullAccess]);
 
   React.useEffect(() => {
     let cancelled = false;
 
     async function hydrateBuyers() {
-      if (!authToken) return;
+      if (!authToken || !hasFullAccess) {
+        setBuyers([]);
+        return;
+      }
 
       try {
         const storedBuyers = await fetchBackendBuyers(authToken);
@@ -557,13 +574,13 @@ export function App() {
     return () => {
       cancelled = true;
     };
-  }, [authToken]);
+  }, [authToken, hasFullAccess]);
 
   React.useEffect(() => {
     let cancelled = false;
 
     async function hydrateTeamOnboarding() {
-      if (!authToken || auth?.user?.role !== "Admin") {
+      if (!authToken || !hasFullAccess || auth?.user?.role !== "Admin") {
         setTeamOnboardingRows([]);
         return;
       }
@@ -583,9 +600,9 @@ export function App() {
     return () => {
       cancelled = true;
     };
-  }, [authToken, auth?.user?.role]);
+  }, [authToken, auth?.user?.role, hasFullAccess]);
   React.useEffect(() => {
-    if (!backendReady || !authToken || leads.length === 0) return undefined;
+    if (!hasFullAccess || !backendReady || !authToken || leads.length === 0) return undefined;
     setSaveStatus("Saving...");
     const timeoutId = window.setTimeout(async () => {
       try {
@@ -597,7 +614,7 @@ export function App() {
     }, 350);
 
     return () => window.clearTimeout(timeoutId);
-  }, [backendReady, leads, authToken]);
+  }, [backendReady, leads, authToken, hasFullAccess]);
 
   React.useEffect(() => {
     safeStorageSet("chatcrm.imports", JSON.stringify(imports));
@@ -605,6 +622,10 @@ export function App() {
 
   if (!authToken) {
     return <LoginPage error={loginError} onLogin={login} />;
+  }
+
+  if (!hasFullAccess) {
+    return <UnderConstructionPage onLogout={logout} user={auth.user} />;
   }
 
   const needsOnboarding =
@@ -1567,6 +1588,31 @@ function DailyQuoteCard({ authToken }) {
       <blockquote>{quote.quote}</blockquote>
       <p>{quote.author ? `- ${quote.author}` : quote.source}</p>
     </section>
+  );
+}
+function UnderConstructionPage({ onLogout, user }) {
+  return (
+    <main className="maintenance-shell">
+      <section className="maintenance-card">
+        <div className="brand-block">
+          <ChatCrmLogo />
+          <div>
+            <p className="eyebrow">ChatCRM</p>
+            <h1>Under Construction</h1>
+          </div>
+        </div>
+        <p className="maintenance-kicker">We are polishing the command center.</p>
+        <h2>ChatCRM is temporarily paused for your account.</h2>
+        <p>
+          Virgo is tightening the system before the team resumes calling. Your login still works, but workspace access is paused for now.
+        </p>
+        <div className="maintenance-status">
+          <span>Logged in as</span>
+          <strong>{user?.name || user?.username || "Team Member"}</strong>
+        </div>
+        <button className="primary-button" onClick={onLogout} type="button">Logout</button>
+      </section>
+    </main>
   );
 }
 function LoginPage({ error, onLogin }) {

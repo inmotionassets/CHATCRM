@@ -2393,6 +2393,75 @@ textarea::placeholder {
   z-index: 1;
 }
 
+.maintenance-shell {
+  align-items: center;
+  background:
+    radial-gradient(circle at top left, rgba(15, 184, 167, 0.22), transparent 34%),
+    linear-gradient(135deg, #061816 0%, #0d1a22 52%, #141312 100%);
+  color: #f8fafc;
+  display: flex;
+  min-height: 100vh;
+  padding: 32px;
+}
+
+.maintenance-card {
+  background: rgba(8, 20, 24, 0.86);
+  border: 1px solid rgba(245, 184, 44, 0.36);
+  border-radius: 12px;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.34);
+  display: grid;
+  gap: 18px;
+  max-width: 640px;
+  padding: clamp(28px, 5vw, 48px);
+}
+
+.maintenance-card h1,
+.maintenance-card h2 {
+  color: #ffffff;
+  margin: 0;
+}
+
+.maintenance-card h2 {
+  font-size: clamp(2rem, 5vw, 4rem);
+  line-height: 0.98;
+}
+
+.maintenance-card p {
+  color: #cbd5e1;
+  font-size: 1.02rem;
+  margin: 0;
+  max-width: 58ch;
+}
+
+.maintenance-kicker {
+  color: #f5c542 !important;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.maintenance-status {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+  padding: 14px 16px;
+}
+
+.maintenance-status span {
+  color: #94a3b8;
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.maintenance-status strong {
+  color: #ffffff;
+}
+
 .login-hero {
   display: grid;
   gap: 54px;
@@ -2917,8 +2986,14 @@ textarea::placeholder {
 }
 
 @media (max-width: 620px) {
-  .login-shell {
+  .login-shell,
+  .maintenance-shell {
     padding: 18px;
+  }
+
+  .maintenance-status {
+    align-items: flex-start;
+    flex-direction: column;
   }
 
   .role-list {

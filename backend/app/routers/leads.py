@@ -28,7 +28,12 @@ RAW_DATABASE_URL = os.getenv("DATABASE_URL", "")
 DATABASE_URL = normalize_database_url(RAW_DATABASE_URL)
 DATABASE_PATH = Path(os.getenv("DATABASE_PATH", Path(__file__).resolve().parents[2] / "chatcrm.db"))
 USE_POSTGRES = DATABASE_URL.startswith(("postgres://", "postgresql://"))
+OWNER_ACCESS_USERNAMES = {"virgo"}
 
+
+def require_owner_access(current_user) -> None:
+    if current_user.username.lower().strip() not in OWNER_ACCESS_USERNAMES:
+        raise HTTPException(status_code=403, detail="ChatCRM is under construction for this account.")
 
 class Lead(BaseModel):
     id: str
@@ -754,11 +759,13 @@ def lock_lead_for_user(lead_id: str, current_user: CurrentUser) -> LeadLock:
 
 @router.get("", response_model=list[Lead])
 def list_leads(current_user: CurrentUser):
+    require_owner_access(current_user)
     return list_saved_leads()
 
 
 @router.post("/reset/notes-followups", response_model=LeadResetResult)
 def reset_lead_notes_followups(current_user: CurrentUser):
+    require_owner_access(current_user)
     if current_user.role != "Admin":
         raise HTTPException(status_code=403, detail="Admin access required")
 
@@ -767,37 +774,44 @@ def reset_lead_notes_followups(current_user: CurrentUser):
 
 @router.get("/activity/recent", response_model=list[LeadActivity])
 def recent_team_activity(current_user: CurrentUser, limit: int = 50):
+    require_owner_access(current_user)
     return list_recent_activities(limit, current_user)
 
 
 @router.get("/activity/daily-counts", response_model=list[DailyCallCount])
 def daily_call_counts(current_user: CurrentUser):
+    require_owner_access(current_user)
     return list_daily_call_counts(current_user)
 
 
 @router.get("/{lead_id}/activity", response_model=list[LeadActivity])
 def lead_activity(lead_id: str, current_user: CurrentUser):
+    require_owner_access(current_user)
     return list_lead_activities(lead_id)
 
 
 @router.post("/{lead_id}/activity", response_model=LeadActivity)
 def record_lead_activity(lead_id: str, activity: LeadActivityCreate, current_user: CurrentUser):
+    require_owner_access(current_user)
     return create_lead_activity(lead_id, activity, current_user)
 
 
 @router.get("/{lead_id}/lock", response_model=LeadLock)
 def get_lead_lock(lead_id: str, current_user: CurrentUser):
+    require_owner_access(current_user)
     lock = get_active_lead_lock(lead_id)
     return lock.model_copy(update={"leadId": lead_id}) if not lock.leadId else lock
 
 
 @router.post("/{lead_id}/lock", response_model=LeadLock)
 def create_lead_lock(lead_id: str, current_user: CurrentUser):
+    require_owner_access(current_user)
     return lock_lead_for_user(lead_id, current_user)
 
 
 @router.post("/sync", response_model=list[Lead])
 def sync_leads(leads: list[Lead], current_user: CurrentUser):
+    require_owner_access(current_user)
     if not leads:
         raise HTTPException(status_code=400, detail="Refusing to sync an empty lead list")
 
@@ -808,12 +822,14 @@ def sync_leads(leads: list[Lead], current_user: CurrentUser):
 
 @router.post("", response_model=Lead)
 def create_lead(lead: Lead, current_user: CurrentUser):
+    require_owner_access(current_user)
     save_lead(lead)
     return lead
 
 
 @router.put("/{lead_id}", response_model=Lead)
 def update_lead(lead_id: str, lead: Lead, current_user: CurrentUser):
+    require_owner_access(current_user)
     saved_lead = lead.model_copy(update={"id": lead_id})
     save_lead(saved_lead)
     return saved_lead
@@ -821,5 +837,6 @@ def update_lead(lead_id: str, lead: Lead, current_user: CurrentUser):
 
 @router.delete("/{lead_id}")
 def delete_lead(lead_id: str, current_user: CurrentUser):
+    require_owner_access(current_user)
     remove_lead(lead_id)
     return {"deleted": lead_id}
