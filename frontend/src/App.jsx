@@ -686,6 +686,10 @@ export function App() {
     if (selectedLeadId === id) {
       closeLeadWorkspace();
     }
+
+    if (authToken) {
+      deleteBackendLead(id, authToken).catch(() => setSaveStatus("Browser Save"));
+    }
   }
 
   function toggleLeadSelection(id) {
@@ -853,9 +857,14 @@ export function App() {
 
   function deleteSelectedLeads() {
     if (selectedLeadIds.length === 0) return;
-    setLeads((current) => current.filter((lead) => !selectedLeadIds.includes(lead.id)));
+    const idsToDelete = [...selectedLeadIds];
+    setLeads((current) => current.filter((lead) => !idsToDelete.includes(lead.id)));
     setSelectedLeadIds([]);
     closeLeadWorkspace({ restore: false });
+
+    if (authToken) {
+      Promise.all(idsToDelete.map((leadId) => deleteBackendLead(leadId, authToken))).catch(() => setSaveStatus("Browser Save"));
+    }
   }
 
   async function enrichSelectedContacts() {
@@ -2886,7 +2895,7 @@ function LeadForm({ formLead, isEditing, onCancel, onChange, onSubmit }) {
       </div>
 
       <label>
-        Name
+        Owner Name
         <input required value={formLead.name} onChange={(event) => updateField("name", event.target.value)} />
       </label>
 
@@ -2998,7 +3007,7 @@ function LeadForm({ formLead, isEditing, onCancel, onChange, onSubmit }) {
 
       <div className="form-grid">
         <label>
-          Owner
+          Assigned To
           <input value={formLead.owner} onChange={(event) => updateField("owner", event.target.value)} />
         </label>
 
@@ -5744,6 +5753,18 @@ async function syncLeadsToBackend(leads, token) {
   return response.json();
 }
 
+async function deleteBackendLead(leadId, token) {
+  const response = await fetch(`${apiBaseUrl}/leads/${encodeURIComponent(leadId)}`, {
+    method: "DELETE",
+    headers: authHeaders(token)
+  });
+
+  if (!response.ok) {
+    throw new Error("Lead delete failed");
+  }
+
+  return response.json();
+}
 async function resetLeadNotesFollowUps(token) {
   const response = await fetch(`${apiBaseUrl}/leads/reset/notes-followups`, {
     method: "POST",
@@ -6424,6 +6445,25 @@ function normalizeLeadPhones(lead) {
   };
 }
 
+function pickImportedOwnerName(existingLead = {}, importedLead = {}) {
+  const existingName = getDisplayOwnerName(existingLead);
+  const importedName = getDisplayOwnerName(importedLead);
+
+  if (!importedName) return existingLead.name || "";
+  if (!existingName) return importedName;
+
+  const existingSource = normalizeText(existingLead.source);
+  const importedSource = normalizeText(importedLead.source);
+  const existingIsGeneric = isGenericOwnerName(existingLead.name || existingLead.owner);
+  const sourceChanged = importedSource && importedSource !== existingSource && existingSource !== "manual entry";
+
+  return existingIsGeneric || sourceChanged ? importedName : existingLead.name || existingName;
+}
+
+function isGenericOwnerName(value = "") {
+  const normalized = normalizeText(value);
+  return !normalized || ["unknown owner", "owner needed", "owner name needed", "import review", "review owner", "owner oc", "owner occupied"].includes(normalized);
+}
 function mergeImportedLeads(currentLeads, importedLeads) {
   const merged = [...currentLeads];
 
@@ -6440,6 +6480,7 @@ function mergeImportedLeads(currentLeads, importedLeads) {
     const phones = mergePhones(existingLead, importedLead);
     merged[existingIndex] = {
       ...existingLead,
+      name: pickImportedOwnerName(existingLead, importedLead),
       phones,
       phone: phones[0] || existingLead.phone || importedLead.phone || "",
       email: existingLead.email || importedLead.email || "",

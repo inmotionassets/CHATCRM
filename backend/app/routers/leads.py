@@ -801,8 +801,9 @@ def sync_leads(leads: list[Lead], current_user: CurrentUser):
     if not leads:
         raise HTTPException(status_code=400, detail="Refusing to sync an empty lead list")
 
-    replace_saved_leads(leads)
-    return leads
+    for lead in leads:
+        save_lead(lead)
+    return list_saved_leads()
 
 
 @router.post("", response_model=Lead)

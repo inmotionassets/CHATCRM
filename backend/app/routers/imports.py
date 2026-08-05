@@ -130,14 +130,17 @@ def extract_wide_export_leads(page_texts: list[str], source: str) -> list[Parsed
         owner_rows = extract_wide_text_rows(page_texts[owner_page_index])
         phone_rows = extract_wide_text_rows(page_texts[phone_page_index]) if phone_page_index < len(page_texts) else []
         extra_phone_rows = extract_wide_text_rows(page_texts[extra_phone_page_index]) if extra_phone_page_index < len(page_texts) else []
+        owner_rows_aligned = len(owner_rows) == len(address_rows)
+        phone_rows_aligned = not phone_rows or len(phone_rows) == len(address_rows)
+        extra_phone_rows_aligned = not extra_phone_rows or len(extra_phone_rows) == len(address_rows)
 
         for row_index, row in enumerate(address_rows):
-            owner_line = owner_rows[row_index] if row_index < len(owner_rows) else ""
-            phone_line = phone_rows[row_index] if row_index < len(phone_rows) else ""
-            extra_phone_line = extra_phone_rows[row_index] if row_index < len(extra_phone_rows) else ""
+            owner_line = owner_rows[row_index] if owner_rows_aligned else ""
+            phone_line = phone_rows[row_index] if phone_rows_aligned and row_index < len(phone_rows) else ""
+            extra_phone_line = extra_phone_rows[row_index] if extra_phone_rows_aligned and row_index < len(extra_phone_rows) else ""
             name = build_wide_owner_name(owner_line, phone_line)
             phones = unique_phones(find_phones(phone_line) + find_phones(extra_phone_line))
-            confidence = 75
+            confidence = 75 if owner_rows_aligned else 55
 
             if name != "Unknown Owner":
                 confidence += 10
