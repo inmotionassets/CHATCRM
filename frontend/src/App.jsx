@@ -3264,7 +3264,7 @@ function LeadWorkspacePage({
       <LeadWorkspaceAssessmentCard lead={lead} ownerName={ownerName} primaryPhone={primaryPhone} />
 
       <div className="lead-workspace-visual-grid">
-        <PropertyVisualPanel address={lead.address} mode={visualMode} onModeChange={setVisualMode} />
+        <PropertyVisualPanel address={lead.address} lead={lead} mode={visualMode} onModeChange={setVisualMode} />
         <LeadWorkspaceSupportPanel lead={lead} ownerName={ownerName} primaryPhone={primaryPhone} />
       </div>
 
@@ -3377,7 +3377,7 @@ function LeadWorkspaceLeadSummary({ lead, ownerName, phones }) {
   );
 }
 
-function PropertyVisualPanel({ address, mode, onModeChange }) {
+function PropertyVisualPanel({ address, lead = {}, mode, onModeChange }) {
   const [isFullscreen, setIsFullscreen] = React.useState(false);
   const [streetHeading, setStreetHeading] = React.useState(210);
   const [streetViewLocation, setStreetViewLocation] = React.useState("");
@@ -3385,13 +3385,14 @@ function PropertyVisualPanel({ address, mode, onModeChange }) {
   const [visualNotice, setVisualNotice] = React.useState("");
   const safeMode = ["street", "satellite", "map"].includes(mode) ? mode : "street";
   const title = safeMode === "satellite" ? "Satellite View" : safeMode === "street" ? "Street View" : "Map View";
-  const streetViewEmbedLocation = safeMode === "street" && streetViewLocation ? streetViewLocation : address;
+  const streetViewLookupAddress = buildStreetViewLookupAddress(address, lead);
+  const streetViewEmbedLocation = safeMode === "street" && streetViewLocation ? streetViewLocation : streetViewLookupAddress;
   const usesOfficialStreetView = safeMode === "street" && Boolean(googleMapsEmbedApiKey) && isLatLngValue(streetViewEmbedLocation);
   const embedUrl = buildGoogleMapsEmbedUrl(streetViewEmbedLocation, safeMode, { heading: streetHeading });
 
   React.useEffect(() => {
     setVisualNotice("");
-  }, [address, safeMode]);
+  }, [address, lead.county, lead.zip, lead.zipCode, lead.postalCode, safeMode]);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -3405,7 +3406,7 @@ function PropertyVisualPanel({ address, mode, onModeChange }) {
     }
 
     setStreetViewLookupStatus("loading");
-    geocodeAddressForStreetView(address)
+    geocodeAddressForStreetView(address, lead)
       .then((location) => {
         if (cancelled) return;
         if (location) {
@@ -3422,7 +3423,7 @@ function PropertyVisualPanel({ address, mode, onModeChange }) {
     return () => {
       cancelled = true;
     };
-  }, [address, safeMode]);
+  }, [address, lead.county, lead.zip, lead.zipCode, lead.postalCode, safeMode]);
 
   function rotateStreetView(amount) {
     setStreetHeading((current) => (current + amount + 360) % 360);
@@ -7167,32 +7168,129 @@ const googleMapsScriptElementId = "chatcrm-google-maps-js";
 const streetViewGeocodeCache = new globalThis.Map();
 let googleMapsScriptPromise = null;
 
-function geocodeAddressForStreetView(address = "") {
-  const cleanAddress = String(address || "").trim();
-  if (!cleanAddress) return Promise.resolve("");
-  if (isLatLngValue(cleanAddress)) return Promise.resolve(cleanAddress);
+function buildStreetViewLookupAddress(address = "", lead = {}) {
+  const queries = buildStreetViewLookupQueries(address, lead);
+  return queries.find((query) => /\b(tx|texas|dallas|mesquite|garland|irving|\d{5})\b/i.test(query)) || queries[0] || "Dallas, TX";
+}
 
-  const cacheKey = cleanAddress.toLowerCase();
+function buildStreetViewLookupQueries(address = "", lead = {}) {
+  const cleanAddress = safeText(address).trim();
+  if (!cleanAddress) return [];
+  if (isLatLngValue(cleanAddress)) return [cleanAddress];
+
+  const zip = getLeadZip({ ...lead, address: cleanAddress });
+  const county = safeText(lead.county || inferCountyFromAddress(cleanAddress));
+  const hasTexas = /\b(tx|texas)\b/i.test(cleanAddress);
+  const hasLocalContext = /\b(dallas|mesquite|garland|irving|cedar hill|desoto|duncanville|grand prairie|lancaster|carrollton|farmers branch|richardson|rowlett|balch springs|seagoville|cockrell hill)\b/i.test(cleanAddress);
+  const queries = [];
+  const seen = new Set();
+
+  function addQuery(value = "") {
+    const query = safeText(value).replace(/\s+/g, " ").replace(/,+/g, ",").trim();
+    const key = query.toLowerCase();
+    if (!query || seen.has(key)) return;
+    seen.add(key);
+    queries.push(query);
+  }
+
+  addQuery(cleanAddress);
+  if (zip && !cleanAddress.includes(zip)) addQuery(`${cleanAddress}, ${zip}`);
+  if (county && !hasTexas) addQuery(`${cleanAddress}, ${county} County, TX`);
+  if (!hasTexas && !hasLocalContext) addQuery(`${cleanAddress}, Dallas, TX`);
+  if (!hasTexas) addQuery(`${cleanAddress}, TX`);
+  addQuery(`${cleanAddress}, United States`);
+
+  return queries;
+}
+
+function geocodeAddressForStreetView(address = "", lead = {}) {
+  const queries = buildStreetViewLookupQueries(address, lead);
+  if (!queries.length) return Promise.resolve("");
+  if (isLatLngValue(queries[0])) return Promise.resolve(queries[0]);
+
+  const cacheKey = queries.join("|").toLowerCase();
   if (streetViewGeocodeCache.has(cacheKey)) {
     return Promise.resolve(streetViewGeocodeCache.get(cacheKey));
   }
 
   return loadGoogleMapsJavaScriptApi()
-    .then(() => new Promise((resolve) => {
-      if (!window.google?.maps?.Geocoder) {
+    .then(async () => {
+      if (!window.google?.maps?.Geocoder) return "";
+
+      let fallbackCoordinate = "";
+      for (const query of queries) {
+        const coordinate = await geocodeSingleStreetViewAddress(query);
+        if (!coordinate) continue;
+        if (!fallbackCoordinate) fallbackCoordinate = coordinate;
+
+        const panoramaLocation = await findNearestStreetViewPanorama(coordinate);
+        if (panoramaLocation) {
+          streetViewGeocodeCache.set(cacheKey, panoramaLocation);
+          return panoramaLocation;
+        }
+      }
+
+      const hasStreetViewService = Boolean(window.google?.maps?.StreetViewService);
+      const result = hasStreetViewService ? "" : fallbackCoordinate;
+      streetViewGeocodeCache.set(cacheKey, result);
+      return result;
+    })
+    .catch(() => "");
+}
+
+function geocodeSingleStreetViewAddress(query = "") {
+  return new Promise((resolve) => {
+    const geocoder = new window.google.maps.Geocoder();
+    geocoder.geocode(
+      { address: query, componentRestrictions: { country: "US" }, region: "us" },
+      (results, status) => {
+        const location = status === "OK" ? results?.[0]?.geometry?.location : null;
+        resolve(location ? `${location.lat()},${location.lng()}` : "");
+      }
+    );
+  });
+}
+
+function findNearestStreetViewPanorama(coordinateValue = "") {
+  if (!window.google?.maps?.StreetViewService || !isLatLngValue(coordinateValue)) {
+    return Promise.resolve("");
+  }
+
+  const [lat, lng] = coordinateValue.split(",").map((value) => Number(value.trim()));
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return Promise.resolve("");
+
+  const googleMaps = window.google.maps;
+  const service = new googleMaps.StreetViewService();
+  const location = new googleMaps.LatLng(lat, lng);
+  const radii = [50, 100, 250, 500, 1000];
+  const okStatus = googleMaps.StreetViewStatus?.OK || "OK";
+
+  return new Promise((resolve) => {
+    let index = 0;
+
+    function tryRadius() {
+      if (index >= radii.length) {
         resolve("");
         return;
       }
 
-      const geocoder = new window.google.maps.Geocoder();
-      geocoder.geocode({ address: cleanAddress, region: "us" }, (results, status) => {
-        const location = status === "OK" ? results?.[0]?.geometry?.location : null;
-        const coordinateValue = location ? `${location.lat()},${location.lng()}` : "";
-        streetViewGeocodeCache.set(cacheKey, coordinateValue);
-        resolve(coordinateValue);
+      const request = { location, radius: radii[index] };
+      if (googleMaps.StreetViewPreference?.NEAREST) request.preference = googleMaps.StreetViewPreference.NEAREST;
+      if (googleMaps.StreetViewSource?.OUTDOOR) request.source = googleMaps.StreetViewSource.OUTDOOR;
+      index += 1;
+
+      service.getPanorama(request, (data, status) => {
+        const latLng = status === okStatus ? data?.location?.latLng : null;
+        if (latLng) {
+          resolve(`${latLng.lat()},${latLng.lng()}`);
+          return;
+        }
+        tryRadius();
       });
-    }))
-    .catch(() => "");
+    }
+
+    tryRadius();
+  });
 }
 
 function loadGoogleMapsJavaScriptApi() {
