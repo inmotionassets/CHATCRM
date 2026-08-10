@@ -208,7 +208,7 @@ const apiBaseUrl =
   (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1"
     ? "http://127.0.0.1:8001"
     : "https://chatcrm.onrender.com");
-const googleMapsEmbedApiKey = import.meta.env.VITE_GOOGLE_MAPS_EMBED_API_KEY || "";
+const googleMapsEmbedApiKey = import.meta.env.VITE_GOOGLE_MAPS_EMBED_API_KEY || import.meta.env.VITE_GOOGLE_MAPS_API_KEY || "";
 const authStorageKey = "chatcrm.auth";
 const leadWorkspacePathPattern = /^\/leads\/([^/?#]+)/;
 const leadWorkspaceReturnKey = "chatcrm.leadWorkspaceReturn";
