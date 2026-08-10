@@ -247,6 +247,7 @@ def build_source_status(provider_result: dict[str, Any] | None = None) -> dict[s
 
 def build_subject_property(lead_payload: dict[str, Any]) -> dict[str, Any]:
     coordinates = subject_coordinates(lead_payload)
+    coordinate_source = subject_coordinate_source(lead_payload)
     contract_price = first_number(lead_payload.get("contractPrice"), lead_payload.get("purchasePrice"), lead_payload.get("estimatedArv"))
     target_assignment_price = first_number(lead_payload.get("targetAssignmentPrice"), lead_payload.get("askingPrice"))
     assignment_fee = first_number(lead_payload.get("assignmentFee"))
@@ -257,6 +258,8 @@ def build_subject_property(lead_payload: dict[str, Any]) -> dict[str, Any]:
         "leadId": str(lead_payload.get("id") or ""),
         "address": str(lead_payload.get("address") or "Address needed"),
         "coordinates": coordinates,
+        "coordinateSource": coordinate_source,
+        "coordinateConfidence": 88 if coordinate_source == "lead_record" else 45,
         "apn": str(lead_payload.get("parcelNumber") or ""),
         "acreage": parse_acreage(lead_payload.get("lotSize")) or 1.2,
         "propertyType": infer_property_type(lead_payload),
@@ -490,11 +493,22 @@ def is_verified_transaction(transaction: dict[str, Any]) -> bool:
 
 
 def subject_coordinates(lead_payload: dict[str, Any]) -> dict[str, float]:
+    lat = first_number(lead_payload.get("latitude"), lead_payload.get("lat"))
+    lng = first_number(lead_payload.get("longitude"), lead_payload.get("lng"))
+    if lat and lng:
+        return {"lat": round(lat, 6), "lng": round(lng, 6)}
+
     address = str(lead_payload.get("address") or "")
     seed = sum(ord(char) for char in address)
     lat = 32.7767 + ((seed % 35) - 17) / 1000
     lng = -96.7970 + (((seed // 3) % 35) - 17) / 1000
     return {"lat": round(lat, 6), "lng": round(lng, 6)}
+
+
+def subject_coordinate_source(lead_payload: dict[str, Any]) -> str:
+    lat = first_number(lead_payload.get("latitude"), lead_payload.get("lat"))
+    lng = first_number(lead_payload.get("longitude"), lead_payload.get("lng"))
+    return "lead_record" if lat and lng else "address_seed_estimate"
 
 
 def offset_coordinate(lat: float, lng: float, north_miles: float, east_miles: float) -> tuple[float, float]:

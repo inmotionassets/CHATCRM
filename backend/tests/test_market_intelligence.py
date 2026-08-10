@@ -62,13 +62,34 @@ class MarketIntelligenceServiceTests(unittest.TestCase):
         transaction_marker_types = {item["marketMarkerType"] for item in snapshot["transactions"]}
 
         self.assertEqual(map_snapshot["subjectMarker"]["type"], "subject_property")
+        self.assertEqual(map_snapshot["subjectParcel"]["boundaryType"], "unavailable")
+        self.assertEqual(map_snapshot["primaryLayer"]["type"], "recently_purchased")
         self.assertEqual(map_snapshot["timeline"]["selectedDays"], 180)
+        self.assertIn(1095, map_snapshot["timeline"]["options"])
         self.assertIn("builder_purchase", marker_types)
         self.assertIn("repeat_buyer", marker_types)
         self.assertIn("unknown_estimated", marker_types)
         self.assertTrue(transaction_marker_types & {"cash_purchase", "builder_purchase", "repeat_buyer", "recorded_sale"})
         self.assertTrue(map_snapshot["futureLayers"])
+        self.assertTrue(map_snapshot["purchaseAgeLegend"])
+        self.assertTrue(map_snapshot["layerControls"])
+        self.assertTrue(map_snapshot["roadIntelligence"]["legalAccess"])
         self.assertTrue(all(not item["available"] for item in map_snapshot["futureLayers"]))
+
+
+    def test_transactions_include_recency_and_source_provenance(self):
+        snapshot = self.service.build_snapshot(
+            self.lead,
+            filters=MarketIntelligenceFilters(radius_miles=25, sold_within_days=1095),
+            provider_name="mock",
+        )
+        transaction = snapshot["transactions"][0]
+
+        self.assertIn(transaction["purchaseAgeBucket"], {"fresh", "active", "recent", "older", "historic", "missing"})
+        self.assertIn("dataProvenance", transaction)
+        self.assertIn("parcelOverlay", transaction)
+        self.assertEqual(transaction["parcelOverlay"]["displayMode"], "marker_only")
+        self.assertTrue(transaction["dataProvenance"]["verificationStatus"])
 
     def test_buyer_highlight_summaries_are_ready_for_map_mode(self):
         snapshot = self.service.build_snapshot(

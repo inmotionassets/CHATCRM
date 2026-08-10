@@ -24,6 +24,8 @@ class SubjectProperty(BaseModel):
     leadId: str
     address: str
     coordinates: Coordinates
+    coordinateSource: str = "address_seed_estimate"
+    coordinateConfidence: int = 0
     apn: str = ""
     acreage: float = 0
     propertyType: str = ""
@@ -73,6 +75,16 @@ class BuyerSaleTransaction(BaseModel):
     estimated: bool = False
     sourceLastRefreshed: str = ""
     rawSourceMetadata: dict[str, Any] = Field(default_factory=dict)
+    normalizedBuyerName: str = ""
+    marketMarkerType: str = "recorded_sale"
+    transactionKind: str = "Recorded Sale"
+    purchaseAgeBucket: str = ""
+    purchaseAgeLabel: str = ""
+    recencyWeight: float = 0
+    visualOpacity: float = 1
+    evidenceTags: list[str] = Field(default_factory=list)
+    parcelOverlay: dict[str, Any] = Field(default_factory=dict)
+    dataProvenance: dict[str, Any] = Field(default_factory=dict)
 
 
 class BuyerMatch(BaseModel):
@@ -161,7 +173,7 @@ def get_disposition_workspace(
     lead_id: str,
     current_user: CurrentUser,
     radius_miles: float = Query(5, ge=1, le=25, alias="radiusMiles"),
-    sold_within_days: int = Query(365, ge=30, le=365, alias="soldWithinDays"),
+    sold_within_days: int = Query(365, ge=30, le=1095, alias="soldWithinDays"),
     vacant_land_only: bool = Query(False, alias="vacantLandOnly"),
     cash_only: bool = Query(False, alias="cashOnly"),
     buyer_type: list[str] = Query(default_factory=list, alias="buyerType"),
@@ -182,7 +194,7 @@ def refresh_disposition_workspace(
     lead_id: str,
     current_user: CurrentUser,
     radius_miles: float = Query(5, ge=1, le=25, alias="radiusMiles"),
-    sold_within_days: int = Query(365, ge=30, le=365, alias="soldWithinDays"),
+    sold_within_days: int = Query(365, ge=30, le=1095, alias="soldWithinDays"),
     vacant_land_only: bool = Query(False, alias="vacantLandOnly"),
     cash_only: bool = Query(False, alias="cashOnly"),
     buyer_type: list[str] = Query(default_factory=list, alias="buyerType"),

@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 
 from ..auth import CurrentUser
 from ..contact_intelligence import (
+    ContactSourceLink,
     ContactIntelligenceService,
     ContactIntelligenceSnapshot,
     extract_lead_emails,
@@ -29,6 +30,26 @@ class ContactFeedbackRequest(BaseModel):
 
 class ContactBatchRequest(BaseModel):
     leadIds: list[str] = Field(default_factory=list)
+
+
+class ContactEntitySnapshotRequest(BaseModel):
+    entityType: str = "entity"
+    entityId: str = ""
+    entityName: str = ""
+    company: str = ""
+    phone: str = ""
+    phones: list[str] = Field(default_factory=list)
+    email: str = ""
+    website: str = ""
+    contactFormUrl: str = ""
+    linkedinUrl: str = ""
+    facebookUrl: str = ""
+    mailingAddress: str = ""
+    registeredAgent: str = ""
+    address: str = ""
+    county: str = ""
+    source: str = ""
+    sourceUrls: list[str] = Field(default_factory=list)
 
 
 class ContactBatchResult(BaseModel):
@@ -177,11 +198,85 @@ def require_admin(current_user: CurrentUser) -> None:
         raise HTTPException(status_code=403, detail="Admin access required")
 
 
+def require_entity_contact_access(entity_type: str, current_user: CurrentUser) -> None:
+    protected_types = {"buyer", "builder", "developer", "llc", "business", "entity"}
+    if entity_type.lower() in protected_types and current_user.role not in {"Admin", "Disposition"}:
+        raise HTTPException(status_code=403, detail="Buyer Contact Intelligence is protected for leadership.")
+
+
 def require_lead(lead_id: str):
     lead = lead_store.get_saved_lead(lead_id)
     if not lead:
         raise HTTPException(status_code=404, detail="Lead not found")
     return lead
+
+
+def contact_entity_payload(request: ContactEntitySnapshotRequest) -> dict[str, Any]:
+    entity_type = (request.entityType or "entity").strip().lower()
+    entity_name = (
+        request.entityName
+        or request.company
+        or request.registeredAgent
+        or request.mailingAddress
+        or "Unknown Entity"
+    ).strip()
+    entity_id = (request.entityId or f"{entity_type}:{entity_name}").strip()
+    phones = [phone for phone in [request.phone, *request.phones] if str(phone).strip()]
+    address = (request.address or request.mailingAddress).strip()
+
+    return {
+        "id": entity_id,
+        "name": entity_name,
+        "owner": entity_name,
+        "address": address,
+        "mailingAddress": request.mailingAddress,
+        "phone": phones[0] if phones else "",
+        "phones": phones,
+        "email": request.email,
+        "website": request.website,
+        "county": request.county,
+        "source": request.source,
+        "entityType": entity_type,
+        "registeredAgent": request.registeredAgent,
+    }
+
+
+def entity_source_links(request: ContactEntitySnapshotRequest) -> list[ContactSourceLink]:
+    links: list[ContactSourceLink] = []
+    for label, url, source_type in [
+        ("Company website", request.website, "public_business_record"),
+        ("Contact form", request.contactFormUrl, "public_business_contact"),
+        ("LinkedIn company page", request.linkedinUrl, "public_social_profile"),
+        ("Facebook business page", request.facebookUrl, "public_social_profile"),
+    ]:
+        clean_url = str(url or "").strip()
+        if clean_url:
+            links.append(ContactSourceLink(label=label, url=clean_url, sourceType=source_type, confidence=70))
+
+    for index, url in enumerate(request.sourceUrls, start=1):
+        clean_url = str(url or "").strip()
+        if clean_url:
+            links.append(
+                ContactSourceLink(
+                    label=f"Imported source {index}",
+                    url=clean_url,
+                    sourceType="imported_source",
+                    confidence=60,
+                )
+            )
+    return links
+
+
+def merge_source_links(existing: list[ContactSourceLink], extra: list[ContactSourceLink]) -> list[ContactSourceLink]:
+    seen: set[str] = set()
+    merged: list[ContactSourceLink] = []
+    for link in [*existing, *extra]:
+        key = link.url.lower()
+        if not link.url or key in seen:
+            continue
+        seen.add(key)
+        merged.append(link)
+    return merged
 
 
 def real_enrichment_service() -> ContactIntelligenceService:
@@ -319,6 +414,34 @@ def get_lead_contact_intelligence(lead_id: str, current_user: CurrentUser):
     lead = require_lead(lead_id)
     snapshot = ContactIntelligenceService().build_snapshot(lead, enrich=False)
     return save_snapshot(snapshot)
+
+
+@router.post("/entities/snapshot", response_model=ContactIntelligenceSnapshot)
+def get_entity_contact_intelligence(request: ContactEntitySnapshotRequest, current_user: CurrentUser):
+    entity_type = (request.entityType or "entity").strip().lower()
+    require_entity_contact_access(entity_type, current_user)
+
+    payload = contact_entity_payload(request)
+    snapshot = ContactIntelligenceService().build_snapshot(payload, enrich=False)
+    source_links = merge_source_links(snapshot.sourceUrls, entity_source_links(request))
+    has_contacts = bool(snapshot.contacts)
+    message = (
+        "Existing Contact Intelligence is ready for this entity."
+        if has_contacts
+        else "No verified contact is saved yet. Public research paths are ready; licensed enrichment is still required for private phones."
+    )
+
+    return snapshot.model_copy(
+        update={
+            "leadId": payload["id"],
+            "ownerName": payload["owner"],
+            "propertyAddress": payload["address"],
+            "provider": "contact_intelligence",
+            "sourceUrls": source_links,
+            "needsPaidSkipTrace": not has_contacts,
+            "message": message,
+        }
+    )
 
 
 @router.post("/leads/{lead_id}/enrich", response_model=ContactIntelligenceSnapshot)

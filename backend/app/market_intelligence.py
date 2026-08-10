@@ -209,15 +209,25 @@ def build_map_transactions(
     transactions: list[dict[str, Any]],
     buyer_footprints: dict[str, dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    return [
-        {
-            **transaction,
-            "normalizedBuyerName": normalize_entity_name(transaction.get("buyerName")),
-            "marketMarkerType": classify_market_marker(transaction, buyer_footprints),
-            "evidenceTags": build_transaction_evidence_tags(transaction, buyer_footprints),
-        }
-        for transaction in transactions
-    ]
+    return [build_map_transaction(transaction, buyer_footprints) for transaction in transactions]
+
+
+def build_map_transaction(transaction: dict[str, Any], buyer_footprints: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    marker_type = classify_market_marker(transaction, buyer_footprints)
+    recency = transaction_recency(transaction)
+    return {
+        **transaction,
+        "normalizedBuyerName": normalize_entity_name(transaction.get("buyerName")),
+        "marketMarkerType": marker_type,
+        "transactionKind": classify_transaction_kind(transaction, marker_type),
+        "purchaseAgeBucket": recency["bucket"],
+        "purchaseAgeLabel": recency["label"],
+        "recencyWeight": recency["weight"],
+        "visualOpacity": recency["opacity"],
+        "evidenceTags": build_transaction_evidence_tags(transaction, buyer_footprints),
+        "parcelOverlay": build_transaction_parcel_overlay(transaction, marker_type),
+        "dataProvenance": build_transaction_provenance(transaction),
+    }
 
 
 def build_map_snapshot(
@@ -227,8 +237,21 @@ def build_map_snapshot(
     subject = disposition_workspace.get("subject") or {}
     transactions = disposition_workspace.get("transactions") or []
     filters = disposition_workspace.get("filters") or {}
+    subject_parcel = build_subject_parcel(subject)
     return {
         "center": subject.get("coordinates") or {},
+        "baseMapModes": [
+            {"type": "road", "label": "Road Map", "available": True},
+            {"type": "satellite", "label": "Satellite", "available": True},
+            {"type": "hybrid", "label": "Hybrid", "available": True},
+            {"type": "street", "label": "Street View", "available": True},
+        ],
+        "primaryLayer": {
+            "type": "recently_purchased",
+            "label": "Recently Purchased",
+            "description": "Subject parcel plus nearby purchases from the selected time window.",
+            "defaultSoldWithinDays": 180,
+        },
         "subjectMarker": {
             "type": "subject_property",
             "label": "Subject Property",
@@ -237,19 +260,18 @@ def build_map_snapshot(
             "color": "gold",
             "size": "large",
         },
-        "subjectParcel": {
-            "boundary": build_estimated_parcel_boundary(subject),
-            "boundaryType": "estimated",
-            "boundarySource": "Address-based estimate until county GIS parcel geometry is connected.",
-            "glow": "gold",
-        },
+        "subjectParcel": subject_parcel,
+        "roadIntelligence": build_road_intelligence(subject),
+        "layerControls": build_layer_controls(transactions, subject_parcel),
         "markerLegend": [
-            {"type": "recorded_sale", "label": "Nearby Recorded Sale", "color": "blue", "active": True},
-            {"type": "cash_purchase", "label": "Cash Purchase", "color": "green", "active": True},
-            {"type": "builder_purchase", "label": "Builder Purchase", "color": "gold", "active": True},
+            {"type": "subject_property", "label": "Subject Property", "color": "gold", "active": True},
+            {"type": "recorded_sale", "label": "Recent Sale", "color": "blue", "active": True},
+            {"type": "cash_purchase", "label": "Cash Buyer", "color": "green", "active": True},
+            {"type": "builder_purchase", "label": "Builder", "color": "gold", "active": True},
             {"type": "repeat_buyer", "label": "Repeat Buyer", "color": "purple", "active": True},
-            {"type": "unknown_estimated", "label": "Unknown / Estimated", "color": "gray", "active": True},
+            {"type": "unknown_estimated", "label": "Unknown", "color": "gray", "active": True},
         ],
+        "purchaseAgeLegend": purchase_age_legend(),
         "futureLayers": [
             {"type": "active_permits", "label": "Active Permits", "available": False},
             {"type": "builder_holdings", "label": "Builder Holdings", "available": False},
@@ -259,13 +281,20 @@ def build_map_snapshot(
             {"type": "ownership", "label": "Ownership", "available": False},
         ],
         "timeline": {
-            "options": [30, 90, 180, 365],
+            "options": [30, 90, 180, 365, 1095],
             "selectedDays": filters.get("soldWithinDays") or 365,
             "oldestSaleDate": min_sale_date(transactions),
             "newestSaleDate": max_sale_date(transactions),
             "visibleTransactionCount": len(transactions),
         },
+        "marketActivitySummary": build_market_activity_summary(transactions, buyer_footprints),
         "buyerHighlights": build_buyer_highlights(buyer_footprints),
+        "dataProvenance": {
+            "provider": (disposition_workspace.get("source") or {}).get("provider") or "mock",
+            "sourceName": (disposition_workspace.get("source") or {}).get("sourceName") or "",
+            "lastRefreshAt": (disposition_workspace.get("source") or {}).get("lastRefreshAt") or "",
+            "truthStandard": "Real parcel when available. Real transaction when available. Never fake missing intelligence.",
+        },
     }
 
 
@@ -303,6 +332,256 @@ def build_transaction_evidence_tags(transaction: dict[str, Any], buyer_footprint
     if safe_float(transaction.get("confidence"), 100) < 80:
         tags.append("Needs source review")
     return tags
+
+
+def build_subject_parcel(subject: dict[str, Any]) -> dict[str, Any]:
+    boundary = clean_boundary_points(subject.get("parcelBoundary") or subject.get("geometry") or subject.get("parcelGeometry"))
+    if boundary:
+        return {
+            "boundary": boundary,
+            "boundaryType": "verified",
+            "boundarySource": subject.get("geometrySource") or "County GIS / parcel provider",
+            "geometrySource": subject.get("geometrySource") or "verified_provider",
+            "displayMode": "parcel_polygon",
+            "glow": "gold",
+            "message": "Verified parcel boundary available.",
+        }
+    return {
+        "boundary": [],
+        "boundaryType": "unavailable",
+        "boundarySource": "Verified parcel boundary unavailable. LEGACY will not draw fake parcel geometry.",
+        "geometrySource": "missing",
+        "displayMode": "subject_marker_only",
+        "glow": "gold",
+        "message": "Verified parcel boundary unavailable.",
+    }
+
+
+def clean_boundary_points(value: Any) -> list[dict[str, float]]:
+    if not isinstance(value, list):
+        return []
+    points: list[dict[str, float]] = []
+    for point in value:
+        if not isinstance(point, dict):
+            continue
+        lat = safe_float(point.get("lat"), 0)
+        lng = safe_float(point.get("lng"), 0)
+        if lat and lng:
+            points.append({"lat": round(lat, 6), "lng": round(lng, 6)})
+    return points if len(points) >= 3 else []
+
+
+def build_road_intelligence(subject: dict[str, Any]) -> dict[str, Any]:
+    road_name, road_type = extract_road_name_and_type(subject.get("address") or "")
+    return {
+        "roadName": road_name or "Needs review",
+        "roadType": road_type or "Unknown",
+        "pavedStatus": subject.get("pavedStatus") or "Needs Verification",
+        "publicPrivate": subject.get("publicPrivateRoad") or "Needs Verification",
+        "estimatedFrontage": subject.get("frontage") or "Needs Verification",
+        "cornerLot": subject.get("cornerLot") or "Needs Verification",
+        "roadFrontages": subject.get("roadFrontages") or "Needs Verification",
+        "nearbyMajorRoad": subject.get("nearbyMajorRoad") or "Needs Verification",
+        "distanceToHighway": subject.get("distanceToHighway") or "Needs Verification",
+        "visualRoadAccess": subject.get("visualRoadAccess") or "Review Street View",
+        "legalAccess": subject.get("legalAccess") or "Needs Verification",
+        "source": subject.get("roadSource") or "No county road/right-of-way source connected yet.",
+        "warning": "Visual road access is not the same as verified legal access.",
+    }
+
+
+def extract_road_name_and_type(address: str) -> tuple[str, str]:
+    tokens = [token.strip(",") for token in str(address or "").split()]
+    if not tokens:
+        return "", ""
+    suffixes = {
+        "st": "Street", "street": "Street", "rd": "Road", "road": "Road", "dr": "Drive", "drive": "Drive",
+        "ln": "Lane", "lane": "Lane", "ave": "Avenue", "avenue": "Avenue", "blvd": "Boulevard",
+        "boulevard": "Boulevard", "ct": "Court", "court": "Court", "cir": "Circle", "circle": "Circle",
+        "way": "Way", "trl": "Trail", "trail": "Trail", "pkwy": "Parkway", "parkway": "Parkway",
+    }
+    start = 1 if tokens[0].isdigit() else 0
+    road_tokens: list[str] = []
+    road_type = ""
+    for token in tokens[start:]:
+        clean = token.lower().strip(".,")
+        road_tokens.append(token.strip(","))
+        if clean in suffixes:
+            road_type = suffixes[clean]
+            break
+    return " ".join(road_tokens).strip(), road_type
+
+
+def build_layer_controls(transactions: list[dict[str, Any]], subject_parcel: dict[str, Any]) -> list[dict[str, Any]]:
+    has_sales = bool(transactions)
+    has_cash = any(item.get("cashSale") for item in transactions)
+    has_builders = any(str(item.get("buyerType") or "").lower() == "builder" for item in transactions)
+    repeated_buyers = repeated_buyer_count(transactions) > 0
+    return [
+        {
+            "group": "Property",
+            "layers": [
+                {"id": "subjectParcel", "label": "Subject Parcel", "available": subject_parcel.get("boundaryType") == "verified", "active": True},
+                {"id": "parcelBoundaries", "label": "Parcel Boundaries", "available": False, "active": False},
+            ],
+        },
+        {
+            "group": "Market",
+            "layers": [
+                {"id": "recordedSales", "label": "Recorded Sales", "available": has_sales, "active": True},
+                {"id": "cashPurchases", "label": "Cash Purchases", "available": has_cash, "active": True},
+                {"id": "builders", "label": "Builders", "available": has_builders, "active": True},
+                {"id": "repeatBuyers", "label": "Repeat Buyers", "available": repeated_buyers, "active": True},
+            ],
+        },
+        {
+            "group": "Property Conditions",
+            "layers": [
+                {"id": "flood", "label": "Flood", "available": False, "active": False},
+                {"id": "zoning", "label": "Zoning", "available": False, "active": False},
+                {"id": "utilities", "label": "Utilities", "available": False, "active": False},
+            ],
+        },
+        {
+            "group": "Future",
+            "layers": [
+                {"id": "permits", "label": "Permits", "available": False, "active": False},
+                {"id": "construction", "label": "Construction", "available": False, "active": False},
+                {"id": "ownershipChanges", "label": "Ownership Changes", "available": False, "active": False},
+            ],
+        },
+    ]
+
+
+def repeated_buyer_count(transactions: list[dict[str, Any]]) -> int:
+    counts: dict[str, int] = {}
+    for transaction in transactions:
+        key = normalize_entity_name(transaction.get("buyerName"))
+        if key:
+            counts[key] = counts.get(key, 0) + 1
+    return len([count for count in counts.values() if count >= 2])
+
+
+def build_transaction_parcel_overlay(transaction: dict[str, Any], marker_type: str) -> dict[str, Any]:
+    boundary = clean_boundary_points(transaction.get("parcelBoundary") or transaction.get("geometry") or transaction.get("parcelGeometry"))
+    if boundary:
+        return {
+            "displayMode": "parcel_polygon",
+            "boundary": boundary,
+            "geometryStatus": "verified",
+            "geometrySource": transaction.get("geometrySource") or transaction.get("sourceName") or transaction.get("source") or "provider",
+            "fillColor": marker_type,
+        }
+    return {
+        "displayMode": "marker_only",
+        "boundary": [],
+        "geometryStatus": "unavailable",
+        "geometrySource": "missing",
+        "message": "Recent sale is shown as a marker because verified parcel geometry is unavailable.",
+        "fillColor": marker_type,
+    }
+
+
+def build_transaction_provenance(transaction: dict[str, Any]) -> dict[str, Any]:
+    raw_metadata = transaction.get("rawSourceMetadata") if isinstance(transaction.get("rawSourceMetadata"), dict) else {}
+    return {
+        "provider": transaction.get("source") or raw_metadata.get("provider") or "unknown",
+        "sourceName": transaction.get("sourceName") or raw_metadata.get("sourceName") or "Unknown source",
+        "sourceRecordId": transaction.get("sourceRecordId") or raw_metadata.get("sourceRecordId") or transaction.get("id") or "",
+        "apn": transaction.get("apn") or transaction.get("parcelId") or "",
+        "retrievedAt": transaction.get("sourceLastRefreshed") or raw_metadata.get("retrievedAt") or "",
+        "saleDate": transaction.get("saleDate") or "",
+        "confidence": transaction.get("confidence") or 0,
+        "verificationStatus": transaction.get("dataQuality") or ("verified" if transaction.get("verified") else "estimated"),
+        "geometrySource": transaction.get("geometrySource") or "missing",
+        "sourceUrl": transaction.get("sourceUrl") or raw_metadata.get("sourceUrl") or raw_metadata.get("url") or "",
+    }
+
+
+def classify_transaction_kind(transaction: dict[str, Any], marker_type: str) -> str:
+    if marker_type == "unknown_estimated":
+        return "Incomplete / Unverified"
+    if marker_type == "repeat_buyer":
+        return "Repeat Buyer Purchase"
+    if marker_type == "builder_purchase":
+        return "Builder Purchase"
+    if transaction.get("cashSale"):
+        return "Cash Purchase"
+    return "Recorded Sale"
+
+
+def transaction_recency(transaction: dict[str, Any]) -> dict[str, Any]:
+    sale_date = parse_iso_date(transaction.get("saleDate"))
+    if not sale_date:
+        return {"bucket": "missing", "label": "Date missing", "weight": 0.25, "opacity": 0.42}
+    days_old = (datetime.now(timezone.utc).date() - sale_date).days
+    if days_old <= 30:
+        return {"bucket": "fresh", "label": "0-30 Days", "weight": 1.0, "opacity": 1.0}
+    if days_old <= 90:
+        return {"bucket": "active", "label": "31-90 Days", "weight": 0.85, "opacity": 0.88}
+    if days_old <= 180:
+        return {"bucket": "recent", "label": "91-180 Days", "weight": 0.68, "opacity": 0.72}
+    if days_old <= 365:
+        return {"bucket": "older", "label": "181-365 Days", "weight": 0.48, "opacity": 0.56}
+    return {"bucket": "historic", "label": "1-3 Years", "weight": 0.28, "opacity": 0.38}
+
+
+def parse_iso_date(value: Any):
+    try:
+        return datetime.fromisoformat(str(value or "")[:10]).date()
+    except ValueError:
+        return None
+
+
+def purchase_age_legend() -> list[dict[str, Any]]:
+    return [
+        {"bucket": "fresh", "label": "0-30 Days", "intensity": "Strong / bright"},
+        {"bucket": "active", "label": "31-90 Days", "intensity": "Normal"},
+        {"bucket": "recent", "label": "91-180 Days", "intensity": "Muted"},
+        {"bucket": "older", "label": "181-365 Days", "intensity": "Faded"},
+        {"bucket": "historic", "label": "1-3 Years", "intensity": "Very subtle"},
+    ]
+
+
+def build_market_activity_summary(transactions: list[dict[str, Any]], buyer_footprints: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    builder_count = len([item for item in transactions if str(item.get("buyerType") or "").lower() == "builder"])
+    cash_count = len([item for item in transactions if item.get("cashSale")])
+    repeat_count = repeated_buyer_count(transactions)
+    most_active = most_active_buyer(buyer_footprints)
+    return {
+        "recordedPurchaseCount": len(transactions),
+        "recent180Count": count_recent_transactions(transactions, 180),
+        "cashPurchaseCount": cash_count,
+        "builderPurchaseCount": builder_count,
+        "repeatBuyerCount": repeat_count,
+        "mostActiveBuyer": most_active.get("entityName") or "None yet",
+        "mostActiveBuyerPurchases": most_active.get("transactionCount") or 0,
+        "latestNearbyAcquisition": max_sale_date(transactions) or "",
+        "summary": build_market_activity_sentence(transactions, buyer_footprints, builder_count, repeat_count, most_active),
+    }
+
+
+def most_active_buyer(buyer_footprints: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    if not buyer_footprints:
+        return {}
+    return max(buyer_footprints.values(), key=lambda item: safe_float(item.get("transactionCount"), 0))
+
+
+def build_market_activity_sentence(
+    transactions: list[dict[str, Any]],
+    buyer_footprints: dict[str, dict[str, Any]],
+    builder_count: int,
+    repeat_count: int,
+    most_active: dict[str, Any],
+) -> str:
+    if not transactions:
+        return "No verified nearby purchases are loaded yet. Import Dallas transaction data or refresh the provider."
+    return (
+        f"{len(transactions)} recorded purchase signals are visible in this window. "
+        f"LEGACY detected {repeat_count} repeat buyer group{'s' if repeat_count != 1 else ''} "
+        f"and {builder_count} builder purchase signal{'s' if builder_count != 1 else ''}. "
+        f"Most active buyer: {most_active.get('entityName') or 'none yet'}."
+    )
 
 
 def build_buyer_highlights(buyer_footprints: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
@@ -457,10 +736,11 @@ def build_property_subject(
         "longitude": coordinates.get("lng"),
         "parcel": {
             "apn": subject.get("apn") or parcel_payload.get("apn") or "",
-            "boundary": parcel_boundary,
-            "boundaryType": "estimated",
-            "boundarySource": "Address-based estimate until county GIS geometry is connected.",
-            "confidence": 58 if parcel_boundary else 0,
+            "boundary": clean_boundary_points(parcel_payload.get("parcelBoundary") or parcel_payload.get("geometry") or parcel_payload.get("parcelGeometry")),
+            "boundaryType": "verified" if clean_boundary_points(parcel_payload.get("parcelBoundary") or parcel_payload.get("geometry") or parcel_payload.get("parcelGeometry")) else "unavailable",
+            "boundarySource": parcel_payload.get("geometrySource") or "Verified parcel boundary unavailable. LEGACY will not draw fake parcel geometry.",
+            "confidence": 88 if clean_boundary_points(parcel_payload.get("parcelBoundary") or parcel_payload.get("geometry") or parcel_payload.get("parcelGeometry")) else 0,
+            "displayMode": "parcel_polygon" if clean_boundary_points(parcel_payload.get("parcelBoundary") or parcel_payload.get("geometry") or parcel_payload.get("parcelGeometry")) else "subject_marker_only",
         },
         "apn": subject.get("apn") or parcel_payload.get("apn") or "",
         "county": subject.get("county") or parcel_payload.get("county") or "Dallas",

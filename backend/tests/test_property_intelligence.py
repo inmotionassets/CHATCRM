@@ -48,7 +48,7 @@ class PropertyIntelligenceSnapshotTests(unittest.TestCase):
         self.assertEqual(snapshot["subjectProperty"]["county"], "Dallas")
         self.assertIn("coordinates", snapshot["subjectProperty"])
 
-    def test_property_snapshot_includes_parcel_outline_and_map_contract(self):
+    def test_property_snapshot_uses_marker_until_verified_parcel_geometry_exists(self):
         snapshot = self.service.build_property_snapshot(
             self.lead,
             self.parcel,
@@ -57,8 +57,9 @@ class PropertyIntelligenceSnapshotTests(unittest.TestCase):
         )
         subject_parcel = snapshot["marketIntelligence"]["map"]["subjectParcel"]
 
-        self.assertEqual(subject_parcel["boundaryType"], "estimated")
-        self.assertEqual(len(subject_parcel["boundary"]), 4)
+        self.assertEqual(subject_parcel["boundaryType"], "unavailable")
+        self.assertEqual(subject_parcel["displayMode"], "subject_marker_only")
+        self.assertEqual(len(subject_parcel["boundary"]), 0)
         self.assertEqual(snapshot["marketIntelligence"]["map"]["subjectMarker"]["color"], "gold")
         self.assertTrue(snapshot["transactions"])
 

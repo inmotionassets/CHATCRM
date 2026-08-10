@@ -5,9 +5,16 @@ const apiBaseUrl =
   (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1"
     ? "http://127.0.0.1:8001"
     : "https://chatcrm.onrender.com");
+const googleMapsEmbedApiKey = import.meta.env.VITE_GOOGLE_MAPS_EMBED_API_KEY || import.meta.env.VITE_GOOGLE_MAPS_API_KEY || "";
 
 const radiusOptions = [1, 3, 5, 10, 25];
-const soldDateOptions = [30, 90, 180, 365];
+const soldDateOptions = [30, 90, 180, 365, 1095];
+const baseMapModes = [
+  { label: "Road", value: "road" },
+  { label: "Satellite", value: "satellite" },
+  { label: "Hybrid", value: "hybrid" },
+  { label: "Street", value: "street" }
+];
 const buyerTypeOptions = [
   { label: "All Buyers", value: "" },
   { label: "Builders", value: "builder" },
@@ -27,7 +34,7 @@ export function DispositionIntelligenceView({ authToken, currentUser, leads }) {
   const [selectedLeadId, setSelectedLeadId] = React.useState("");
   const [filters, setFilters] = React.useState({
     radiusMiles: 5,
-    soldWithinDays: 365,
+    soldWithinDays: 180,
     vacantLandOnly: false,
     cashOnly: false,
     buyerType: "",
@@ -39,12 +46,30 @@ export function DispositionIntelligenceView({ authToken, currentUser, leads }) {
     repeatBuyers: false,
     entityPurchases: false
   });
+  const [mapMode, setMapMode] = React.useState("road");
+  const [layerVisibility, setLayerVisibility] = React.useState({
+    subjectParcel: true,
+    parcelBoundaries: false,
+    recordedSales: true,
+    cashPurchases: true,
+    builders: true,
+    repeatBuyers: true,
+    flood: false,
+    zoning: false,
+    utilities: false,
+    permits: false,
+    construction: false,
+    ownershipChanges: false
+  });
   const [workspace, setWorkspace] = React.useState(null);
   const [selectedSaleId, setSelectedSaleId] = React.useState("");
   const [selectedBuyerKey, setSelectedBuyerKey] = React.useState("");
   const [selectedIntelReason, setSelectedIntelReason] = React.useState(null);
   const [message, setMessage] = React.useState("Loading Disposition Intelligence...");
   const [sourceMessage, setSourceMessage] = React.useState("");
+  const [contactMessage, setContactMessage] = React.useState("");
+  const [buyerContactSnapshot, setBuyerContactSnapshot] = React.useState(null);
+  const [buyerProfileOpen, setBuyerProfileOpen] = React.useState(false);
   const [isRefreshing, setIsRefreshing] = React.useState(false);
   const [isUploading, setIsUploading] = React.useState(false);
   const csvInputRef = React.useRef(null);
@@ -64,6 +89,15 @@ export function DispositionIntelligenceView({ authToken, currentUser, leads }) {
     workspace?.buyerFootprints?.[selectedBuyerKey] ||
     workspace?.buyerFootprints?.[normalizeBuyerKey(selectedSale?.buyerName)] ||
     null;
+  const selectedBuyerMatch = React.useMemo(() => {
+    const buyerKey = selectedBuyerKey || normalizeBuyerKey(selectedSale?.buyerName);
+    return (workspace?.buyerMatches || []).find((match) => match.normalizedBuyerName === buyerKey) || null;
+  }, [workspace?.buyerMatches, selectedBuyerKey, selectedSale?.buyerName]);
+  const buyerContactEntity = React.useMemo(
+    () => buildBuyerContactEntity(selectedBuyerMatch, selectedSale, selectedBuyerFootprint, selectedBuyerKey),
+    [selectedBuyerMatch, selectedSale, selectedBuyerFootprint, selectedBuyerKey]
+  );
+  const buyerContactKey = buyerContactEntity?.cacheKey || "";
   const marketMap = workspace?.marketIntelligence?.map || {};
 
   React.useEffect(() => {
@@ -114,6 +148,36 @@ export function DispositionIntelligenceView({ authToken, currentUser, leads }) {
     filters.provider
   ]);
 
+  React.useEffect(() => {
+    let cancelled = false;
+
+    async function loadBuyerContactIntelligence() {
+      if (!authToken || !buyerContactEntity?.entityName) {
+        setBuyerContactSnapshot(null);
+        setContactMessage("");
+        return;
+      }
+
+      setContactMessage("Loading Contact Intelligence...");
+      try {
+        const snapshot = await fetchContactEntitySnapshot(buyerContactEntity, authToken);
+        if (cancelled) return;
+        setBuyerContactSnapshot(snapshot);
+        setContactMessage("");
+      } catch (error) {
+        if (!cancelled) {
+          setBuyerContactSnapshot(null);
+          setContactMessage(error.message || "Contact Intelligence is not ready for this buyer yet.");
+        }
+      }
+    }
+
+    loadBuyerContactIntelligence();
+    return () => {
+      cancelled = true;
+    };
+  }, [authToken, buyerContactKey]);
+
   function updateFilter(field, value) {
     setFilters((current) => ({ ...current, [field]: value }));
   }
@@ -122,8 +186,37 @@ export function DispositionIntelligenceView({ authToken, currentUser, leads }) {
     setMapFilters((current) => ({ ...current, [field]: value }));
   }
 
+  function toggleMapLayer(layerId, available = true) {
+    if (!available) return;
+    setLayerVisibility((current) => ({ ...current, [layerId]: !current[layerId] }));
+  }
+
   function clearBuyerHighlight() {
     setSelectedBuyerKey("");
+    setBuyerProfileOpen(false);
+  }
+
+  function openBuyerProfile(buyerKey = selectedBuyerKey) {
+    const cleanBuyerKey = buyerKey || normalizeBuyerKey(selectedSale?.buyerName);
+    if (!cleanBuyerKey) return;
+    setSelectedBuyerKey(cleanBuyerKey);
+    setBuyerProfileOpen(true);
+  }
+
+  function closeBuyerProfile() {
+    setBuyerProfileOpen(false);
+  }
+
+  async function refreshBuyerContactProfile() {
+    if (!authToken || !buyerContactEntity?.entityName) return;
+    setContactMessage("Refreshing Contact Intelligence...");
+    try {
+      const snapshot = await fetchContactEntitySnapshot(buyerContactEntity, authToken);
+      setBuyerContactSnapshot(snapshot);
+      setContactMessage("Contact profile refreshed.");
+    } catch (error) {
+      setContactMessage(error.message || "Could not refresh Contact Intelligence yet.");
+    }
   }
 
   async function reloadWorkspace(nextMessage = "Loading market intelligence...", nextFilters = filters) {
@@ -231,13 +324,18 @@ export function DispositionIntelligenceView({ authToken, currentUser, leads }) {
           <section className="market-map-layout">
             <BuyerActivityMap
               filters={workspace.filters}
+              layerVisibility={layerVisibility}
               mapFilters={mapFilters}
+              mapMode={mapMode}
               mapSnapshot={marketMap}
               onClearBuyerHighlight={clearBuyerHighlight}
+              onOpenBuyerProfile={openBuyerProfile}
               onSelectBuyer={setSelectedBuyerKey}
               onSelectSale={setSelectedSaleId}
+              onToggleLayer={toggleMapLayer}
               onUpdateFilter={updateFilter}
               onUpdateMapFilter={updateMapFilter}
+              onUpdateMapMode={setMapMode}
               selectedBuyerFootprint={selectedBuyerFootprint}
               selectedBuyerKey={selectedBuyerKey}
               selectedSale={selectedSale}
@@ -247,9 +345,17 @@ export function DispositionIntelligenceView({ authToken, currentUser, leads }) {
             <aside className="market-side-rail">
               <RankedBuyerMatches
                 matches={workspace.buyerMatches}
+                onOpenBuyerProfile={openBuyerProfile}
                 onSelectBuyer={setSelectedBuyerKey}
                 onSelectReason={setSelectedIntelReason}
                 selectedBuyerKey={selectedBuyerKey}
+              />
+              <BuyerContactIntelligencePanel
+                entity={buyerContactEntity}
+                message={contactMessage}
+                onOpenProfile={() => openBuyerProfile()}
+                onRefresh={refreshBuyerContactProfile}
+                snapshot={buyerContactSnapshot}
               />
               <BuyerFootprintDrawer footprint={selectedBuyerFootprint} highlight={marketMap.buyerHighlights?.[selectedBuyerKey]} />
             </aside>
@@ -258,10 +364,23 @@ export function DispositionIntelligenceView({ authToken, currentUser, leads }) {
           <DealIntelligenceCards items={workspace.dealIntelligenceSummary || []} />
 
           <section className="disposition-support-grid">
-            <SubjectPropertyPanel readiness={workspace.readiness} subject={workspace.subject} />
+            <SubjectPropertyPanel dealStatus={selectedLead?.stage || "New Lead"} readiness={workspace.readiness} subject={workspace.subject} />
             <DispositionOverview overview={workspace.overview} />
           </section>
         </>
+      ) : null}
+
+      {buyerProfileOpen ? (
+        <BuyerProfileDrawer
+          contactMessage={contactMessage}
+          entity={buyerContactEntity}
+          footprint={selectedBuyerFootprint}
+          match={selectedBuyerMatch}
+          onClose={closeBuyerProfile}
+          onRefresh={refreshBuyerContactProfile}
+          sale={selectedSale}
+          snapshot={buyerContactSnapshot}
+        />
       ) : null}
     </div>
   );
@@ -367,7 +486,12 @@ function DispositionOverview({ overview }) {
   );
 }
 
-function SubjectPropertyPanel({ readiness, subject }) {
+function SubjectPropertyPanel({ dealStatus = "New Lead", readiness, subject }) {
+  const isContractedDeal = isActiveContractStatus(dealStatus);
+  const contractValue = isContractedDeal ? formatMoney(subject.contractPrice) : "Not under contract";
+  const targetValue = isContractedDeal ? formatMoney(subject.targetAssignmentPrice) : "Set after contract";
+  const assignmentValue = isContractedDeal ? formatMoney(subject.projectedSpread) : "Pending";
+
   return (
     <section className="disposition-panel subject-panel">
       <div>
@@ -379,9 +503,10 @@ function SubjectPropertyPanel({ readiness, subject }) {
       <div className="subject-detail-grid">
         <DispositionMetric label="APN" value={subject.apn || "Missing"} />
         <DispositionMetric label="Acreage" value={subject.acreage || "Missing"} />
-        <DispositionMetric label="Contract" value={formatMoney(subject.contractPrice)} />
-        <DispositionMetric label="Target" value={formatMoney(subject.targetAssignmentPrice)} />
-        <DispositionMetric label="Spread" value={formatMoney(subject.projectedSpread)} />
+        <DispositionMetric label="Contract Price" value={contractValue} />
+        <DispositionMetric label="Buyer Target" value={targetValue} />
+        <DispositionMetric label="Est. Assignment Fee" value={assignmentValue} />
+        <DispositionMetric label="Deal Status" value={dealStatus || "New Lead"} />
         <DispositionMetric label="Utilities" value={subject.utilities || "Unknown"} />
       </div>
 
@@ -400,13 +525,18 @@ function SubjectPropertyPanel({ readiness, subject }) {
 
 function BuyerActivityMap({
   filters,
+  layerVisibility,
   mapFilters,
+  mapMode,
   mapSnapshot,
   onClearBuyerHighlight,
+  onOpenBuyerProfile,
   onSelectBuyer,
   onSelectSale,
+  onToggleLayer,
   onUpdateFilter,
   onUpdateMapFilter,
+  onUpdateMapMode,
   selectedBuyerFootprint,
   selectedBuyerKey,
   selectedSale,
@@ -417,30 +547,42 @@ function BuyerActivityMap({
     transaction,
     position: markerPosition(transaction, subject, filters.radiusMiles)
   }));
+  const visibleMarkerRecords = markerRecords.filter(({ transaction }) => isTransactionLayerVisible(transaction, layerVisibility));
   const connectorRecords = selectedBuyerKey
-    ? markerRecords
+    ? visibleMarkerRecords
         .filter((record) => normalizeBuyerKey(record.transaction.buyerName) === selectedBuyerKey)
         .sort((a, b) => String(a.transaction.saleDate || "").localeCompare(String(b.transaction.saleDate || "")))
     : [];
   const highlight = selectedBuyerKey ? mapSnapshot?.buyerHighlights?.[selectedBuyerKey] : null;
+  const subjectParcel = mapSnapshot?.subjectParcel || {};
+  const roadIntelligence = mapSnapshot?.roadIntelligence || {};
+  const marketActivity = mapSnapshot?.marketActivitySummary || {};
 
   return (
     <section className="disposition-panel activity-map-panel market-map-panel">
       <div className="map-heading market-map-heading">
         <div>
           <p className="eyebrow">Market Intelligence Map</p>
-          <h3>{transactions.length} visible market signals</h3>
+          <h3>{visibleMarkerRecords.length} recently purchased parcels</h3>
         </div>
-        <small>{filters.radiusMiles} mile radius / {filters.soldWithinDays} days</small>
+        <small>{filters.radiusMiles} mile radius / {formatTimelineLabel(filters.soldWithinDays)}</small>
       </div>
 
       <MarketMapControls
         filters={filters}
+        layerControls={mapSnapshot?.layerControls || []}
+        layerVisibility={layerVisibility}
         mapFilters={mapFilters}
+        mapMode={mapMode}
         mapSnapshot={mapSnapshot}
+        onToggleLayer={onToggleLayer}
         onUpdateFilter={onUpdateFilter}
         onUpdateMapFilter={onUpdateMapFilter}
+        onUpdateMapMode={onUpdateMapMode}
       />
+
+      <MapTruthStrip activity={marketActivity} dataProvenance={mapSnapshot?.dataProvenance} subject={subject} subjectParcel={subjectParcel} />
+      <RoadIntelligenceCard road={roadIntelligence} />
 
       {selectedBuyerKey ? (
         <div className="buyer-highlight-strip">
@@ -452,7 +594,8 @@ function BuyerActivityMap({
         </div>
       ) : null}
 
-      <div className="buyer-activity-map premium-market-map" aria-label="Market intelligence map">
+      <div className={`buyer-activity-map premium-market-map map-mode-${mapMode} ${googleMapsEmbedApiKey ? "has-google-basemap" : "no-google-basemap"}`} aria-label="Market intelligence map">
+        <GoogleBaseMapLayer mapMode={mapMode} selectedSale={selectedSale} subject={subject} />
         <div className="map-grid-lines" />
         <div className="market-map-rings">
           <span className="ring ring-one" />
@@ -473,25 +616,28 @@ function BuyerActivityMap({
             );
           })}
         </svg>
-        <button className="map-marker subject-marker" style={{ left: "50%", top: "50%" }} type="button">
-          Deal
-        </button>
+        {layerVisibility.subjectParcel ? (
+          <button className="map-marker subject-marker" style={{ left: "50%", top: "50%" }} type="button">
+            Deal
+          </button>
+        ) : null}
         <div className="map-center-card">
-          <span>Under Contract</span>
+          <span>{subjectParcel.boundaryType === "verified" ? "Verified Parcel" : "Subject Marker"}</span>
           <strong>{subject.address}</strong>
+          <small>{subjectParcel.message || "Verified parcel boundary unavailable."}</small>
         </div>
-        {markerRecords.map(({ transaction, position }) => {
+        {visibleMarkerRecords.map(({ transaction, position }) => {
           const markerType = mapMarkerType(transaction);
           return (
             <button
-              className={`map-marker ${markerClass(markerType)} ${selectedSale?.id === transaction.id ? "active" : ""}`}
+              className={`map-marker ${markerClass(markerType)} ${purchaseAgeClass(transaction)} ${selectedSale?.id === transaction.id ? "active" : ""}`}
               key={transaction.id}
               onClick={() => {
                 onSelectSale(transaction.id);
                 onSelectBuyer?.(normalizeBuyerKey(transaction.buyerName));
               }}
-              style={{ left: `${position.left}%`, top: `${position.top}%` }}
-              title={`${transaction.buyerName || "Unknown buyer"} / ${formatMoney(transaction.salePrice)}`}
+              style={{ left: `${position.left}%`, top: `${position.top}%`, "--marker-opacity": transaction.visualOpacity ?? 1 }}
+              title={`${transaction.buyerName || "Unknown buyer"} / ${formatMoney(transaction.salePrice)} / ${transaction.purchaseAgeLabel || "age unknown"}`}
               type="button"
             >
               {markerLabel(markerType)}
@@ -501,10 +647,19 @@ function BuyerActivityMap({
       </div>
 
       <MapLegend legend={mapSnapshot?.markerLegend || []} />
+      <PurchaseAgeLegend items={mapSnapshot?.purchaseAgeLegend || []} />
       <FutureLayerStrip layers={mapSnapshot?.futureLayers || []} />
 
       {selectedSale ? (
-        <SaleMarkerDrawer sale={selectedSale} onSelectBuyer={onSelectBuyer} />
+        <SaleMarkerDrawer
+          onOpenBuyerProfile={onOpenBuyerProfile}
+          onSelectBuyer={onSelectBuyer}
+          onViewStreet={(sale) => {
+            onSelectSale(sale.id);
+            onUpdateMapMode("street");
+          }}
+          sale={selectedSale}
+        />
       ) : (
         <div className="mini-empty"><p>No nearby sales found for these filters.</p></div>
       )}
@@ -512,10 +667,37 @@ function BuyerActivityMap({
   );
 }
 
-function MarketMapControls({ filters, mapFilters, mapSnapshot, onUpdateFilter, onUpdateMapFilter }) {
+function MarketMapControls({
+  filters,
+  layerControls,
+  layerVisibility,
+  mapFilters,
+  mapMode,
+  mapSnapshot,
+  onToggleLayer,
+  onUpdateFilter,
+  onUpdateMapFilter,
+  onUpdateMapMode
+}) {
   const timeline = mapSnapshot?.timeline || {};
   return (
-    <div className="market-map-controls">
+    <div className="market-map-controls upgraded-map-controls">
+      <div className="segmented-filter base-map-mode-control">
+        <span>Base Map</span>
+        <div>
+          {baseMapModes.map((mode) => (
+            <button
+              className={mapMode === mode.value ? "active" : ""}
+              key={mode.value}
+              onClick={() => onUpdateMapMode(mode.value)}
+              type="button"
+            >
+              {mode.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
       <div className="segmented-filter">
         <span>Radius</span>
         <div>
@@ -534,14 +716,14 @@ function MarketMapControls({ filters, mapFilters, mapSnapshot, onUpdateFilter, o
 
       <div className="timeline-control">
         <div>
-          <span>Timeline</span>
-          <strong>{filters.soldWithinDays} days</strong>
+          <span>Recently Purchased</span>
+          <strong>{formatTimelineLabel(filters.soldWithinDays)}</strong>
         </div>
         <input
           aria-label="Transaction timeline"
           max={soldDateOptions.length - 1}
           min="0"
-          onChange={(event) => onUpdateFilter("soldWithinDays", soldDateOptions[Number(event.target.value)] || 365)}
+          onChange={(event) => onUpdateFilter("soldWithinDays", soldDateOptions[Number(event.target.value)] || 180)}
           step="1"
           type="range"
           value={Math.max(0, soldDateOptions.indexOf(filters.soldWithinDays))}
@@ -576,6 +758,109 @@ function MarketMapControls({ filters, mapFilters, mapSnapshot, onUpdateFilter, o
           Entity Purchases
         </label>
       </div>
+
+      <LayerControlMenu controls={layerControls} layerVisibility={layerVisibility} onToggleLayer={onToggleLayer} />
+    </div>
+  );
+}
+
+function LayerControlMenu({ controls, layerVisibility, onToggleLayer }) {
+  if (!controls?.length) return null;
+  return (
+    <div className="layer-control-menu">
+      <span>Layers</span>
+      {controls.map((group) => (
+        <div className="layer-control-group" key={group.group}>
+          <strong>{group.group}</strong>
+          {(group.layers || []).map((layer) => (
+            <button
+              className={`${layer.available ? "" : "disabled"} ${layerVisibility[layer.id] ? "active" : ""}`}
+              disabled={!layer.available}
+              key={layer.id}
+              onClick={() => onToggleLayer(layer.id, layer.available)}
+              type="button"
+            >
+              <i />
+              {layer.label}
+            </button>
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function MapTruthStrip({ activity, dataProvenance, subject, subjectParcel }) {
+  return (
+    <div className="map-truth-strip">
+      <div>
+        <span>Primary Layer</span>
+        <strong>Recently Purchased</strong>
+        <p>{activity?.summary || "Load market activity to see recent buyers around this property."}</p>
+      </div>
+      <div>
+        <span>Subject Parcel</span>
+        <strong>{subjectParcel?.boundaryType === "verified" ? "Verified boundary" : "Marker only"}</strong>
+        <p>{subjectParcel?.message || "Verified parcel boundary unavailable."}</p>
+      </div>
+      <div>
+        <span>Location Source</span>
+        <strong>{humanizeLabel(subject?.coordinateSource || "address_seed_estimate")}</strong>
+        <p>{subject?.coordinateSource === "lead_record" ? "Coordinates came from lead/provider data." : "Google can map the address; overlay precision improves after verified coordinates/GIS."}</p>
+      </div>
+      <div>
+        <span>Provider</span>
+        <strong>{dataProvenance?.sourceName || "Source pending"}</strong>
+        <p>{dataProvenance?.truthStandard || "Every insight should keep its source visible."}</p>
+      </div>
+    </div>
+  );
+}
+
+function RoadIntelligenceCard({ road }) {
+  if (!road) return null;
+  return (
+    <div className="road-intelligence-card">
+      <div>
+        <p className="eyebrow">Road Intelligence</p>
+        <h4>{road.roadName || "Road needs review"}</h4>
+        <small>{road.warning}</small>
+      </div>
+      <div className="road-intelligence-grid">
+        <DispositionMetric label="Road Type" value={road.roadType || "Unknown"} />
+        <DispositionMetric label="Paved" value={road.pavedStatus || "Needs Verification"} />
+        <DispositionMetric label="Public / Private" value={road.publicPrivate || "Needs Verification"} />
+        <DispositionMetric label="Frontage" value={road.estimatedFrontage || "Needs Verification"} />
+        <DispositionMetric label="Visual Access" value={road.visualRoadAccess || "Review Street View"} />
+        <DispositionMetric label="Legal Access" value={road.legalAccess || "Needs Verification"} />
+      </div>
+    </div>
+  );
+}
+
+function GoogleBaseMapLayer({ mapMode, selectedSale, subject }) {
+  if (!googleMapsEmbedApiKey) {
+    return (
+      <div className="map-basemap-placeholder">
+        <strong>Google basemap needs key</strong>
+        <span>Add VITE_GOOGLE_MAPS_API_KEY to unlock road, satellite, hybrid, and Street View inside this map.</span>
+      </div>
+    );
+  }
+
+  const target = mapMode === "street" && selectedSale?.address ? selectedSale : subject;
+  const src = buildDispositionGoogleMapEmbedUrl(target, mapMode);
+  return <iframe className="google-basemap-frame" loading="lazy" referrerPolicy="no-referrer-when-downgrade" src={src} title={`${mapMode} map for ${target?.address || subject?.address || "property"}`} />;
+}
+
+function PurchaseAgeLegend({ items }) {
+  if (!items?.length) return null;
+  return (
+    <div className="purchase-age-legend">
+      <span>Purchase Age</span>
+      {items.map((item) => (
+        <small className={`age-${item.bucket}`} key={item.bucket}>{item.label}: {item.intensity}</small>
+      ))}
     </div>
   );
 }
@@ -609,7 +894,7 @@ function FutureLayerStrip({ layers }) {
   );
 }
 
-function SaleMarkerDrawer({ sale, onSelectBuyer }) {
+function SaleMarkerDrawer({ sale, onOpenBuyerProfile, onSelectBuyer, onViewStreet }) {
   const buyerKey = normalizeBuyerKey(sale.buyerName);
   return (
     <article className="sale-drawer market-sale-drawer">
@@ -636,20 +921,45 @@ function SaleMarkerDrawer({ sale, onSelectBuyer }) {
         <DispositionMetric label="Source" value={sale.sourceName || sale.source || "Unknown"} />
         <DispositionMetric label="Confidence" value={`${sale.confidence || 0}%`} />
         <DispositionMetric label="Property Type" value={sale.propertyType || "Unknown"} />
+        <DispositionMetric label="Age" value={sale.purchaseAgeLabel || "Unknown"} />
+        <DispositionMetric label="Record Type" value={sale.transactionKind || "Recorded Sale"} />
       </div>
       <p className="subtle-copy">{sale.buyerMailingAddress || "Buyer mailing address missing"}</p>
-      <p className="subtle-copy">{sale.sourceLastRefreshed ? `Source refreshed ${formatTimestamp(sale.sourceLastRefreshed)}` : "Source refresh date missing"}</p>
+      <p className="subtle-copy">{sale.parcelOverlay?.message || "Parcel geometry is available only when a provider supplies verified boundaries."}</p>
+      <TransactionProvenance provenance={sale.dataProvenance} />
       <div className="sale-actions">
-        <button onClick={() => onSelectBuyer?.(buyerKey)} type="button">View Buyer</button>
+        <button onClick={() => onOpenBuyerProfile?.(buyerKey)} type="button">View Buyer Profile</button>
         <button onClick={() => onSelectBuyer?.(buyerKey)} type="button">Highlight Holdings</button>
         <button type="button">Match To Deal</button>
-        <button disabled type="button">Skip Trace</button>
+        <button onClick={() => onOpenBuyerProfile?.(buyerKey)} type="button">Contact Intelligence</button>
+        <button onClick={() => onViewStreet?.(sale)} type="button">View Street</button>
+        {sale.dataProvenance?.sourceUrl ? (
+          <a href={safeExternalUrl(sale.dataProvenance.sourceUrl)} rel="noreferrer" target="_blank">Open Transaction Evidence</a>
+        ) : (
+          <button disabled type="button">Evidence Link Pending</button>
+        )}
       </div>
     </article>
   );
 }
 
-function RankedBuyerMatches({ matches, onSelectBuyer, onSelectReason, selectedBuyerKey }) {
+function TransactionProvenance({ provenance = {} }) {
+  return (
+    <details className="transaction-provenance">
+      <summary>Why do we believe this?</summary>
+      <div className="transaction-provenance-grid">
+        <DispositionMetric label="Provider" value={provenance.provider || "Unknown"} />
+        <DispositionMetric label="Source" value={provenance.sourceName || "Unknown"} />
+        <DispositionMetric label="Record ID" value={provenance.sourceRecordId || "Missing"} />
+        <DispositionMetric label="APN" value={provenance.apn || "Missing"} />
+        <DispositionMetric label="Verified" value={humanizeLabel(provenance.verificationStatus || "estimated")} />
+        <DispositionMetric label="Geometry" value={humanizeLabel(provenance.geometrySource || "missing")} />
+      </div>
+    </details>
+  );
+}
+
+function RankedBuyerMatches({ matches, onOpenBuyerProfile, onSelectBuyer, onSelectReason, selectedBuyerKey }) {
   return (
     <section className="disposition-panel ranked-buyers-panel">
       <div>
@@ -675,6 +985,26 @@ function RankedBuyerMatches({ matches, onSelectBuyer, onSelectReason, selectedBu
                   <span key={label}>{humanizeLabel(label)} {value}</span>
                 ))}
               </div>
+              <div className="ranked-buyer-actions">
+                <button
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onOpenBuyerProfile?.(match.normalizedBuyerName);
+                  }}
+                  type="button"
+                >
+                  Open Profile
+                </button>
+                <button
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onSelectBuyer?.(match.normalizedBuyerName);
+                  }}
+                  type="button"
+                >
+                  Highlight
+                </button>
+              </div>
               <div className="reason-list clickable-reasons compact-reasons">
                 {(match.reasons || []).slice(0, 5).map((reason) => (
                   <button
@@ -696,6 +1026,178 @@ function RankedBuyerMatches({ matches, onSelectBuyer, onSelectReason, selectedBu
         <div className="mini-empty"><p>No ranked buyers found for these filters.</p></div>
       )}
     </section>
+  );
+}
+
+function BuyerContactIntelligencePanel({ entity, message, onOpenProfile, onRefresh, snapshot }) {
+  const contacts = Array.isArray(snapshot?.contacts) ? snapshot.contacts : [];
+  const phones = contacts.filter((contact) => contact.contactType === "phone");
+  const emails = contacts.filter((contact) => contact.contactType === "email");
+  const bestContact = snapshot?.bestContact || contacts[0] || null;
+  const health = getContactHealth(snapshot, entity);
+  const sourceUrls = Array.isArray(snapshot?.sourceUrls) ? snapshot.sourceUrls : [];
+  const websiteUrl = safeExternalUrl(entity?.website);
+  const callHref = bestContact?.contactType === "phone" ? `tel:${normalizePhoneDigits(bestContact.normalizedValue || bestContact.value)}` : "";
+  const emailHref = bestContact?.contactType === "email" ? `mailto:${bestContact.normalizedValue || bestContact.value}` : "";
+
+  return (
+    <section className="disposition-panel contact-intelligence-panel">
+      <div className="contact-intelligence-heading">
+        <div>
+          <p className="eyebrow">Contact Intelligence</p>
+          <h3>{entity?.entityName || "Select a buyer"}</h3>
+          <small>Shared LEGACY contact engine for buyers, builders, LLCs, and sellers.</small>
+        </div>
+        <div className={`contact-health-pill ${health.level}`}>
+          <strong>{health.score}%</strong>
+          <span>Health</span>
+        </div>
+      </div>
+
+      {entity?.entityName ? (
+        <>
+          <div className="contact-best-card">
+            <span>Best Contact</span>
+            <strong>{bestContact ? formatContactValue(bestContact) : "No verified contact saved"}</strong>
+            <p>{bestContact ? `${humanizeLabel(bestContact.status || "unverified")} / ${bestContact.source || "Source needed"}` : snapshot?.message || message || "Public research paths are ready."}</p>
+          </div>
+
+          <div className="contact-health-grid">
+            <DispositionMetric label="Phones" value={phones.length || "None"} />
+            <DispositionMetric label="Emails" value={emails.length || "None"} />
+            <DispositionMetric label="Sources" value={sourceUrls.length || "Pending"} />
+            <DispositionMetric label="Status" value={contactHealthLabel(health)} />
+          </div>
+
+          <div className="contact-chip-list">
+            {contacts.slice(0, 5).map((contact) => (
+              <span className={contact.verifiedOwner ? "verified" : ""} key={contact.id || contact.value}>
+                {formatContactValue(contact)}
+              </span>
+            ))}
+            {!contacts.length ? <span className="needs-source">Needs enrichment</span> : null}
+          </div>
+
+          <div className="contact-actions-row">
+            <a className={!callHref ? "disabled" : ""} href={callHref || undefined}>Call</a>
+            <a className={!emailHref ? "disabled" : ""} href={emailHref || undefined}>Email</a>
+            <a className={!websiteUrl ? "disabled" : ""} href={websiteUrl || undefined} rel="noreferrer" target="_blank">Website</a>
+            <button onClick={onOpenProfile} type="button">Open Profile</button>
+            <button onClick={onRefresh} type="button">Refresh</button>
+          </div>
+
+          <div className="contact-source-list">
+            <strong>Evidence Sources</strong>
+            {sourceUrls.slice(0, 4).map((source) => (
+              <a href={safeExternalUrl(source.url)} key={source.url} rel="noreferrer" target="_blank">
+                {source.label || "Public source"}
+                <span>{source.confidence || 0}%</span>
+              </a>
+            ))}
+            {!sourceUrls.length ? <p>No public source links attached yet.</p> : null}
+          </div>
+
+          {snapshot?.needsPaidSkipTrace ? (
+            <p className="contact-limitation">Private mobile/email discovery still needs a licensed provider. LEGACY will not fake missing numbers.</p>
+          ) : null}
+        </>
+      ) : (
+        <div className="mini-empty"><p>Select a buyer or transaction to view Contact Intelligence.</p></div>
+      )}
+    </section>
+  );
+}
+
+function BuyerProfileDrawer({ contactMessage, entity, footprint, match, onClose, onRefresh, sale, snapshot }) {
+  const contacts = Array.isArray(snapshot?.contacts) ? snapshot.contacts : [];
+  const phones = contacts.filter((contact) => contact.contactType === "phone");
+  const emails = contacts.filter((contact) => contact.contactType === "email");
+  const bestContact = snapshot?.bestContact || contacts[0] || null;
+  const health = getContactHealth(snapshot, entity);
+  const callHref = bestContact?.contactType === "phone" ? `tel:${normalizePhoneDigits(bestContact.normalizedValue || bestContact.value)}` : "";
+  const textHref = bestContact?.contactType === "phone" ? `sms:${normalizePhoneDigits(bestContact.normalizedValue || bestContact.value)}` : "";
+  const emailHref = bestContact?.contactType === "email" ? `mailto:${bestContact.normalizedValue || bestContact.value}` : "";
+  const websiteUrl = safeExternalUrl(entity?.website);
+  const copyText = [
+    entity?.entityName,
+    bestContact ? `Best Contact: ${formatContactValue(bestContact)}` : "Best Contact: Not saved",
+    entity?.mailingAddress ? `Mailing: ${entity.mailingAddress}` : "",
+    websiteUrl ? `Website: ${websiteUrl}` : ""
+  ].filter(Boolean).join("\n");
+
+  return (
+    <div className="buyer-profile-backdrop" role="dialog" aria-modal="true" aria-label="Buyer contact profile">
+      <aside className="buyer-profile-drawer">
+        <header className="buyer-profile-header">
+          <div>
+            <p className="eyebrow">Buyer Profile</p>
+            <h2>{entity?.entityName || "Buyer"}</h2>
+            <p>{match?.buyerType || sale?.buyerType || entity?.entityType || "buyer"} / {match?.totalVerifiedPurchases || footprint?.verifiedPurchaseCount || 0} verified purchases</p>
+          </div>
+          <button className="buyer-profile-close" onClick={onClose} type="button">Close</button>
+        </header>
+
+        <section className="buyer-profile-hero">
+          <div className={`contact-health-pill ${health.level}`}>
+            <strong>{health.score}%</strong>
+            <span>Contact Health</span>
+          </div>
+          <div className="buyer-profile-best-contact">
+            <span>Best Contact</span>
+            <strong>{bestContact ? formatContactValue(bestContact) : "No verified contact saved"}</strong>
+            <p>{bestContact ? `${humanizeLabel(bestContact.status)} / ${bestContact.source}` : snapshot?.message || "Needs enrichment before outreach."}</p>
+          </div>
+        </section>
+
+        <div className="buyer-profile-actions">
+          <a className={!callHref ? "disabled" : ""} href={callHref || undefined}>Call</a>
+          <a className={!textHref ? "disabled" : ""} href={textHref || undefined}>Text</a>
+          <a className={!emailHref ? "disabled" : ""} href={emailHref || undefined}>Email</a>
+          <button onClick={() => copyText && navigator.clipboard?.writeText(copyText)} type="button">Copy</button>
+          <a className={!websiteUrl ? "disabled" : ""} href={websiteUrl || undefined} rel="noreferrer" target="_blank">Open Website</a>
+          <button onClick={onRefresh} type="button">Refresh Contact</button>
+        </div>
+
+        <section className="buyer-profile-grid">
+          <DispositionMetric label="Phones" value={phones.length || "None"} />
+          <DispositionMetric label="Emails" value={emails.length || "None"} />
+          <DispositionMetric label="Confidence" value={`${snapshot?.confidence || health.score || 0}%`} />
+          <DispositionMetric label="Last Verified" value={bestContact?.lastVerifiedDate || snapshot?.updatedAt ? formatTimestamp(bestContact?.lastVerifiedDate || snapshot?.updatedAt) : "Not verified"} />
+          <DispositionMetric label="Registered Agent" value={entity?.registeredAgent || "Missing"} />
+          <DispositionMetric label="Mailing Address" value={entity?.mailingAddress || "Missing"} />
+          <DispositionMetric label="Latest Purchase" value={formatShortDate(match?.latestPurchaseDate || footprint?.latestPurchaseDate || sale?.saleDate)} />
+          <DispositionMetric label="Avg Purchase" value={formatMoney(match?.averagePurchasePrice || footprint?.averagePurchasePrice || sale?.salePrice)} />
+        </section>
+
+        <section className="buyer-profile-section">
+          <h3>Verified Contacts</h3>
+          <div className="buyer-profile-contact-list">
+            {contacts.length ? contacts.map((contact) => (
+              <article key={contact.id || contact.value}>
+                <strong>{formatContactValue(contact)}</strong>
+                <span>{humanizeLabel(contact.contactType)} / {humanizeLabel(contact.status)} / {contact.sourceConfidence || 0}%</span>
+                <small>{contact.source || "Source needed"}</small>
+              </article>
+            )) : <p>No saved buyer phone or email yet. Use enrichment/provider data before outreach.</p>}
+          </div>
+        </section>
+
+        <section className="buyer-profile-section">
+          <h3>Relationship Memory</h3>
+          <div className="buyer-profile-timeline">
+            {buildBuyerRelationshipTimeline(match, footprint, sale, snapshot).map((item) => (
+              <p key={`${item.label}-${item.detail}`}><b>{item.label}</b>{item.detail}</p>
+            ))}
+          </div>
+        </section>
+
+        <section className="buyer-profile-section">
+          <h3>Evidence</h3>
+          <p>{footprint?.matchExplanation || match?.reasons?.[0] || "Buyer profile opened from Disposition market evidence."}</p>
+          {contactMessage ? <small>{contactMessage}</small> : null}
+        </section>
+      </aside>
+    </div>
   );
 }
 
@@ -773,6 +1275,26 @@ function DispositionMetric({ label, value }) {
       <strong>{value}</strong>
     </div>
   );
+}
+
+async function fetchContactEntitySnapshot(entity, token) {
+  const response = await fetch(`${apiBaseUrl}/contact-intelligence/entities/snapshot`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {})
+    },
+    body: JSON.stringify(entity)
+  });
+
+  if (response.status === 403) {
+    throw new Error("Buyer Contact Intelligence is protected for leadership.");
+  }
+  if (!response.ok) {
+    throw new Error("Contact Intelligence is not ready yet.");
+  }
+
+  return sanitizeContactSnapshot(await response.json());
 }
 
 async function refreshDispositionWorkspace(leadId, filters, token) {
@@ -859,6 +1381,197 @@ function isDispositionReadyLead(lead = {}) {
   return ["offer", "contract", "closed", "hot", "confirmed"].some((signal) => text.includes(signal));
 }
 
+function isActiveContractStatus(status = "") {
+  const cleanStatus = String(status || "").toLowerCase();
+  return cleanStatus.includes("contract") || cleanStatus.includes("closing") || cleanStatus.includes("closed") || cleanStatus.includes("funded");
+}
+
+function buildBuyerRelationshipTimeline(match, footprint, sale, snapshot) {
+  const timeline = [];
+  if (sale?.saleDate) {
+    timeline.push({ label: formatShortDate(sale.saleDate), detail: `Purchased ${sale.address || "nearby parcel"} for ${formatMoney(sale.salePrice)}.` });
+  }
+  if (match?.latestPurchaseDate && match.latestPurchaseDate !== sale?.saleDate) {
+    timeline.push({ label: formatShortDate(match.latestPurchaseDate), detail: "Latest verified nearby purchase." });
+  }
+  if (footprint?.verifiedPurchaseCount || match?.totalVerifiedPurchases) {
+    timeline.push({ label: "Buyer Activity", detail: `${footprint?.verifiedPurchaseCount || match?.totalVerifiedPurchases} verified purchases connected to this buyer.` });
+  }
+  if (snapshot?.updatedAt) {
+    timeline.push({ label: formatTimestamp(snapshot.updatedAt), detail: "Contact Intelligence snapshot refreshed." });
+  }
+  if (!timeline.length) {
+    timeline.push({ label: "No history yet", detail: "Calls, offers, assignments, and responses will build this profile over time." });
+  }
+  return timeline;
+}
+
+function buildBuyerContactEntity(match, sale, footprint, selectedBuyerKey) {
+  const entityName = match?.buyerName || footprint?.entityName || sale?.buyerEntity || sale?.buyerName || "";
+  if (!entityName) return null;
+  const entityId = match?.normalizedBuyerName || selectedBuyerKey || normalizeBuyerKey(entityName) || sale?.id || entityName;
+  const mailingAddress = match?.buyerMailingAddress || sale?.buyerMailingAddress || footprint?.mailingAddress || "";
+  const sourceUrls = [
+    sale?.sourceUrl,
+    sale?.rawSourceMetadata?.sourceUrl,
+    sale?.rawSourceMetadata?.url,
+    ...(Array.isArray(footprint?.sourceUrls) ? footprint.sourceUrls : [])
+  ].filter(Boolean);
+
+  return {
+    cacheKey: `${entityId}:${sale?.id || "market"}:${mailingAddress}`,
+    entityType: match?.buyerType || sale?.buyerType || "buyer",
+    entityId,
+    entityName,
+    company: entityName,
+    mailingAddress,
+    address: mailingAddress || sale?.address || "",
+    county: sale?.county || "Dallas",
+    source: sale?.sourceName || sale?.source || "Disposition Intelligence",
+    website: footprint?.website || match?.website || "",
+    contactFormUrl: footprint?.contactFormUrl || "",
+    linkedinUrl: footprint?.linkedinUrl || "",
+    facebookUrl: footprint?.facebookUrl || "",
+    phone: match?.phone || footprint?.phone || sale?.phone || "",
+    phones: [...new Set([...(match?.phones || []), ...(footprint?.phones || [])].filter(Boolean))],
+    email: match?.email || footprint?.email || "",
+    registeredAgent: footprint?.registeredAgent || "",
+    sourceUrls
+  };
+}
+
+function sanitizeContactSnapshot(snapshot = {}) {
+  const contacts = Array.isArray(snapshot.contacts) ? snapshot.contacts.map(sanitizeContactRecord).filter(Boolean) : [];
+  const bestId = String(snapshot.bestContact?.id || "");
+  const bestContact = contacts.find((contact) => contact.id === bestId) || (snapshot.bestContact ? sanitizeContactRecord(snapshot.bestContact) : contacts[0] || null);
+  return {
+    ...snapshot,
+    contacts,
+    bestContact,
+    sourceUrls: Array.isArray(snapshot.sourceUrls) ? snapshot.sourceUrls.filter((source) => source?.url) : [],
+    confidence: Number(snapshot.confidence) || 0,
+    needsPaidSkipTrace: Boolean(snapshot.needsPaidSkipTrace),
+    message: String(snapshot.message || "")
+  };
+}
+
+function sanitizeContactRecord(contact = {}) {
+  const value = String(contact.displayValue || contact.value || contact.normalizedValue || "").trim();
+  if (!value) return null;
+  return {
+    id: String(contact.id || value),
+    contactType: String(contact.contactType || "phone"),
+    value,
+    displayValue: value,
+    normalizedValue: String(contact.normalizedValue || value),
+    source: String(contact.source || "Unknown source"),
+    sourceConfidence: Number(contact.sourceConfidence) || 0,
+    status: String(contact.status || "unverified"),
+    verifiedOwner: Boolean(contact.verifiedOwner),
+    isCallable: Boolean(contact.isCallable),
+    isTextable: Boolean(contact.isTextable),
+    doNotCall: Boolean(contact.doNotCall),
+    doNotText: Boolean(contact.doNotText),
+    wrongNumber: Boolean(contact.wrongNumber),
+    disconnected: Boolean(contact.disconnected)
+  };
+}
+
+function getContactHealth(snapshot, entity) {
+  const contacts = Array.isArray(snapshot?.contacts) ? snapshot.contacts : [];
+  const bestContact = snapshot?.bestContact || contacts[0] || null;
+  let score = 0;
+
+  if (bestContact?.verifiedOwner) score = Math.max(bestContact.sourceConfidence || 0, 92);
+  else if (bestContact?.isCallable || bestContact?.contactType === "email") score = Math.max(bestContact.sourceConfidence || 0, 68);
+  else if (contacts.length) score = Math.max(bestContact?.sourceConfidence || 0, 45);
+  else if (entity?.website || entity?.email) score = 46;
+  else if ((snapshot?.sourceUrls || []).length) score = 32;
+  else if (entity?.entityName) score = 18;
+
+  const cleanScore = clamp(score, 0, 100);
+  return {
+    score: cleanScore,
+    level: cleanScore >= 80 ? "strong" : cleanScore >= 50 ? "usable" : cleanScore >= 25 ? "weak" : "missing"
+  };
+}
+
+function contactHealthLabel(health) {
+  return {
+    strong: "Strong",
+    usable: "Usable",
+    weak: "Weak",
+    missing: "Missing"
+  }[health?.level] || "Missing";
+}
+
+function formatContactValue(contact = {}) {
+  if (contact.contactType === "phone") {
+    return formatPhoneNumber(contact.displayValue || contact.value || contact.normalizedValue);
+  }
+  return contact.displayValue || contact.value || "Unknown";
+}
+
+function normalizePhoneDigits(value = "") {
+  return String(value || "").replace(/[^\d+]/g, "");
+}
+
+function formatPhoneNumber(value = "") {
+  const digits = normalizePhoneDigits(value).replace(/^1/, "");
+  if (digits.length !== 10) return value;
+  return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
+}
+
+function safeExternalUrl(url = "") {
+  const cleanUrl = String(url || "").trim();
+  if (!cleanUrl) return "";
+  return /^https?:\/\//i.test(cleanUrl) ? cleanUrl : `https://${cleanUrl}`;
+}
+
+function isTransactionLayerVisible(transaction = {}, layerVisibility = {}) {
+  const markerType = mapMarkerType(transaction);
+  if (markerType === "cash_purchase") return layerVisibility.cashPurchases !== false;
+  if (markerType === "builder_purchase") return layerVisibility.builders !== false;
+  if (markerType === "repeat_buyer") return layerVisibility.repeatBuyers !== false;
+  if (markerType === "unknown_estimated") return layerVisibility.recordedSales !== false;
+  return layerVisibility.recordedSales !== false;
+}
+
+function purchaseAgeClass(transaction = {}) {
+  const bucket = transaction.purchaseAgeBucket || "missing";
+  return `purchase-age-${bucket}`;
+}
+
+function formatTimelineLabel(days) {
+  const cleanDays = Number(days) || 180;
+  if (cleanDays >= 1095) return "3 years";
+  if (cleanDays >= 365) return "1 year";
+  return `${cleanDays} days`;
+}
+
+function buildDispositionGoogleMapEmbedUrl(target = {}, mapMode = "road") {
+  const key = encodeURIComponent(googleMapsEmbedApiKey || "");
+  const address = String(target?.address || "Dallas, TX").trim() || "Dallas, TX";
+  const coordinates = target?.coordinates || {};
+  const lat = Number(coordinates.lat);
+  const lng = Number(coordinates.lng);
+  const hasCoordinates = Number.isFinite(lat) && Number.isFinite(lng) && lat && lng;
+
+  if (mapMode === "street") {
+    const location = hasCoordinates ? `${lat},${lng}` : address;
+    return `https://www.google.com/maps/embed/v1/streetview?key=${key}&location=${encodeURIComponent(location)}&heading=210&pitch=0&fov=80`;
+  }
+
+  if (mapMode === "satellite" || mapMode === "hybrid") {
+    if (hasCoordinates) {
+      return `https://www.google.com/maps/embed/v1/view?key=${key}&center=${lat},${lng}&zoom=17&maptype=satellite`;
+    }
+    return `https://www.google.com/maps/embed/v1/place?key=${key}&q=${encodeURIComponent(address)}&zoom=17`;
+  }
+
+  return `https://www.google.com/maps/embed/v1/place?key=${key}&q=${encodeURIComponent(address)}&zoom=16`;
+}
+
 function filterTransactionsForMap(transactions = [], mapFilters = {}, selectedBuyerKey = "") {
   return transactions.filter((transaction) => {
     const buyerKey = normalizeBuyerKey(transaction.buyerName);
@@ -932,6 +1645,7 @@ function markerLabel(type) {
 
 function legendClass(type) {
   return {
+    subject_property: "subject",
     recorded_sale: "standard",
     cash_purchase: "cash",
     builder_purchase: "builder",
