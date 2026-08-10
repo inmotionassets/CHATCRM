@@ -386,6 +386,224 @@ export function DispositionIntelligenceView({ authToken, currentUser, leads }) {
   );
 }
 
+export function LeadLegacyMarketMap({ authToken, lead, onSelectBuyer, selectedBuyerKey = "" }) {
+  const [filters, setFilters] = React.useState({
+    radiusMiles: 5,
+    soldWithinDays: 180,
+    vacantLandOnly: false,
+    cashOnly: false,
+    buyerType: "",
+    provider: ""
+  });
+  const [mapFilters, setMapFilters] = React.useState({
+    propertyType: "",
+    builderOnly: false,
+    repeatBuyers: false,
+    entityPurchases: false
+  });
+  const [mapMode, setMapMode] = React.useState("road");
+  const [layerVisibility, setLayerVisibility] = React.useState({
+    subjectParcel: true,
+    parcelBoundaries: false,
+    recordedSales: true,
+    cashPurchases: true,
+    builders: true,
+    repeatBuyers: true,
+    flood: false,
+    zoning: false,
+    utilities: false,
+    permits: false,
+    construction: false,
+    ownershipChanges: false
+  });
+  const [workspace, setWorkspace] = React.useState(null);
+  const [selectedSaleId, setSelectedSaleId] = React.useState("");
+  const [internalBuyerKey, setInternalBuyerKey] = React.useState("");
+  const [message, setMessage] = React.useState("Loading LEGACY market map...");
+  const [contactMessage, setContactMessage] = React.useState("");
+  const [buyerContactSnapshot, setBuyerContactSnapshot] = React.useState(null);
+  const [buyerProfileOpen, setBuyerProfileOpen] = React.useState(false);
+
+  const activeBuyerKey = selectedBuyerKey || internalBuyerKey;
+  const visibleTransactions = React.useMemo(
+    () => filterTransactionsForMap(workspace?.transactions || [], mapFilters, activeBuyerKey),
+    [workspace?.transactions, mapFilters, activeBuyerKey]
+  );
+  const selectedSale =
+    visibleTransactions.find((transaction) => transaction.id === selectedSaleId) ||
+    workspace?.transactions?.find((transaction) => transaction.id === selectedSaleId) ||
+    visibleTransactions[0] ||
+    workspace?.transactions?.[0] ||
+    null;
+  const selectedBuyerFootprint =
+    workspace?.buyerFootprints?.[activeBuyerKey] ||
+    workspace?.buyerFootprints?.[normalizeBuyerKey(selectedSale?.buyerName)] ||
+    null;
+  const selectedBuyerMatch = React.useMemo(() => {
+    const buyerKey = activeBuyerKey || normalizeBuyerKey(selectedSale?.buyerName);
+    return (workspace?.buyerMatches || []).find((match) => match.normalizedBuyerName === buyerKey) || null;
+  }, [workspace?.buyerMatches, activeBuyerKey, selectedSale?.buyerName]);
+  const buyerContactEntity = React.useMemo(
+    () => buildBuyerContactEntity(selectedBuyerMatch, selectedSale, selectedBuyerFootprint, activeBuyerKey),
+    [selectedBuyerMatch, selectedSale, selectedBuyerFootprint, activeBuyerKey]
+  );
+  const buyerContactKey = buyerContactEntity?.cacheKey || "";
+  const marketMap = workspace?.marketIntelligence?.map || {};
+
+  React.useEffect(() => {
+    let cancelled = false;
+
+    async function loadWorkspace() {
+      if (!authToken || !lead?.id) {
+        setWorkspace(null);
+        setMessage("Open a saved lead to load the LEGACY market map.");
+        return;
+      }
+
+      setMessage("Loading LEGACY market map...");
+      try {
+        const result = await fetchDispositionWorkspace(lead.id, filters, authToken);
+        if (cancelled) return;
+        setWorkspace(result);
+        setSelectedSaleId(result.transactions?.[0]?.id || "");
+        setInternalBuyerKey("");
+        setBuyerProfileOpen(false);
+        setMessage("");
+      } catch (error) {
+        if (!cancelled) {
+          setWorkspace(null);
+          setMessage(error.message || "Could not load the LEGACY market map yet.");
+        }
+      }
+    }
+
+    loadWorkspace();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    authToken,
+    lead?.id,
+    filters.radiusMiles,
+    filters.soldWithinDays,
+    filters.vacantLandOnly,
+    filters.cashOnly,
+    filters.buyerType,
+    filters.provider
+  ]);
+
+  React.useEffect(() => {
+    let cancelled = false;
+
+    async function loadBuyerContactIntelligence() {
+      if (!authToken || !buyerContactEntity?.entityName) {
+        setBuyerContactSnapshot(null);
+        setContactMessage("");
+        return;
+      }
+
+      setContactMessage("Loading Contact Intelligence...");
+      try {
+        const snapshot = await fetchContactEntitySnapshot(buyerContactEntity, authToken);
+        if (cancelled) return;
+        setBuyerContactSnapshot(snapshot);
+        setContactMessage("");
+      } catch (error) {
+        if (!cancelled) {
+          setBuyerContactSnapshot(null);
+          setContactMessage(error.message || "Contact Intelligence is not ready for this buyer yet.");
+        }
+      }
+    }
+
+    loadBuyerContactIntelligence();
+    return () => {
+      cancelled = true;
+    };
+  }, [authToken, buyerContactKey]);
+
+  function updateFilter(field, value) {
+    setFilters((current) => ({ ...current, [field]: value }));
+  }
+
+  function updateMapFilter(field, value) {
+    setMapFilters((current) => ({ ...current, [field]: value }));
+  }
+
+  function toggleMapLayer(layerId, available = true) {
+    if (!available) return;
+    setLayerVisibility((current) => ({ ...current, [layerId]: !current[layerId] }));
+  }
+
+  function selectBuyerKey(buyerKey = "") {
+    setInternalBuyerKey(buyerKey);
+    onSelectBuyer?.(buyerKey);
+  }
+
+  function clearBuyerHighlight() {
+    selectBuyerKey("");
+    setBuyerProfileOpen(false);
+  }
+
+  function openBuyerProfile(buyerKey = activeBuyerKey) {
+    const cleanBuyerKey = buyerKey || normalizeBuyerKey(selectedSale?.buyerName);
+    if (!cleanBuyerKey) return;
+    selectBuyerKey(cleanBuyerKey);
+    setBuyerProfileOpen(true);
+  }
+
+  async function refreshBuyerContactProfile() {
+    if (!authToken || !buyerContactEntity?.entityName) return;
+    setContactMessage("Refreshing Contact Intelligence...");
+    try {
+      const snapshot = await fetchContactEntitySnapshot(buyerContactEntity, authToken);
+      setBuyerContactSnapshot(snapshot);
+      setContactMessage("Contact profile refreshed.");
+    } catch (error) {
+      setContactMessage(error.message || "Could not refresh Contact Intelligence yet.");
+    }
+  }
+
+  return (
+    <section className="lead-legacy-market-map">
+      {message ? <p className="parcel-message">{message}</p> : null}
+      {workspace ? (
+        <BuyerActivityMap
+          filters={workspace.filters || filters}
+          layerVisibility={layerVisibility}
+          mapFilters={mapFilters}
+          mapMode={mapMode}
+          mapSnapshot={marketMap}
+          onClearBuyerHighlight={clearBuyerHighlight}
+          onOpenBuyerProfile={openBuyerProfile}
+          onSelectBuyer={selectBuyerKey}
+          onSelectSale={setSelectedSaleId}
+          onToggleLayer={toggleMapLayer}
+          onUpdateFilter={updateFilter}
+          onUpdateMapFilter={updateMapFilter}
+          onUpdateMapMode={setMapMode}
+          selectedBuyerFootprint={selectedBuyerFootprint}
+          selectedBuyerKey={activeBuyerKey}
+          selectedSale={selectedSale}
+          subject={workspace.subject || { address: lead?.address }}
+          transactions={visibleTransactions}
+        />
+      ) : null}
+      {buyerProfileOpen ? (
+        <BuyerProfileDrawer
+          contactMessage={contactMessage}
+          entity={buyerContactEntity}
+          footprint={selectedBuyerFootprint}
+          match={selectedBuyerMatch}
+          onClose={() => setBuyerProfileOpen(false)}
+          onRefresh={refreshBuyerContactProfile}
+          sale={selectedSale}
+          snapshot={buyerContactSnapshot}
+        />
+      ) : null}
+    </section>
+  );
+}
 function SourceStatusPanel({ source }) {
   if (!source) return null;
   return (

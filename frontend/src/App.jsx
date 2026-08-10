@@ -1,5 +1,5 @@
 import React from "react";
-import { DispositionIntelligenceView } from "./DispositionIntelligence.jsx";
+import { DispositionIntelligenceView, LeadLegacyMarketMap } from "./DispositionIntelligence.jsx";
 
 const starterLeads = [
   {
@@ -4561,7 +4561,7 @@ function PropertyIntelligenceWorkspace({ authToken, lead, message, snapshot, tax
         />
       ) : null}
 
-      <div className="legacy-workspace-grid">
+      <div className="legacy-workspace-grid with-live-map">
         <aside className="legacy-panel legacy-subject-panel">
           <div>
             <p className="eyebrow">Property</p>
@@ -4598,16 +4598,11 @@ function PropertyIntelligenceWorkspace({ authToken, lead, message, snapshot, tax
           </div>
         </aside>
 
-        <LegacyMarketMap
-          onClearBuyer={() => setSelectedBuyerKey("")}
+        <LeadLegacyMarketMap
+          authToken={authToken}
+          lead={lead}
           onSelectBuyer={setSelectedBuyerKey}
-          onSelectTransaction={setSelectedTransactionId}
-          selectedBuyer={selectedBuyer}
           selectedBuyerKey={selectedBuyerKey}
-          selectedTransaction={selectedTransaction}
-          sourceBadges={sourceBadges}
-          subject={subject}
-          transactions={visibleTransactions}
         />
 
         <aside className="legacy-panel legacy-market-rail">

@@ -5357,6 +5357,36 @@ textarea::placeholder {
   gap: 12px;
   grid-template-columns: minmax(230px, 0.78fr) minmax(430px, 1.25fr) minmax(280px, 0.86fr);
 }
+.legacy-workspace-grid.with-live-map {
+  grid-template-columns: minmax(230px, 0.66fr) minmax(580px, 1.55fr) minmax(280px, 0.82fr);
+}
+
+.lead-legacy-market-map {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.lead-legacy-market-map .activity-map-panel {
+  min-width: 0;
+  padding: 10px;
+}
+
+.lead-legacy-market-map .market-map-controls,
+.lead-legacy-market-map .upgraded-map-controls,
+.lead-legacy-market-map .map-truth-strip,
+.lead-legacy-market-map .road-intelligence-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.lead-legacy-market-map .buyer-activity-map {
+  height: 460px;
+}
+
+.lead-legacy-market-map .sale-marker-drawer {
+  max-height: 360px;
+  overflow: auto;
+}
 
 .legacy-panel {
   background: rgba(255, 255, 255, 0.055);
