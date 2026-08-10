@@ -7019,7 +7019,7 @@ function isLatLngValue(value = "") {
 }
 
 const googleMapsScriptElementId = "chatcrm-google-maps-js";
-const streetViewGeocodeCache = new Map();
+const streetViewGeocodeCache = new globalThis.Map();
 let googleMapsScriptPromise = null;
 
 function geocodeAddressForStreetView(address = "") {
