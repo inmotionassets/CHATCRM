@@ -3329,19 +3329,53 @@ function LeadWorkspaceLeadSummary({ lead, ownerName, phones }) {
 function PropertyVisualPanel({ address, mode, onModeChange }) {
   const [isFullscreen, setIsFullscreen] = React.useState(false);
   const [streetHeading, setStreetHeading] = React.useState(210);
+  const [streetViewLocation, setStreetViewLocation] = React.useState("");
+  const [streetViewLookupStatus, setStreetViewLookupStatus] = React.useState("idle");
   const [visualNotice, setVisualNotice] = React.useState("");
   const safeMode = ["street", "satellite", "map"].includes(mode) ? mode : "street";
   const title = safeMode === "satellite" ? "Satellite View" : safeMode === "street" ? "Street View" : "Map View";
-  const usesOfficialStreetView = safeMode === "street" && Boolean(googleMapsEmbedApiKey) && isLatLngValue(address);
-  const embedUrl = buildGoogleMapsEmbedUrl(address, safeMode, { heading: streetHeading });
+  const streetViewEmbedLocation = safeMode === "street" && streetViewLocation ? streetViewLocation : address;
+  const usesOfficialStreetView = safeMode === "street" && Boolean(googleMapsEmbedApiKey) && isLatLngValue(streetViewEmbedLocation);
+  const embedUrl = buildGoogleMapsEmbedUrl(streetViewEmbedLocation, safeMode, { heading: streetHeading });
 
   React.useEffect(() => {
     setVisualNotice("");
   }, [address, safeMode]);
 
+  React.useEffect(() => {
+    let cancelled = false;
+    setStreetViewLocation("");
+    setStreetViewLookupStatus("idle");
+
+    if (safeMode !== "street" || !googleMapsEmbedApiKey || !address || isLatLngValue(address)) {
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    setStreetViewLookupStatus("loading");
+    geocodeAddressForStreetView(address)
+      .then((location) => {
+        if (cancelled) return;
+        if (location) {
+          setStreetViewLocation(location);
+          setStreetViewLookupStatus("ready");
+          return;
+        }
+        setStreetViewLookupStatus("fallback");
+      })
+      .catch(() => {
+        if (!cancelled) setStreetViewLookupStatus("fallback");
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [address, safeMode]);
+
   function rotateStreetView(amount) {
     setStreetHeading((current) => (current + amount + 360) % 360);
-    setVisualNotice("Adjusted Street View heading around the subject property.");
+    setVisualNotice(usesOfficialStreetView ? "Adjusted Street View heading around the subject property." : "Exact Street View controls unlock after Google resolves this address.");
   }
 
   function showDriveNotice(direction) {
@@ -3379,10 +3413,12 @@ function PropertyVisualPanel({ address, mode, onModeChange }) {
         <span className="visual-status">
           {safeMode === "street"
             ? usesOfficialStreetView
-              ? "Google Street View panorama. Rotate, zoom, and inspect from the road."
-              : googleMapsEmbedApiKey
-                ? "Street View address lookup. Stored coordinates will unlock exact panorama controls."
-                : "Street View fallback. Add VITE_GOOGLE_MAPS_API_KEY for official panorama controls."
+              ? "Live Google Street View panorama. Rotate, zoom, and inspect from the road."
+              : streetViewLookupStatus === "loading"
+                ? "Finding the closest first-person Street View for this address..."
+                : googleMapsEmbedApiKey
+                  ? "Street View address fallback. Google could not lock this address to a panorama yet."
+                  : "Street View fallback. Add VITE_GOOGLE_MAPS_API_KEY for official panorama controls."
             : safeMode === "satellite"
               ? "Interactive satellite view centered on the property address."
               : "Traditional map view for roads, directions, and nearby context."}
@@ -3394,7 +3430,7 @@ function PropertyVisualPanel({ address, mode, onModeChange }) {
         <iframe
           allow="fullscreen"
           allowFullScreen
-          key={`${safeMode}-${streetHeading}-${address || "property"}`}
+          key={`${safeMode}-${streetHeading}-${streetViewEmbedLocation || address || "property"}`}
           loading="lazy"
           onError={() => setVisualNotice("If Street View imagery is unavailable here, switch to Satellite for an immediate fallback.")}
           referrerPolicy="no-referrer-when-downgrade"
@@ -6980,6 +7016,85 @@ function buildGoogleMapsEmbedUrl(address, mode = "map", options = {}) {
 
 function isLatLngValue(value = "") {
   return /^\s*-?\d+(?:\.\d+)?\s*,\s*-?\d+(?:\.\d+)?\s*$/.test(String(value));
+}
+
+const googleMapsScriptElementId = "chatcrm-google-maps-js";
+const streetViewGeocodeCache = new Map();
+let googleMapsScriptPromise = null;
+
+function geocodeAddressForStreetView(address = "") {
+  const cleanAddress = String(address || "").trim();
+  if (!cleanAddress) return Promise.resolve("");
+  if (isLatLngValue(cleanAddress)) return Promise.resolve(cleanAddress);
+
+  const cacheKey = cleanAddress.toLowerCase();
+  if (streetViewGeocodeCache.has(cacheKey)) {
+    return Promise.resolve(streetViewGeocodeCache.get(cacheKey));
+  }
+
+  return loadGoogleMapsJavaScriptApi()
+    .then(() => new Promise((resolve) => {
+      if (!window.google?.maps?.Geocoder) {
+        resolve("");
+        return;
+      }
+
+      const geocoder = new window.google.maps.Geocoder();
+      geocoder.geocode({ address: cleanAddress, region: "us" }, (results, status) => {
+        const location = status === "OK" ? results?.[0]?.geometry?.location : null;
+        const coordinateValue = location ? `${location.lat()},${location.lng()}` : "";
+        streetViewGeocodeCache.set(cacheKey, coordinateValue);
+        resolve(coordinateValue);
+      });
+    }))
+    .catch(() => "");
+}
+
+function loadGoogleMapsJavaScriptApi() {
+  if (!googleMapsEmbedApiKey || typeof window === "undefined" || typeof document === "undefined") {
+    return Promise.reject(new Error("Google Maps JavaScript API key is not available."));
+  }
+
+  if (window.google?.maps?.Geocoder) {
+    return Promise.resolve(window.google);
+  }
+
+  if (googleMapsScriptPromise) {
+    return googleMapsScriptPromise;
+  }
+
+  googleMapsScriptPromise = new Promise((resolve, reject) => {
+    const existingScript = document.getElementById(googleMapsScriptElementId);
+    if (existingScript) {
+      existingScript.addEventListener("load", () => resolve(window.google), { once: true });
+      existingScript.addEventListener("error", () => {
+        googleMapsScriptPromise = null;
+        reject(new Error("Google Maps JavaScript API failed to load."));
+      }, { once: true });
+      return;
+    }
+
+    const script = document.createElement("script");
+    script.id = googleMapsScriptElementId;
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(googleMapsEmbedApiKey)}&loading=async`;
+    script.async = true;
+    script.defer = true;
+    script.onload = () => {
+      if (window.google?.maps?.Geocoder) {
+        resolve(window.google);
+        return;
+      }
+      googleMapsScriptPromise = null;
+      reject(new Error("Google Maps JavaScript API loaded without Geocoder."));
+    };
+    script.onerror = () => {
+      googleMapsScriptPromise = null;
+      reject(new Error("Google Maps JavaScript API failed to load."));
+    };
+    document.head.appendChild(script);
+  });
+
+  return googleMapsScriptPromise;
 }
 function buildMyMapsEmbedUrl(value = "") {
   const url = parseUrl(value);
