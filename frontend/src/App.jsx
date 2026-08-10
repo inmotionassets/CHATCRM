@@ -4476,13 +4476,11 @@ function LegacyWorkspaceModal({ children, lead, onClose }) {
 function PropertyIntelligenceWorkspace({ authToken, lead, message, snapshot, taxUrl }) {
   const [selectedNarrativeId, setSelectedNarrativeId] = React.useState("");
   const [selectedBuyerKey, setSelectedBuyerKey] = React.useState("");
-  const [selectedTransactionId, setSelectedTransactionId] = React.useState("");
   const [showWhyDrawer, setShowWhyDrawer] = React.useState(false);
 
   React.useEffect(() => {
     setSelectedNarrativeId("");
     setSelectedBuyerKey("");
-    setSelectedTransactionId("");
     setShowWhyDrawer(false);
   }, [lead.id, snapshot?.addressTrigger]);
 
@@ -4510,20 +4508,29 @@ function PropertyIntelligenceWorkspace({ authToken, lead, message, snapshot, tax
   const activeNarrative = narrative.find((item) => item.id === selectedNarrativeId) || narrative[0] || null;
   const buyers = intelligence.mostProbableBuyers || [];
   const learning = intelligence.learningIntelligence || snapshot.learningIntelligence || {};
-  const transactions = snapshot.transactions || [];
-  const visibleTransactions = selectedBuyerKey
-    ? transactions.filter((transaction) => legacyBuyerKey(transaction.buyerName) === selectedBuyerKey)
-    : transactions;
-  const selectedTransaction =
-    visibleTransactions.find((transaction) => transaction.id === selectedTransactionId) ||
-    visibleTransactions[0] ||
-    transactions[0] ||
-    null;
-  const selectedBuyer = buyers.find((buyer) => legacyBuyerKey(buyer.buyerName) === selectedBuyerKey) || null;
+
   const contact = snapshot.contactIntelligence || {};
   const opportunityScore = subject.opportunityScore || intelligence.opportunityScore?.score || 0;
   const opportunityGrade = subject.opportunityGrade || intelligence.opportunityScore?.grade || "Needs Data";
-
+  const subjectCoreMetrics = [
+    ["APN", subject.apn || lead.parcelNumber || "Missing"],
+    ["County", subject.county || lead.county || "Missing"],
+    ["Owner", subject.owner || lead.name || "Owner needed"],
+    ["Lot Size", subject.lotSize || `${subject.acreage || "Missing"} acres`],
+    ["Zoning", subject.zoning || "Unknown"],
+    ["Road Access", subject.roadAccess || "Needs Review"]
+  ];
+  const subjectResearchMetrics = [
+    ["Latitude", subject.latitude || "Missing"],
+    ["Longitude", subject.longitude || "Missing"],
+    ["Property Type", subject.propertyType || "Missing"],
+    ["Utilities", subject.utilities || "Unknown"],
+    ["Flood", subject.floodZone || "Unknown"],
+    ["Tax Status", subject.taxStatus || "Unknown"],
+    ["Contract", formatLegacyMoney(subject.contractPrice)],
+    ["Target Assignment", formatLegacyMoney(subject.targetAssignment)],
+    ["Deal Status", subject.dealStatus || lead.stage || "New Lead"]
+  ];
   return (
     <section className="legacy-property-workspace">
       <div className="legacy-workspace-header premium">
@@ -4568,23 +4575,19 @@ function PropertyIntelligenceWorkspace({ authToken, lead, message, snapshot, tax
             <h3>Subject Property</h3>
             <LegacySectionSource label="County Records" sources={sourceBadges} />
           </div>
-          <div className="legacy-metric-grid">
-            <LegacyMetric label="APN" value={subject.apn || "Missing"} />
-            <LegacyMetric label="County" value={subject.county || "Missing"} />
-            <LegacyMetric label="Latitude" value={subject.latitude || "Missing"} />
-            <LegacyMetric label="Longitude" value={subject.longitude || "Missing"} />
-            <LegacyMetric label="Lot Size" value={subject.lotSize || `${subject.acreage || "Missing"} acres`} />
-            <LegacyMetric label="Type" value={subject.propertyType || "Missing"} />
-            <LegacyMetric label="Zoning" value={subject.zoning || "Unknown"} />
-            <LegacyMetric label="Utilities" value={subject.utilities || "Unknown"} />
-            <LegacyMetric label="Flood" value={subject.floodZone || "Unknown"} />
-            <LegacyMetric label="Road Access" value={subject.roadAccess || "Needs Review"} />
-            <LegacyMetric label="Tax Status" value={subject.taxStatus || "Unknown"} />
-            <LegacyMetric label="Owner" value={subject.owner || "Owner needed"} />
-            <LegacyMetric label="Contract" value={formatLegacyMoney(subject.contractPrice)} />
-            <LegacyMetric label="Target Assignment" value={formatLegacyMoney(subject.targetAssignment)} />
-            <LegacyMetric label="Deal Status" value={subject.dealStatus || lead.stage || "New Lead"} />
+          <div className="legacy-metric-grid subject-core-metrics">
+            {subjectCoreMetrics.map(([label, value]) => (
+              <LegacyMetric key={label} label={label} value={value} />
+            ))}
           </div>
+          <details className="legacy-subject-more">
+            <summary>More property details</summary>
+            <div className="legacy-metric-grid">
+              {subjectResearchMetrics.map(([label, value]) => (
+                <LegacyMetric key={label} label={label} value={value} />
+              ))}
+            </div>
+          </details>
           <div className="legacy-action-row">
             <a href={taxUrl} rel="noreferrer" target="_blank">Open County Tax</a>
           </div>
@@ -4766,7 +4769,7 @@ function LegacyOutcomePanel({ assessment = {}, authToken, buyers = [], header = 
   }
 
   return (
-    <section className="legacy-outcome-panel">
+    <section className="legacy-outcome-panel compact-outcome-panel">
       <div>
         <p className="eyebrow">Outcome Intelligence</p>
         <h3>LEGACY Learns</h3>
@@ -4777,6 +4780,8 @@ function LegacyOutcomePanel({ assessment = {}, authToken, buyers = [], header = 
         <LegacyMiniStat label="Accuracy" value={`${learning.recommendationAccuracyRate || 0}%`} />
         <LegacyMiniStat label="Avg Close" value={`${learning.averageDaysToClose || 0}d`} />
       </div>
+      <details className="legacy-outcome-details">
+        <summary>Record deal outcome</summary>
       <form className="legacy-outcome-form" onSubmit={submitOutcome}>
         <label>
           Final Buyer
@@ -4825,6 +4830,7 @@ function LegacyOutcomePanel({ assessment = {}, authToken, buyers = [], header = 
         <button disabled={isSaving} type="submit">Save Outcome</button>
       </form>
       {message ? <p className="legacy-outcome-message">{message}</p> : null}
+      </details>
     </section>
   );
 }

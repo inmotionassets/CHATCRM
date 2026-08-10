@@ -7123,3 +7123,128 @@ textarea::placeholder {
     grid-template-columns: 1fr;
   }
 }
+
+/* LEGACY lead popup polish */
+.lead-workspace-modal {
+  max-width: 1540px;
+  width: min(97vw, 1540px);
+}
+
+.lead-workspace-modal-body {
+  scrollbar-gutter: stable;
+}
+
+.lead-workspace-modal .legacy-property-workspace {
+  gap: 12px;
+}
+
+.lead-workspace-modal .legacy-workspace-header.premium {
+  background: linear-gradient(135deg, rgba(7, 18, 19, 0.94), rgba(14, 43, 40, 0.9));
+  border: 1px solid rgba(245, 179, 0, 0.22);
+  border-radius: 10px;
+  padding: 14px;
+}
+
+.lead-workspace-modal .legacy-assessment-panel {
+  padding: 12px;
+}
+
+.lead-workspace-modal .legacy-assessment-cards {
+  gap: 8px;
+}
+
+.lead-workspace-modal .legacy-workspace-grid.with-live-map {
+  align-items: stretch;
+  grid-template-columns: minmax(220px, 0.56fr) minmax(720px, 1.85fr) minmax(280px, 0.72fr);
+}
+
+.lead-workspace-modal .legacy-subject-panel,
+.lead-workspace-modal .legacy-market-rail {
+  align-self: stretch;
+  max-height: calc(92vh - 245px);
+  overflow: auto;
+}
+
+.subject-core-metrics {
+  grid-template-columns: 1fr;
+}
+
+.legacy-subject-more {
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  padding-top: 8px;
+}
+
+.legacy-subject-more summary,
+.legacy-outcome-details summary {
+  color: #fde68a;
+  cursor: pointer;
+  font-size: 0.78rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.legacy-subject-more .legacy-metric-grid {
+  margin-top: 8px;
+}
+
+.lead-workspace-modal .legacy-market-rail {
+  gap: 9px;
+}
+
+.lead-workspace-modal .legacy-narrative-list button,
+.lead-workspace-modal .legacy-buyer-list button {
+  padding: 8px;
+}
+
+.compact-outcome-panel {
+  gap: 9px;
+  padding: 10px;
+}
+
+.compact-outcome-panel .legacy-learning-stats {
+  gap: 6px;
+}
+
+.compact-outcome-panel .legacy-learning-stats div {
+  min-height: 46px;
+  padding: 7px;
+}
+
+.legacy-outcome-details {
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  padding-top: 8px;
+}
+
+.legacy-outcome-details .legacy-outcome-form {
+  margin-top: 9px;
+}
+
+.lead-workspace-modal .lead-legacy-market-map .activity-map-panel {
+  height: 100%;
+}
+
+.lead-workspace-modal .lead-legacy-market-map .buyer-activity-map {
+  height: min(54vh, 540px);
+  min-height: 430px;
+}
+
+.lead-workspace-modal .lead-legacy-market-map .market-map-controls,
+.lead-workspace-modal .lead-legacy-market-map .upgraded-map-controls {
+  gap: 8px;
+}
+
+.lead-workspace-modal .lead-legacy-market-map .map-truth-strip,
+.lead-workspace-modal .lead-legacy-market-map .road-intelligence-grid {
+  gap: 8px;
+}
+
+@media (max-width: 1380px) {
+  .lead-workspace-modal .legacy-workspace-grid.with-live-map {
+    grid-template-columns: 1fr;
+  }
+
+  .lead-workspace-modal .legacy-subject-panel,
+  .lead-workspace-modal .legacy-market-rail {
+    max-height: none;
+  }
+}
