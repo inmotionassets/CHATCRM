@@ -6365,3 +6365,123 @@ textarea::placeholder {
     flex-direction: column;
   }
 }
+
+/* LEGACY Trust Pass v1 */
+.dashboard-support-grid {
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+}
+
+.integration-status-card {
+  align-content: start;
+}
+
+.integration-status-list {
+  display: grid;
+  gap: 8px;
+}
+
+.integration-status-row {
+  background: var(--panel-soft);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  display: grid;
+  gap: 3px;
+  padding: 9px 10px;
+}
+
+.integration-status-row b {
+  color: var(--muted-strong);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+}
+
+.integration-status-row strong {
+  color: var(--text);
+  font-size: 0.95rem;
+}
+
+.integration-status-row small {
+  color: var(--muted);
+  line-height: 1.35;
+}
+
+.integration-status-row.good {
+  border-color: rgba(15, 159, 110, 0.28);
+}
+
+.integration-status-row.warn {
+  border-color: rgba(245, 179, 0, 0.34);
+}
+
+.lead-workspace-hero {
+  grid-template-columns: auto minmax(0, 1fr) auto auto auto;
+}
+
+.lead-workspace-confidence.seller-heat {
+  background: rgba(245, 179, 0, 0.12);
+  border-color: rgba(245, 179, 0, 0.34);
+}
+
+.lead-workspace-confidence.seller-heat span,
+.lead-workspace-confidence.seller-heat small {
+  color: #b77900;
+}
+
+:root[data-theme="dark"] .lead-workspace-confidence.seller-heat span,
+:root[data-theme="dark"] .lead-workspace-confidence.seller-heat small {
+  color: #f8d56b;
+}
+
+.lead-workspace-confidence.data-confidence {
+  background: rgba(37, 99, 235, 0.12);
+  border-color: rgba(37, 99, 235, 0.28);
+}
+
+.lead-workspace-confidence.data-confidence span,
+.lead-workspace-confidence.data-confidence small {
+  color: #2563eb;
+}
+
+:root[data-theme="dark"] .lead-workspace-confidence.data-confidence span,
+:root[data-theme="dark"] .lead-workspace-confidence.data-confidence small {
+  color: #93c5fd;
+}
+
+.lead-workspace-assessment-metrics.trust-metrics,
+.legacy-assessment-cards.trust-assessment-cards {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.lead-workspace-trust-list {
+  display: grid;
+  gap: 7px;
+  margin-top: 8px;
+}
+
+.lead-workspace-trust-list p {
+  background: var(--panel-soft);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--muted);
+  margin: 0;
+  padding: 8px 10px;
+}
+
+.lead-workspace-trust-list b {
+  color: var(--text);
+}
+
+@media (max-width: 1180px) {
+  .lead-workspace-assessment-metrics.trust-metrics,
+  .legacy-assessment-cards.trust-assessment-cards {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 760px) {
+  .lead-workspace-hero,
+  .lead-workspace-assessment-metrics.trust-metrics,
+  .legacy-assessment-cards.trust-assessment-cards {
+    grid-template-columns: 1fr;
+  }
+}

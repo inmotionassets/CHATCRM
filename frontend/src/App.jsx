@@ -651,12 +651,13 @@ export function App() {
       reviewFilter === "All" ||
       (reviewFilter === "Needs Review" && lead.needsReview) ||
       (reviewFilter === "Reviewed" && !lead.needsReview);
-    const matchesHot = !hotOnly || Number(lead.score) >= 80;
+    const matchesHot = !hotOnly || isSellerHotLead(lead);
     return matchesQuery && matchesStage && matchesReview && matchesHot;
   });
   const sortedLeads = sortLeads(filteredLeads, sortMode);
 
-  const hotLeads = leads.filter((lead) => Number(lead.score) >= 80).length;
+  const strongProperties = leads.filter((lead) => getPropertyOpportunity(lead).score >= 80).length;
+  const hotLeads = leads.filter(isSellerHotLead).length;
   const followUps = leads.filter((lead) => lead.stage === "Follow Up").length;
   const selectedLead = leads.find((lead) => lead.id === selectedLeadId);
   const displayedLeads = sortedLeads.slice(0, 250);
@@ -1152,7 +1153,8 @@ export function App() {
             <section className="stats-grid" aria-label="Lead stats">
               <Stat label="Total Leads" value={leads.length} />
               <Stat label="Needs Follow-Up" value={followUps} />
-              <Stat label="Hot Leads" value={hotLeads} />
+              <Stat label="Strong Properties" value={strongProperties} />
+        <Stat label="Hot Sellers" value={hotLeads} />
               {isAdmin ? (
               <>
               <Stat label="Buyers" value={buyers.length} />
@@ -1164,6 +1166,7 @@ export function App() {
             <section className="dashboard-support-grid" aria-label="Dashboard tools">
               <CommissionDashboardCard />
               <DailyQuoteCard authToken={authToken} />
+              {isAdmin ? <IntegrationStatusCard backendReady={backendReady} /> : null}
             </section>
           </>
         ) : null}
@@ -1208,7 +1211,7 @@ export function App() {
                   <option value="address">Address</option>
                 </select>
                 <button className="ghost-button" onClick={clearFilters}>Clear</button>
-                {hotOnly ? <span className="active-filter">Hot Leads</span> : null}
+                {hotOnly ? <span className="active-filter">Hot Sellers</span> : null}
               </div>
             </div>
 
@@ -1259,11 +1262,11 @@ export function App() {
                     </button>
                     <div className="lead-meta-grid">
                       <span className="lead-meta"><b>Stage</b>{lead.stage}</span>
-                      <span className="lead-meta"><b>Score</b>{lead.score}</span>
+                      <span className="lead-meta"><b>Property</b>{getPropertyOpportunity(lead).label} {getPropertyOpportunity(lead).score}</span>
                       <span className="lead-meta"><b>Assigned To</b>{lead.owner || "Unassigned"}</span>
                       <span className="lead-meta"><b>Source</b>{cleanSourceName(lead.source)}</span>
-                      <span className="lead-meta"><b>Last By</b>{lead.lastContactedBy || "None"}</span>
-                      <span className="lead-meta"><b>Last At</b>{lead.lastContactedAt ? formatActivityTime(lead.lastContactedAt) : "None"}</span>
+                      <span className="lead-meta"><b>Seller</b>{getSellerHeat(lead).label}</span>
+                      <span className="lead-meta"><b>Last Contact</b>{lead.lastContactedAt ? `${lead.lastContactedBy || "Unknown"} / ${formatActivityTime(lead.lastContactedAt)}` : "None"}</span>
                     </div>
                     <div className="row-actions">
                       <button onClick={() => openLeadWorkspace(lead.id)}>View</button>
@@ -1320,7 +1323,7 @@ export function App() {
           ) : null}
 
           {activeView === "Analytics" ? (
-            <AnalyticsView authToken={authToken} currentUser={auth.user} followUps={followUps} hotLeads={hotLeads} imports={imports} leads={leads} />
+            <AnalyticsView authToken={authToken} currentUser={auth.user} followUps={followUps} hotLeads={hotLeads} imports={imports} leads={leads} strongProperties={strongProperties} />
           ) : null}
 
           {activeView === "Training" ? (
@@ -1368,7 +1371,7 @@ export function App() {
                 <div className="assistant-list">
                   <Action icon={<Phone size={18} />} onClick={openReviewQueue} text={`${leads.filter((lead) => lead.needsReview).length} leads ready for review`} />
                   <Action icon={<Mail size={18} />} onClick={showFollowUps} text={`${followUps} follow-ups need attention`} />
-                  <Action icon={<Map size={18} />} onClick={showHotLeads} text={`${hotLeads} hot leads should be researched first`} />
+                  <Action icon={<Map size={18} />} onClick={showHotLeads} text={`${hotLeads} hot sellers should be worked first`} />
                 </div>
 
                 <ImportList importMessage={importMessage} imports={imports} />
@@ -1590,6 +1593,32 @@ function DailyQuoteCard({ authToken }) {
     </section>
   );
 }
+function IntegrationStatusCard({ backendReady }) {
+  const rows = [
+    { label: "Backend", value: backendReady ? "Online" : "Check Render", state: backendReady ? "good" : "warn", detail: "Lead save/load API" },
+    { label: "Google Maps", value: googleMapsEmbedApiKey ? "Configured" : "Needs Key", state: googleMapsEmbedApiKey ? "good" : "warn", detail: "Street View, map, satellite" },
+    { label: "Contact Provider", value: "Admin Only", state: "warn", detail: "Paid enrichment stays disabled until configured" },
+    { label: "Market Data", value: "Evidence First", state: "good", detail: "Mock/demo data must stay labeled" }
+  ];
+
+  return (
+    <section className="dashboard-card integration-status-card">
+      <div>
+        <p className="eyebrow">Trust Pass</p>
+        <h2>Integration Status</h2>
+      </div>
+      <div className="integration-status-list">
+        {rows.map((row) => (
+          <span className={`integration-status-row ${row.state}`} key={row.label}>
+            <b>{row.label}</b>
+            <strong>{row.value}</strong>
+            <small>{row.detail}</small>
+          </span>
+        ))}
+      </div>
+    </section>
+  );
+}
 function UnderConstructionPage({ onLogout, user }) {
   return (
     <main className="maintenance-shell">
@@ -1740,7 +1769,7 @@ function LeaderboardView({ leads, currentUser }) {
           <article className={`leaderboard-row ${row.name === myName ? "active" : ""}`} key={row.name}>
             <strong>#{index + 1}</strong>
             <span>{row.name}</span>
-            <small>{row.calls} calls / {row.hotLeads} hot leads / {row.followUps} follow-ups</small>
+            <small>{row.calls} calls / {row.hotLeads} hot sellers / {row.followUps} follow-ups</small>
           </article>
         )) : (
           <div className="empty-state">
@@ -1756,7 +1785,7 @@ function LeaderboardView({ leads, currentUser }) {
 function CallerProfileView({ currentUser, leads }) {
   const myName = safeText(currentUser?.name || currentUser?.username);
   const myLeads = leads.filter((lead) => safeText(lead.lastContactedBy) === myName || safeText(lead.owner) === myName);
-  const hotLeads = myLeads.filter((lead) => getLeadContactStatus(lead).value === "confirmed" || Number(lead.score) >= 80).length;
+  const hotLeads = myLeads.filter(isSellerHotLead).length;
 
   return (
     <div className="panel wide-panel profile-panel">
@@ -1772,7 +1801,7 @@ function CallerProfileView({ currentUser, leads }) {
         <DetailItem label="Role" value={currentUser?.role || "Acquisition"} />
         <DetailItem label="Email" value={currentUser?.email || "Add during onboarding"} />
         <DetailItem label="My Leads" value={myLeads.length} />
-        <DetailItem label="Hot Leads" value={hotLeads} />
+        <DetailItem label="Hot Sellers" value={hotLeads} />
         <DetailItem label="Agreement" value={currentUser?.agreement_signed ? "Signed" : "Needs Signature"} />
       </div>
     </div>
@@ -2695,7 +2724,7 @@ function ImportsView({ importMessage, imports }) {
   );
 }
 
-function AnalyticsView({ authToken, currentUser, followUps, hotLeads, imports, leads }) {
+function AnalyticsView({ authToken, currentUser, followUps, hotLeads, imports, leads, strongProperties }) {
   const reviewed = leads.filter((lead) => !lead.needsReview).length;
   const reviewNeeded = leads.filter((lead) => lead.needsReview).length;
   const [recentActivity, setRecentActivity] = React.useState([]);
@@ -2742,7 +2771,8 @@ function AnalyticsView({ authToken, currentUser, followUps, hotLeads, imports, l
         <Stat label="Needs Review" value={reviewNeeded} />
         <Stat label="Reviewed" value={reviewed} />
         <Stat label="Follow-Ups" value={followUps} />
-        <Stat label="Hot Leads" value={hotLeads} />
+        <Stat label="Strong Properties" value={strongProperties} />
+        <Stat label="Hot Sellers" value={hotLeads} />
         <Stat label="PDF Imports" value={imports.length} />
       </div>
 
@@ -3178,6 +3208,9 @@ function LeadWorkspacePage({
   const phoneHref = primaryPhone ? `tel:${primaryPhone.replace(/[^\d+]/g, "")}` : "";
   const textHref = primaryPhone ? `sms:${primaryPhone.replace(/[^\d+]/g, "")}` : "";
   const status = getLeadContactStatus(lead);
+  const opportunity = getPropertyOpportunity(lead);
+  const sellerHeat = getSellerHeat(lead);
+  const dataConfidence = getDataConfidence(lead);
   const analyzedAt = lead.lastContactedAt || lead.updatedAt || lead.createdAt || "";
   const canCreateOffer = currentUser?.role === "Admin";
   const taxLabel = `${lead.county || ""} ${lead.source || ""} ${lead.address || ""}`.toLowerCase().includes("dallas") ? "Dallas Tax" : "County Tax";
@@ -3192,14 +3225,19 @@ function LeadWorkspacePage({
           <p>{ownerName} / {lead.county || "County needed"} / {status.label}</p>
         </div>
         <div className="lead-workspace-score compact-score">
-          <span>Opportunity</span>
-          <strong>{lead.score || 0}</strong>
-          <small>{lead.stage || "New Lead"}</small>
+          <span>Property</span>
+          <strong>{opportunity.score}</strong>
+          <small>{opportunity.label}</small>
         </div>
-        <div className="lead-workspace-confidence">
-          <span>Confidence</span>
-          <strong>{Number(lead.score || 0) >= 80 ? "High" : Number(lead.score || 0) >= 60 ? "Medium" : "Needs Data"}</strong>
-          <small>{analyzedAt ? `Analyzed ${formatActivityTime(analyzedAt)}` : "Ready for review"}</small>
+        <div className="lead-workspace-confidence seller-heat">
+          <span>Seller Heat</span>
+          <strong>{sellerHeat.score}</strong>
+          <small>{sellerHeat.label}</small>
+        </div>
+        <div className="lead-workspace-confidence data-confidence">
+          <span>Data</span>
+          <strong>{dataConfidence.score}%</strong>
+          <small>{analyzedAt ? `Updated ${formatActivityTime(analyzedAt)}` : dataConfidence.label}</small>
         </div>
       </header>
 
@@ -3254,14 +3292,24 @@ function LeadWorkspacePage({
 }
 
 function LeadWorkspaceAssessmentCard({ lead, ownerName, primaryPhone }) {
-  const score = Number(lead.score || 0);
-  const status = getLeadContactStatus(lead);
-  const isHot = score >= 85 || status.value === "confirmed" || lead.stage === "Hot Lead";
-  const recommendedAction = isHot ? "Pursue Now" : status.value === "follow-up" ? "Work Follow-Up" : "Make First Contact";
+  const opportunity = getPropertyOpportunity(lead);
+  const sellerHeat = getSellerHeat(lead);
+  const dataConfidence = getDataConfidence(lead);
+  const pricing = getPricingValidation(lead);
+  const recommendedAction = sellerHeat.level === "cold"
+    ? "Do Not Chase"
+    : sellerHeat.level === "hot" && opportunity.score >= 70
+      ? "Pursue Immediately"
+      : opportunity.score >= 80 && primaryPhone
+        ? "Call First"
+        : sellerHeat.level === "follow-up"
+          ? "Work Follow-Up"
+          : primaryPhone
+            ? "Make First Contact"
+            : "Research Contact";
   const nextBestAction = primaryPhone
-    ? `Call ${ownerName} at ${formatPhone(primaryPhone)} and confirm motivation.`
+    ? `Call ${ownerName} at ${formatPhone(primaryPhone)}. Confirm motivation before treating this as a hot seller.`
     : "Verify the best owner phone number before outreach.";
-  const assignmentPotential = score >= 85 ? "Strong" : score >= 65 ? "Promising" : "Needs Research";
 
   return (
     <section className="lead-workspace-assessment-card" aria-label="LEGACY assessment">
@@ -3270,17 +3318,20 @@ function LeadWorkspaceAssessmentCard({ lead, ownerName, primaryPhone }) {
         <h3>{recommendedAction}</h3>
         <p>{nextBestAction}</p>
       </div>
-      <div className="lead-workspace-assessment-metrics">
-        <span><b>Next Best Action</b>{primaryPhone ? "Call owner" : "Research contact"}</span>
-        <span><b>Assignment Potential</b>{assignmentPotential}</span>
-        <span><b>Confidence</b>{score >= 80 ? "High" : score >= 60 ? "Medium" : "Needs Data"}</span>
+      <div className="lead-workspace-assessment-metrics trust-metrics">
+        <span><b>Property Opportunity</b>{opportunity.label} / {opportunity.score}</span>
+        <span><b>Seller Heat</b>{sellerHeat.label} / {sellerHeat.score}</span>
+        <span><b>Data Confidence</b>{dataConfidence.score}% / {dataConfidence.label}</span>
+        <span><b>Pricing Check</b>{pricing.label}</span>
       </div>
       <details className="lead-workspace-why-property">
         <summary>Why This Property?</summary>
-        <p>
-          LEGACY is prioritizing this lead from score, status, owner contact readiness, county data, and current pipeline stage.
-          Deeper buyer, market, and outcome evidence stays below so the first screen stays clear.
-        </p>
+        <div className="lead-workspace-trust-list">
+          <p><b>Property:</b> {opportunity.reason}</p>
+          <p><b>Seller:</b> {sellerHeat.reason}</p>
+          <p><b>Data:</b> {dataConfidence.detail}</p>
+          <p><b>Pricing:</b> {pricing.reason}</p>
+        </div>
       </details>
     </section>
   );
@@ -4499,7 +4550,7 @@ function PropertyIntelligenceWorkspace({ authToken, lead, message, snapshot, tax
         </button>
       </div>
 
-      <LegacyAssessmentPanel assessment={assessment} onOpenWhy={() => setShowWhyDrawer(true)} />
+      <LegacyAssessmentPanel assessment={assessment} lead={lead} onOpenWhy={() => setShowWhyDrawer(true)} />
 
       {showWhyDrawer ? (
         <LegacyWhyPropertyDrawer
@@ -4632,11 +4683,12 @@ function PropertyIntelligenceWorkspace({ authToken, lead, message, snapshot, tax
   );
 }
 
-function LegacyAssessmentPanel({ assessment = {}, onOpenWhy }) {
+function LegacyAssessmentPanel({ assessment = {}, lead = {}, onOpenWhy }) {
   const action = assessment.recommendedAction || "Review";
-  const nextAction = assessment.nextBestAction || {};
-  const potential = assessment.assignmentPotential || {};
-  const confidence = assessment.confidence || {};
+  const opportunity = getPropertyOpportunity(lead);
+  const sellerHeat = getSellerHeat(lead);
+  const dataConfidence = getDataConfidence(lead);
+  const pricing = getPricingValidation(lead);
   return (
     <section className={`legacy-assessment-panel ${assessment.actionTone || "watch"}`}>
       <div className="legacy-assessment-main">
@@ -4644,10 +4696,11 @@ function LegacyAssessmentPanel({ assessment = {}, onOpenWhy }) {
         <h3>{action}</h3>
         <p>{assessment.summary || "LEGACY is waiting on stronger market evidence before making a recommendation."}</p>
       </div>
-      <div className="legacy-assessment-cards">
-        <LegacyAssessmentCard label="Next Best Action" value={nextAction.label || "Review evidence"} detail={nextAction.reason || "Evidence is still building."} />
-        <LegacyAssessmentCard label="Assignment Potential" value={potential.label || "Needs pricing data"} detail={potential.source || "Pricing Intelligence"} />
-        <LegacyAssessmentCard label="Confidence" value={`${confidence.score || 0}%`} detail={confidence.label || "Needs Data"} />
+      <div className="legacy-assessment-cards trust-assessment-cards">
+        <LegacyAssessmentCard label="Property Opportunity" value={`${opportunity.score} / ${opportunity.label}`} detail={opportunity.reason} />
+        <LegacyAssessmentCard label="Seller Heat" value={`${sellerHeat.score} / ${sellerHeat.label}`} detail={sellerHeat.reason} />
+        <LegacyAssessmentCard label="Data Confidence" value={`${dataConfidence.score}%`} detail={dataConfidence.detail} />
+        <LegacyAssessmentCard label="Pricing Check" value={pricing.label} detail={pricing.reason} />
       </div>
       <div className="legacy-assessment-actions">
         <button onClick={onOpenWhy} type="button">Why This Property?</button>
@@ -6402,6 +6455,98 @@ function getContactStatus(value) {
   return contactStatuses.find((status) => status.value === value) || contactStatuses[0];
 }
 
+function getPropertyOpportunity(lead = {}) {
+  const score = clampNumber(Number(lead.score) || 0, 0, 100);
+  if (score >= 85) {
+    return { score, label: "Excellent", level: "excellent", reason: "Strong property-side opportunity. Confirm seller motivation before calling it hot." };
+  }
+  if (score >= 70) {
+    return { score, label: "Strong", level: "strong", reason: "Good property-side opportunity. Needs seller and pricing confirmation." };
+  }
+  if (score >= 50) {
+    return { score, label: "Developing", level: "developing", reason: "Some opportunity signals are present, but evidence is still building." };
+  }
+  return { score, label: "Needs Data", level: "needs-data", reason: "Not enough property-side evidence yet." };
+}
+
+function getSellerHeat(lead = {}) {
+  const status = getLeadContactStatus(lead).value;
+  const stage = safeText(lead.stage);
+  const notes = safeText(lead.notes).toLowerCase();
+
+  if (status === "not-interested") {
+    return { score: 0, label: "Not Interested", level: "cold", reason: "Seller or contact indicated no interest." };
+  }
+  if (stage === "Closed") {
+    return { score: 100, label: "Closed", level: "hot", reason: "Deal has reached a closing stage." };
+  }
+  if (stage === "Offer") {
+    return { score: 85, label: "Offer Stage", level: "hot", reason: "Seller conversation has moved to offer work." };
+  }
+  if (/\b(hot|wants offer|offer requested|motivated|ready to sell)\b/i.test(notes)) {
+    return { score: 78, label: "Seller Interest", level: "warm", reason: "Notes mention offer interest or motivation." };
+  }
+  if (status === "confirmed") {
+    return { score: 60, label: "Contact Made", level: "warm", reason: "Owner/contact was confirmed, but motivation still needs proof." };
+  }
+  if (status === "follow-up" || lead.followUpDate) {
+    return { score: 45, label: "Follow-Up", level: "follow-up", reason: "Follow-up is needed before seller motivation is known." };
+  }
+  if (status === "left-voicemail") {
+    return { score: 25, label: "Voicemail", level: "low", reason: "A voicemail was left. No seller intent confirmed yet." };
+  }
+  if (status === "no-answer") {
+    return { score: 15, label: "No Answer", level: "low", reason: "No contact has been made yet." };
+  }
+  return { score: 10, label: "Uncontacted", level: "uncontacted", reason: "Seller heat has not been established by a conversation." };
+}
+
+function isSellerHotLead(lead = {}) {
+  return getSellerHeat(lead).level === "hot";
+}
+
+function getDataConfidence(lead = {}) {
+  const checks = [
+    { label: "Address", ok: Boolean(safeText(lead.address)), weight: 20 },
+    { label: "Owner", ok: Boolean(getDisplayOwnerName(lead)), weight: 18 },
+    { label: "Phone", ok: getLeadPhones(lead).length > 0, weight: 18 },
+    { label: "County", ok: Boolean(safeText(lead.county)), weight: 14 },
+    { label: "APN", ok: Boolean(safeText(lead.parcelNumber)), weight: 14 },
+    { label: "Pricing", ok: Boolean(numberFromMoney(lead.estimatedArv) || numberFromMoney(lead.assignmentFee) || numberFromMoney(lead.contractPrice)), weight: 16 }
+  ];
+  const score = checks.reduce((total, check) => total + (check.ok ? check.weight : 0), 0);
+  const missing = checks.filter((check) => !check.ok).map((check) => check.label);
+  const verified = checks.filter((check) => check.ok).map((check) => check.label);
+  const label = score >= 82 ? "High" : score >= 60 ? "Good" : score >= 38 ? "Partial" : "Needs Data";
+  const detail = missing.length ? `Missing: ${missing.slice(0, 3).join(", ")}${missing.length > 3 ? "..." : ""}` : "Core lead data is ready.";
+  return { score, label, detail, missing, verified };
+}
+
+function getPricingValidation(lead = {}) {
+  const arv = numberFromMoney(lead.estimatedArv);
+  const repairs = numberFromMoney(lead.repairBudget);
+  const assignmentFee = numberFromMoney(lead.assignmentFee);
+  const contractPrice = numberFromMoney(lead.contractPrice || lead.maxOffer);
+  const offer = calculateOffer(lead);
+
+  if (!arv && !contractPrice && !assignmentFee) {
+    return { status: "missing", label: "Needs Pricing", reason: "Add ARV, expected offer, or assignment fee before trusting pricing recommendations." };
+  }
+  if (!arv && (contractPrice || assignmentFee)) {
+    return { status: "review", label: "ARV Missing", reason: "Pricing has deal numbers, but no ARV support yet." };
+  }
+  if (arv && assignmentFee > arv * 0.5) {
+    return { status: "review", label: "Review Spread", reason: "Assignment target is unusually high compared with ARV." };
+  }
+  if (arv && repairs > arv * 0.65) {
+    return { status: "review", label: "Repair Risk", reason: "Repair budget is high enough to require manager review." };
+  }
+  if (arv && offer.maxOffer <= 0) {
+    return { status: "review", label: "Offer Math", reason: "Offer calculator is returning zero. Check ARV, repairs, and spread." };
+  }
+  return { status: "ok", label: "Pricing Ready", reason: "Current pricing inputs are internally consistent." };
+}
+
 function getActivityActionLabel(actionType = "") {
   const labels = {
     called: "called this lead",
@@ -7175,7 +7320,7 @@ function buildCallerLeaderboard(leads = []) {
 
     const current = map.get(name) || { name, calls: 0, hotLeads: 0, followUps: 0 };
     if (lead.lastContactedAt || lead.lastActivityAction) current.calls += 1;
-    if (getLeadContactStatus(lead).value === "confirmed" || Number(lead.score) >= 80) current.hotLeads += 1;
+    if (isSellerHotLead(lead)) current.hotLeads += 1;
     if (safeText(lead.stage) === "Follow Up" || lead.followUpDate) current.followUps += 1;
     map.set(name, current);
   }
