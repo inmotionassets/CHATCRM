@@ -7525,7 +7525,7 @@ function LegacyLogo() {
     <img
       alt="LEGACY logo"
       className="brand-logo"
-      src="/assets/legacy-logo.svg"
+      src="/assets/legacy-icon.png?v=4"
     />
   );
 }

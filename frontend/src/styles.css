@@ -2377,7 +2377,7 @@ textarea::placeholder {
 }
 
 .login-shell::after {
-  background: url("/assets/legacy-logo.svg") center / contain no-repeat;
+  background: url("/assets/legacy-icon.png?v=4") center / contain no-repeat;
   content: "";
   height: min(50vw, 680px);
   left: 37%;
