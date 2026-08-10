@@ -3332,7 +3332,7 @@ function PropertyVisualPanel({ address, mode, onModeChange }) {
   const [visualNotice, setVisualNotice] = React.useState("");
   const safeMode = ["street", "satellite", "map"].includes(mode) ? mode : "street";
   const title = safeMode === "satellite" ? "Satellite View" : safeMode === "street" ? "Street View" : "Map View";
-  const usesOfficialStreetView = safeMode === "street" && Boolean(googleMapsEmbedApiKey);
+  const usesOfficialStreetView = safeMode === "street" && Boolean(googleMapsEmbedApiKey) && isLatLngValue(address);
   const embedUrl = buildGoogleMapsEmbedUrl(address, safeMode, { heading: streetHeading });
 
   React.useEffect(() => {
@@ -3380,7 +3380,9 @@ function PropertyVisualPanel({ address, mode, onModeChange }) {
           {safeMode === "street"
             ? usesOfficialStreetView
               ? "Google Street View panorama. Rotate, zoom, and inspect from the road."
-              : "Street View fallback. Add VITE_GOOGLE_MAPS_EMBED_API_KEY for official panorama controls."
+              : googleMapsEmbedApiKey
+                ? "Street View address lookup. Stored coordinates will unlock exact panorama controls."
+                : "Street View fallback. Add VITE_GOOGLE_MAPS_API_KEY for official panorama controls."
             : safeMode === "satellite"
               ? "Interactive satellite view centered on the property address."
               : "Traditional map view for roads, directions, and nearby context."}
@@ -6950,18 +6952,21 @@ function buildGoogleMapsEmbedUrl(address, mode = "map", options = {}) {
   const rawAddress = address || "Dallas, TX";
   const query = encodeURIComponent(rawAddress);
   const key = googleMapsEmbedApiKey ? encodeURIComponent(googleMapsEmbedApiKey) : "";
+  const isCoordinateLocation = isLatLngValue(rawAddress);
 
   if (key) {
-    if (mode === "street") {
+    if (mode === "street" && isCoordinateLocation) {
       const heading = Number.isFinite(Number(options.heading)) ? Number(options.heading) : 210;
       const pitch = Number.isFinite(Number(options.pitch)) ? Number(options.pitch) : 0;
       const fov = Number.isFinite(Number(options.fov)) ? Number(options.fov) : 85;
       return `https://www.google.com/maps/embed/v1/streetview?key=${key}&location=${query}&heading=${heading}&pitch=${pitch}&fov=${fov}`;
     }
 
-    const mapType = mode === "satellite" ? "satellite" : "roadmap";
-    const zoom = mode === "satellite" ? 19 : 17;
-    return `https://www.google.com/maps/embed/v1/place?key=${key}&q=${query}&zoom=${zoom}&maptype=${mapType}`;
+    if (mode !== "street") {
+      const mapType = mode === "satellite" ? "satellite" : "roadmap";
+      const zoom = mode === "satellite" ? 19 : 17;
+      return `https://www.google.com/maps/embed/v1/place?key=${key}&q=${query}&zoom=${zoom}&maptype=${mapType}`;
+    }
   }
 
   if (mode === "satellite") {
@@ -6971,6 +6976,10 @@ function buildGoogleMapsEmbedUrl(address, mode = "map", options = {}) {
     return `https://maps.google.com/maps?q=${query}&layer=c&z=18&output=embed`;
   }
   return `https://maps.google.com/maps?q=${query}&z=17&output=embed`;
+}
+
+function isLatLngValue(value = "") {
+  return /^\s*-?\d+(?:\.\d+)?\s*,\s*-?\d+(?:\.\d+)?\s*$/.test(String(value));
 }
 function buildMyMapsEmbedUrl(value = "") {
   const url = parseUrl(value);
