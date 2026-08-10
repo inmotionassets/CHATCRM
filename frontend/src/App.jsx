@@ -91,12 +91,12 @@ const contactStatuses = [
   { value: "left-voicemail", label: "Left Voicemail", color: "blue" },
   { value: "follow-up", label: "Follow Up", color: "yellow" }
 ];
-const mainViews = ["Leads", "Pipeline", "Disposition Intelligence", "Property Intelligence", "Buyer Network", "Imports", "Analytics", "Training"];
-const dispositionViews = ["Disposition Intelligence", "Buyer Network", "Pipeline", "Training", "Profile"];
-const callerViews = ["Dashboard", "Leads", "Training", "Leaderboard", "Profile"];
+const mainViews = ["Properties", "Pipeline", "Disposition", "Markets", "Buyers", "Data Hub", "Insights", "Academy"];
+const dispositionViews = ["Disposition", "Buyers", "Pipeline", "Academy", "Profile"];
+const callerViews = ["Dashboard", "Properties", "Academy", "Leaderboard", "Profile"];
 const ownerAccessUsernames = new Set(["virgo"]);
 
-function hasChatCrmOwnerAccess(user = {}) {
+function hasLegacyOwnerAccess(user = {}) {
   return ownerAccessUsernames.has(String(user?.username || "").trim().toLowerCase());
 }
 const commissionTiers = [
@@ -106,10 +106,10 @@ const commissionTiers = [
   { min: 35000, max: Infinity, rate: 0.25, label: "$35,000+" }
 ];
 const partnerAgreementClauses = [
-  { title: "Confidentiality", detail: "Seller lists, buyer lists, lead data, training, scripts, processes, and ChatCRM information stay confidential and remain property of ChatCRM." },
-  { title: "Non-Circumvention", detail: "Team members may not bypass ChatCRM to work directly with sellers, buyers, investors, builders, or relationships introduced through the platform." },
-  { title: "Compensation", detail: "Commissions are paid after a successful closing and receipt of funds. ChatCRM handles compensation and applicable tax reporting requirements." },
-  { title: "Caller Responsibilities", detail: "Contact sellers, verify ownership, determine motivation, gather property details, update ChatCRM, and schedule follow-ups." }
+  { title: "Confidentiality", detail: "Seller lists, buyer lists, lead data, training, scripts, processes, and LEGACY information stay confidential and remain property of LEGACY." },
+  { title: "Non-Circumvention", detail: "Team members may not bypass LEGACY to work directly with sellers, buyers, investors, builders, or relationships introduced through the platform." },
+  { title: "Compensation", detail: "Commissions are paid after a successful closing and receipt of funds. LEGACY handles compensation and applicable tax reporting requirements." },
+  { title: "Caller Responsibilities", detail: "Contact sellers, verify ownership, determine motivation, gather property details, update LEGACY, and schedule follow-ups." }
 ];
 const callScript = {
   objective: "Verify ownership, determine interest, gather good contact notes, and schedule the right follow-up. Do not make offers on the first call.",
@@ -156,7 +156,7 @@ const trainingSections = [
     title: "Mission",
     items: [
       "Find out if the owner would consider selling.",
-      "Verify owner and property details before moving the lead forward.",
+      "Verify owner and property details before moving the property forward.",
       "Do not quote prices, values, guarantees, or closing dates."
     ]
   },
@@ -181,7 +181,7 @@ const trainingSections = [
     ]
   },
   {
-    title: "Lead Scoring",
+    title: "Opportunity Scoring",
     items: [
       "Hot: wants an offer, inherited property, back taxes, wants to sell quickly.",
       "Warm: interested but not rushed.",
@@ -189,7 +189,7 @@ const trainingSections = [
     ]
   },
   {
-    title: "CRM Statuses",
+    title: "Deal Statuses",
     items: [
       "New, No Answer, Voicemail, Callback, Wrong Number, Not Interested.",
       "Warm, Hot, Offer Requested, Follow-Up Scheduled, Contract Sent, Closed."
@@ -230,11 +230,11 @@ function loadLeadReturnContext() {
   try {
     const parsed = JSON.parse(safeStorageGet(leadWorkspaceReturnKey) || "{}");
     return {
-      view: parsed.view || "Leads",
+      view: parsed.view || "Properties",
       scrollY: Number(parsed.scrollY) || 0
     };
   } catch {
-    return { view: "Leads", scrollY: 0 };
+    return { view: "Properties", scrollY: 0 };
   }
 }
 
@@ -324,7 +324,7 @@ export function App() {
   const [isFormOpen, setIsFormOpen] = React.useState(false);
   const [importMessage, setImportMessage] = React.useState("");
   const [selectedLeadId, setSelectedLeadId] = React.useState(() => getLeadIdFromPath() || null);
-  const [activeView, setActiveView] = React.useState("Leads");
+  const [activeView, setActiveView] = React.useState("Properties");
   const [backendReady, setBackendReady] = React.useState(false);
   const [saveStatus, setSaveStatus] = React.useState("Connecting...");
   const [theme, setTheme] = React.useState(() => safeStorageGet("chatcrm.theme") || "light");
@@ -340,13 +340,13 @@ export function App() {
   const cadFileInputRef = React.useRef(null);
   const leadReturnContextRef = React.useRef(loadLeadReturnContext());
   const authToken = auth?.accessToken || "";
-  const hasFullAccess = hasChatCrmOwnerAccess(auth?.user);
+  const hasFullAccess = hasLegacyOwnerAccess(auth?.user);
   const isAdmin = auth?.user?.role === "Admin";
   const isDisposition = auth?.user?.role === "Disposition";
   const visibleMainViews = isAdmin ? [...mainViews, "Team"] : isDisposition ? dispositionViews : callerViews;
   function captureLeadReturnContext() {
     const context = {
-      view: activeView || "Leads",
+      view: activeView || "Properties",
       scrollY: window.scrollY || document.documentElement.scrollTop || 0
     };
     leadReturnContextRef.current = context;
@@ -356,7 +356,7 @@ export function App() {
 
   function restoreLeadReturnContext() {
     const context = leadReturnContextRef.current || loadLeadReturnContext();
-    setActiveView(context.view || "Leads");
+    setActiveView(context.view || "Properties");
     window.setTimeout(() => window.scrollTo({ top: Number(context.scrollY) || 0, behavior: "auto" }), 0);
   }
 
@@ -400,7 +400,7 @@ export function App() {
   }, []);
   React.useEffect(() => {
     if (!visibleMainViews.includes(activeView)) {
-      setActiveView(visibleMainViews[0] || "Leads");
+      setActiveView(visibleMainViews[0] || "Properties");
     }
   }, [activeView, visibleMainViews.join("|")]);
 
@@ -539,7 +539,7 @@ export function App() {
         setLeads(storedLeads);
 
         setBackendReady(true);
-        setSaveStatus("Saved");
+        setSaveStatus("Synced");
       } catch {
         if (!cancelled) {
           setSaveStatus("Browser Save");
@@ -566,7 +566,7 @@ export function App() {
         const storedBuyers = await fetchBackendBuyers(authToken);
         if (!cancelled) setBuyers(storedBuyers);
       } catch {
-        if (!cancelled) setBuyerMessage("Buyer Network is using browser backup until the backend responds.");
+        if (!cancelled) setBuyerMessage("Buyer records are using browser backup until the backend responds.");
       }
     }
 
@@ -607,7 +607,7 @@ export function App() {
     const timeoutId = window.setTimeout(async () => {
       try {
         await syncLeadsToBackend(leads, authToken);
-        setSaveStatus("Saved");
+        setSaveStatus("Synced");
       } catch {
         setSaveStatus("Browser Save");
       }
@@ -666,7 +666,7 @@ export function App() {
 
   function openCreateForm() {
     closeLeadWorkspace({ restore: false });
-    setActiveView("Leads");
+    setActiveView("Properties");
     setEditingId(null);
     setFormLead(emptyLead);
     setIsFormOpen(true);
@@ -674,7 +674,7 @@ export function App() {
 
   function openEditForm(lead) {
     closeLeadWorkspace({ restore: false });
-    setActiveView("Leads");
+    setActiveView("Properties");
     setEditingId(lead.id);
     setFormLead(lead);
     setIsFormOpen(true);
@@ -802,7 +802,7 @@ export function App() {
 
   function openReviewQueue() {
     closeLeadWorkspace({ restore: false });
-    setActiveView("Leads");
+    setActiveView("Properties");
     setQuery("");
     setStageFilter("All");
     setReviewFilter("Needs Review");
@@ -811,7 +811,7 @@ export function App() {
 
   function showFollowUps() {
     closeLeadWorkspace({ restore: false });
-    setActiveView("Leads");
+    setActiveView("Properties");
     setQuery("");
     setStageFilter("Follow Up");
     setReviewFilter("All");
@@ -820,7 +820,7 @@ export function App() {
 
   function showHotLeads() {
     closeLeadWorkspace({ restore: false });
-    setActiveView("Leads");
+    setActiveView("Properties");
     setQuery("");
     setStageFilter("All");
     setReviewFilter("All");
@@ -925,7 +925,7 @@ export function App() {
   async function resetNotesAndFollowUps() {
     if (!isAdmin || !authToken) return;
     const confirmed = window.confirm(
-      "Clear all notes, follow-up dates, call activity, and temporary lead locks? Leads will stay saved."
+      "Clear all notes, follow-up dates, call activity, and temporary property locks? Properties will stay saved."
     );
     if (!confirmed) return;
 
@@ -940,10 +940,10 @@ export function App() {
       setStageFilter("All");
       setReviewFilter("All");
       setHotOnly(false);
-      setSaveStatus("Saved");
+      setSaveStatus("Synced");
       window.alert(`Reset complete. ${result.updatedLeads} leads kept. Notes, follow-ups, and activity were cleared.`);
     } catch {
-      setSaveStatus("Saved");
+      setSaveStatus("Synced");
       window.alert("Could not reset notes and follow-ups yet. Confirm the backend is online and you are logged in as Admin.");
     }
   }
@@ -995,7 +995,7 @@ export function App() {
         }
       } catch {
         importRecord.status = "Needs Review";
-        importRecord.warnings = ["The parser could not read this file. A manual draft lead was created."];
+        importRecord.warnings = ["The parser could not read this file. A manual property draft was created."];
         parsedLeads.push(createDraftLeadFromImport(importRecord));
       }
 
@@ -1008,7 +1008,7 @@ export function App() {
     setStageFilter("All");
     setReviewFilter("All");
     setHotOnly(false);
-    setImportMessage(`${parsedLeads.length} lead draft${parsedLeads.length === 1 ? "" : "s"} parsed. Matching addresses were updated with any new phone numbers.`);
+    setImportMessage(`${parsedLeads.length} property draft${parsedLeads.length === 1 ? "" : "s"} parsed. Matching addresses were updated with any new phone numbers.`);
     event.target.value = "";
   }
 
@@ -1054,10 +1054,10 @@ export function App() {
     <main className="app-shell">
       <aside className="sidebar">
         <div className="brand-block">
-          <ChatCrmLogo />
+          <LegacyLogo />
           <div>
-            <p className="eyebrow">ChatCRM</p>
-            <h1>Lead Intelligence</h1>
+            <p className="eyebrow">LEGACY</p>
+            <h1>Real Estate Intelligence</h1>
           </div>
         </div>
 
@@ -1094,13 +1094,13 @@ export function App() {
             <Search size={18} />
             <input
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search leads, addresses, phone, email..."
+              placeholder="Search properties, owners, phone, email..."
               value={query}
             />
           </div>
 
           <div className="actions">
-            <span className={`save-status ${saveStatus === "Saved" ? "saved" : ""}`}>{saveStatus}</span>
+            <span className={`save-status ${saveStatus === "Synced" ? "saved" : ""}`}>{saveStatus}</span>
             <span className="user-badge">{auth.user?.role}</span>
             {isAdmin ? (
             <>
@@ -1122,7 +1122,7 @@ export function App() {
             </button>
             <button className="primary-button" onClick={openCreateForm}>
               <Plus size={18} />
-              Add Lead
+              Add Property
             </button>
             <button className="secondary-button" onClick={() => exportLeadsCsv(leads)}>
               Export CSV
@@ -1148,17 +1148,17 @@ export function App() {
           </div>
         </header>
 
-        {activeView === "Dashboard" || (isAdmin && activeView === "Leads") ? (
+        {activeView === "Dashboard" || (isAdmin && activeView === "Properties") ? (
           <>
-            <section className="stats-grid" aria-label="Lead stats">
-              <Stat label="Total Leads" value={leads.length} />
+            <section className="stats-grid" aria-label="Property stats">
+              <Stat label="Total Properties" value={leads.length} />
               <Stat label="Needs Follow-Up" value={followUps} />
               <Stat label="Strong Properties" value={strongProperties} />
         <Stat label="Hot Sellers" value={hotLeads} />
               {isAdmin ? (
               <>
               <Stat label="Buyers" value={buyers.length} />
-              <Stat label="PDF Imports" value={imports.length} />
+              <Stat label="Data Imports" value={imports.length} />
               </>
               ) : null}
             </section>
@@ -1170,13 +1170,13 @@ export function App() {
             </section>
           </>
         ) : null}
-        <section className={`content-grid ${(isAdmin && activeView === "Leads") || isFormOpen ? "" : "single-column"}`}>
-          {activeView === "Leads" ? (
+        <section className={`content-grid ${(isAdmin && activeView === "Properties") || isFormOpen ? "" : "single-column"}`}>
+          {activeView === "Properties" ? (
           <div className="panel">
             <div className="panel-header">
               <div>
-                <p className="eyebrow">Leads</p>
-                <h2>Active Leads</h2>
+                <p className="eyebrow">Properties</p>
+                <h2>Active Properties</h2>
               </div>
               <div className="lead-filters">
                 <select
@@ -1216,7 +1216,7 @@ export function App() {
             </div>
 
             <p className="results-count">
-              Showing {displayedLeads.length} of {filteredLeads.length} matching leads / {leads.length} total
+              Showing {displayedLeads.length} of {filteredLeads.length} matching properties / {leads.length} total
             </p>
             <StatusLegend />
             {isAdmin ? (
@@ -1283,8 +1283,8 @@ export function App() {
                 ))
               ) : (
                 <div className="empty-state">
-                  <h3>No leads found</h3>
-                  <p>Try a different search or add a new lead.</p>
+                  <h3>No properties found</h3>
+                  <p>Try a different search or add a new property.</p>
                 </div>
               )}
             </div>
@@ -1295,14 +1295,14 @@ export function App() {
             <PipelineView leads={leads} onViewLead={openLeadWorkspace} />
           ) : null}
 
-          {activeView === "Disposition Intelligence" ? (
+          {activeView === "Disposition" ? (
             <DispositionIntelligenceView authToken={authToken} currentUser={auth.user} leads={leads} />
           ) : null}
-          {activeView === "Property Intelligence" ? (
+          {activeView === "Markets" ? (
             <PropertyIntelligenceView authToken={authToken} buyers={buyers} leads={leads} />
           ) : null}
 
-          {activeView === "Buyer Network" ? (
+          {activeView === "Buyers" ? (
             <BuyerNetworkView
               authToken={authToken}
               buyerFileInputRef={buyerFileInputRef}
@@ -1318,15 +1318,15 @@ export function App() {
             />
           ) : null}
 
-          {activeView === "Imports" ? (
+          {activeView === "Data Hub" ? (
             <ImportsView importMessage={importMessage} imports={imports} />
           ) : null}
 
-          {activeView === "Analytics" ? (
+          {activeView === "Insights" ? (
             <AnalyticsView authToken={authToken} currentUser={auth.user} followUps={followUps} hotLeads={hotLeads} imports={imports} leads={leads} strongProperties={strongProperties} />
           ) : null}
 
-          {activeView === "Training" ? (
+          {activeView === "Academy" ? (
             <TrainingView />
           ) : null}
 
@@ -1348,7 +1348,7 @@ export function App() {
             />
           ) : null}
 
-          {(isAdmin && activeView === "Leads") || isFormOpen ? (
+          {(isAdmin && activeView === "Properties") || isFormOpen ? (
           <aside className="panel side-panel">
             {isFormOpen ? (
               <LeadForm
@@ -1362,14 +1362,14 @@ export function App() {
               <>
                 <div className="panel-header">
                   <div>
-                    <p className="eyebrow">Assistant</p>
+                    <p className="eyebrow">LEGACY Assistant</p>
                     <h2>Next Actions</h2>
                   </div>
                   <Bot size={20} />
                 </div>
 
                 <div className="assistant-list">
-                  <Action icon={<Phone size={18} />} onClick={openReviewQueue} text={`${leads.filter((lead) => lead.needsReview).length} leads ready for review`} />
+                  <Action icon={<Phone size={18} />} onClick={openReviewQueue} text={`${leads.filter((lead) => lead.needsReview).length} properties ready for review`} />
                   <Action icon={<Mail size={18} />} onClick={showFollowUps} text={`${followUps} follow-ups need attention`} />
                   <Action icon={<Map size={18} />} onClick={showHotLeads} text={`${hotLeads} hot sellers should be worked first`} />
                 </div>
@@ -1462,15 +1462,15 @@ function OnboardingPage({ message, onDownloadAgreement, onLogout, onSaveProfile,
     <main className="onboarding-shell">
       <section className="onboarding-card">
         <div className="brand-block">
-          <ChatCrmLogo />
+          <LegacyLogo />
           <div>
-            <p className="eyebrow">ChatCRM Team Access</p>
+            <p className="eyebrow">LEGACY Team Access</p>
             <h1>Complete Your Team Setup</h1>
           </div>
         </div>
 
         <p className="onboarding-intro">
-          Your login password stays the same. Add your real name and email, sign the partner agreement, then ChatCRM opens automatically.
+          Your login password stays the same. Add your real name and email, sign the partner agreement, then LEGACY opens automatically.
         </p>
 
         <div className="onboarding-steps">
@@ -1514,7 +1514,7 @@ function OnboardingPage({ message, onDownloadAgreement, onLogout, onSaveProfile,
             </label>
             <label className="checkbox-line">
               <input checked={accepted} onChange={(event) => setAccepted(event.target.checked)} type="checkbox" />
-              I have read and agree to the ChatCRM partner agreement.
+              I have read and agree to the LEGACY partner agreement.
             </label>
             <button className="primary-button" disabled={isSaving || !accepted} type="submit">
               {isSaving ? "Saving..." : "Sign & Download"}
@@ -1572,7 +1572,7 @@ function DailyQuoteCard({ authToken }) {
         const result = await fetchDailyQuote(authToken);
         if (!cancelled) setQuote(result);
       } catch {
-        if (!cancelled) setQuote({ quote: "Discipline turns opportunity into income.", author: "ChatCRM", source: "Fallback" });
+        if (!cancelled) setQuote({ quote: "Discipline turns opportunity into income.", author: "LEGACY", source: "Fallback" });
       }
     }
 
@@ -1595,7 +1595,7 @@ function DailyQuoteCard({ authToken }) {
 }
 function IntegrationStatusCard({ backendReady }) {
   const rows = [
-    { label: "Backend", value: backendReady ? "Online" : "Check Render", state: backendReady ? "good" : "warn", detail: "Lead save/load API" },
+    { label: "Backend", value: backendReady ? "Online" : "Check Render", state: backendReady ? "good" : "warn", detail: "Property save/load API" },
     { label: "Google Maps", value: googleMapsEmbedApiKey ? "Configured" : "Needs Key", state: googleMapsEmbedApiKey ? "good" : "warn", detail: "Street View, map, satellite" },
     { label: "Contact Provider", value: "Admin Only", state: "warn", detail: "Paid enrichment stays disabled until configured" },
     { label: "Market Data", value: "Evidence First", state: "good", detail: "Mock/demo data must stay labeled" }
@@ -1624,14 +1624,14 @@ function UnderConstructionPage({ onLogout, user }) {
     <main className="maintenance-shell">
       <section className="maintenance-card">
         <div className="brand-block">
-          <ChatCrmLogo />
+          <LegacyLogo />
           <div>
-            <p className="eyebrow">ChatCRM</p>
+            <p className="eyebrow">LEGACY</p>
             <h1>Under Construction</h1>
           </div>
         </div>
-        <p className="maintenance-kicker">We are polishing the command center.</p>
-        <h2>ChatCRM is temporarily paused for your account.</h2>
+        <p className="maintenance-kicker">We are sharpening the intelligence platform.</p>
+        <h2>LEGACY is temporarily paused for your account.</h2>
         <p>
           Virgo is tightening the system before the team resumes calling. Your login still works, but workspace access is paused for now.
         </p>
@@ -1657,17 +1657,17 @@ function LoginPage({ error, onLogin }) {
     <main className="login-shell">
       <section className="login-hero">
         <div className="brand-block">
-          <ChatCrmLogo />
+          <LegacyLogo />
           <div>
-            <p className="eyebrow">ChatCRM</p>
-            <h1>Lead Intelligence</h1>
+            <p className="eyebrow">LEGACY</p>
+            <h1>Real Estate Intelligence</h1>
           </div>
         </div>
         <div>
-          <p className="login-kicker">ChatCRM Command Center</p>
-          <h2>Find the owner. Make the offer. Track the deal.</h2>
+          <p className="login-kicker">LEGACY Command Center</p>
+          <h2>Understand the property. Read the market. Move with confidence.</h2>
           <p>
-            Built for land acquisitions: skip traced leads, call notes, maps, ARV math, and purchase agreements in one clean workspace.
+            Built for land investors: property data, market signals, buyer activity, contact quality, maps, and deal decisions in one command center.
           </p>
         </div>
       </section>
@@ -1675,7 +1675,7 @@ function LoginPage({ error, onLogin }) {
       <form className="login-panel" onSubmit={submitLogin}>
         <div>
           <p className="eyebrow">Login</p>
-          <h2>Access ChatCRM</h2>
+          <h2>Welcome to LEGACY</h2>
         </div>
 
         <label>
@@ -1717,10 +1717,10 @@ function ImportList({ importMessage, imports }) {
   const recentImports = imports.slice(0, 4);
 
   return (
-    <section className="import-list" aria-label="Recent PDF imports">
+    <section className="import-list" aria-label="Recent data imports">
       <div className="section-heading">
-        <p className="eyebrow">PDF Queue</p>
-        <h2>Recent Imports</h2>
+        <p className="eyebrow">Data Queue</p>
+        <h2>Recent Data</h2>
       </div>
 
       {importMessage ? <p className="import-status">{importMessage}</p> : null}
@@ -1728,7 +1728,7 @@ function ImportList({ importMessage, imports }) {
       {recentImports.length > 0 ? (
         <>
           <p className="import-help">
-            Uploaded PDFs are parsed by the backend. Review all drafts before using them for outreach.
+            Uploaded files are parsed by the backend. Review all drafts before using them for outreach.
           </p>
         <div className="import-items">
           {recentImports.map((item) => (
@@ -1744,7 +1744,7 @@ function ImportList({ importMessage, imports }) {
         </>
       ) : (
         <div className="mini-empty">
-          <p>No PDFs uploaded yet.</p>
+          <p>No files uploaded yet.</p>
         </div>
       )}
     </section>
@@ -1774,7 +1774,7 @@ function LeaderboardView({ leads, currentUser }) {
         )) : (
           <div className="empty-state">
             <h3>No activity yet</h3>
-            <p>Caller rankings will build automatically from call outcomes and lead updates.</p>
+            <p>Caller rankings will build automatically from call outcomes and property updates.</p>
           </div>
         )}
       </div>
@@ -1838,7 +1838,7 @@ function PipelineView({ leads, onViewLead }) {
                   </button>
                 ))
               ) : (
-                <p className="pipeline-empty">No leads</p>
+                <p className="pipeline-empty">No properties</p>
               )}
             </section>
           );
@@ -1891,7 +1891,7 @@ function PropertyIntelligenceView({ authToken, buyers, leads }) {
     <div className="panel wide-panel property-intelligence-view">
       <div className="panel-header">
         <div>
-          <p className="eyebrow">Property Intelligence</p>
+          <p className="eyebrow">Markets</p>
           <h2>County Intelligence Module</h2>
         </div>
       </div>
@@ -1934,7 +1934,7 @@ function PropertyIntelligenceView({ authToken, buyers, leads }) {
             </div>
 
             <div className="county-stat-grid">
-              <Stat label="Leads" value={selected.leadCount} />
+              <Stat label="Properties" value={selected.leadCount} />
               <Stat label="Parcel Found" value={selected.parcelFound} />
               <Stat label="Buyer Matches" value={selected.buyerMatches || countyBuyers.length} />
               <Stat label="Avg Builder Score" value={selected.avgBuilderScore || "-"} />
@@ -1955,8 +1955,8 @@ function PropertyIntelligenceView({ authToken, buyers, leads }) {
 
             <section className="county-lead-snapshot">
               <div className="section-heading">
-                <p className="eyebrow">Lead Snapshot</p>
-                <h3>{selectedCounty.countyName} leads</h3>
+                <p className="eyebrow">Property Snapshot</p>
+                <h3>{selectedCounty.countyName} properties</h3>
               </div>
 
               {countyLeads.length > 0 ? (
@@ -1976,7 +1976,7 @@ function PropertyIntelligenceView({ authToken, buyers, leads }) {
                 </div>
               ) : (
                 <div className="mini-empty">
-                  <p>No leads in this county yet.</p>
+                  <p>No properties in this county yet.</p>
                 </div>
               )}
             </section>
@@ -2153,7 +2153,7 @@ function BuyerNetworkView({
         source: buyerDraft.source || "Manual Entry"
       });
       setBuyerDraft(emptyBuyer);
-      setBuyerMessage(`${savedBuyer.name} added to Buyer Network.`);
+      setBuyerMessage(`${savedBuyer.name} added to Buyers.`);
     } catch {
       setBuyerMessage("Could not save buyer. Check the fields and try again.");
     } finally {
@@ -2326,7 +2326,7 @@ function BuyerNetworkView({
     <div className="panel wide-panel buyer-network">
       <div className="panel-header">
         <div>
-          <p className="eyebrow">Buyer Network</p>
+          <p className="eyebrow">Buyers</p>
           <h2>Disposition Desk</h2>
         </div>
         <div className="lead-filters">
@@ -2694,8 +2694,8 @@ function ImportsView({ importMessage, imports }) {
     <div className="panel wide-panel">
       <div className="panel-header">
         <div>
-          <p className="eyebrow">Imports</p>
-          <h2>PDF Import History</h2>
+          <p className="eyebrow">Data Hub</p>
+          <h2>Data Import History</h2>
         </div>
       </div>
 
@@ -2716,8 +2716,8 @@ function ImportsView({ importMessage, imports }) {
         </div>
       ) : (
         <div className="empty-state">
-          <h3>No imports yet</h3>
-          <p>Use Upload PDF to start an import.</p>
+          <h3>No data imports yet</h3>
+          <p>Use Upload Files to start a data import.</p>
         </div>
       )}
     </div>
@@ -2761,19 +2761,19 @@ function AnalyticsView({ authToken, currentUser, followUps, hotLeads, imports, l
     <div className="panel wide-panel">
       <div className="panel-header">
         <div>
-          <p className="eyebrow">Analytics</p>
+          <p className="eyebrow">Insights</p>
           <h2>{currentUser?.role === "Admin" ? "Team Snapshot" : "My Snapshot"}</h2>
         </div>
       </div>
 
       <div className="analytics-grid">
-        <Stat label="Total Leads" value={leads.length} />
+        <Stat label="Total Properties" value={leads.length} />
         <Stat label="Needs Review" value={reviewNeeded} />
         <Stat label="Reviewed" value={reviewed} />
         <Stat label="Follow-Ups" value={followUps} />
         <Stat label="Strong Properties" value={strongProperties} />
         <Stat label="Hot Sellers" value={hotLeads} />
-        <Stat label="PDF Imports" value={imports.length} />
+        <Stat label="Data Imports" value={imports.length} />
       </div>
 
       <div className="team-activity-grid">
@@ -2836,7 +2836,7 @@ function TrainingView() {
     <div className="panel wide-panel training-panel">
       <div className="panel-header">
         <div>
-          <p className="eyebrow">Training</p>
+          <p className="eyebrow">Academy</p>
           <h2>Dallas Land Acquisition Playbook</h2>
         </div>
       </div>
@@ -2965,8 +2965,8 @@ function LeadForm({ formLead, isEditing, onCancel, onChange, onSubmit }) {
     <form className="lead-form" onSubmit={onSubmit}>
       <div className="panel-header">
         <div>
-          <p className="eyebrow">{isEditing ? "Edit Lead" : "New Lead"}</p>
-          <h2>{isEditing ? formLead.name : "Add Lead"}</h2>
+          <p className="eyebrow">{isEditing ? "Edit Property" : "New Property"}</p>
+          <h2>{isEditing ? formLead.name : "Add Property"}</h2>
         </div>
       </div>
 
@@ -3361,7 +3361,7 @@ function LeadWorkspaceLeadSummary({ lead, ownerName, phones }) {
   return (
     <details className="lead-workspace-summary">
       <summary>
-        <span>Lead Details</span>
+        <span>Property Details</span>
         <strong>{ownerName}</strong>
         <small>{status.label} / {lead.stage || "New Lead"} / {lead.county || "County missing"}</small>
       </summary>
@@ -3605,7 +3605,7 @@ function LeadDetail({
           setPropertyWorkspaceMessage("");
         }
       } catch {
-        if (!cancelled) setPropertyWorkspaceMessage("Property Intelligence will load once the backend responds.");
+        if (!cancelled) setPropertyWorkspaceMessage("LEGACY workspace will load once the backend responds.");
       }
     }
 
@@ -3875,7 +3875,7 @@ function LeadDetail({
     <section className={`lead-detail ${workspaceMode ? "lead-detail-workspace" : ""}`} aria-label="Lead details">
       <div className="panel-header">
         <div>
-          <p className="eyebrow">Lead Detail</p>
+          <p className="eyebrow">Property Detail</p>
           <h2>{ownerLabel || "Owner name needed"}</h2>
           <p className="detail-subtitle">{lead.address || "Missing Address"}</p>
         </div>
@@ -4427,7 +4427,7 @@ function LegacyWorkspaceLauncher({ lead, message, onOpen, snapshot }) {
   const buyers = intelligence.mostProbableBuyers || [];
   const assessment = intelligence.assessment || snapshot?.assessment || {};
   const confidence = intelligence.workspaceHeader?.confidence || assessment?.confidence?.score || lead.score || 0;
-  const summary = assessment.summary || intelligence.summary || message || "Open the full market map, buyer evidence, and property intelligence when you need the deeper research.";
+  const summary = assessment.summary || intelligence.summary || message || "Open the full market map, buyer evidence, and property context when you need deeper research.";
 
   return (
     <section className="legacy-launcher-card" aria-label="LEGACY workspace launcher">
@@ -4462,7 +4462,7 @@ function LegacyWorkspaceModal({ children, lead, onClose }) {
         <div className="lead-workspace-modal-header">
           <div>
             <p className="eyebrow">LEGACY Workspace</p>
-            <h2>{lead.address || "Property Intelligence"}</h2>
+            <h2>{lead.address || "Markets"}</h2>
           </div>
           <button className="ghost-button" onClick={onClose} type="button">Close</button>
         </div>
@@ -5669,7 +5669,7 @@ async function downloadSignedOnboardingAgreement(token) {
   const url = window.URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = "chatcrm-signed-partner-agreement.pdf";
+  link.download = "legacy-signed-partner-agreement.pdf";
   document.body.appendChild(link);
   link.click();
   link.remove();
@@ -5701,7 +5701,7 @@ async function downloadAdminSignedAgreement(username, token) {
   const url = window.URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = `chatcrm-signed-agreement-${username}.pdf`;
+  link.download = `legacy-signed-agreement-${username}.pdf`;
   document.body.appendChild(link);
   link.click();
   link.remove();
@@ -6129,7 +6129,7 @@ async function fetchPropertyIntelligenceWorkspace(leadId, token) {
   });
 
   if (!response.ok) {
-    throw new Error("Property Intelligence fetch failed");
+    throw new Error("Market workspace fetch failed");
   }
 
   return response.json();
@@ -6520,7 +6520,7 @@ function getDataConfidence(lead = {}) {
   const missing = checks.filter((check) => !check.ok).map((check) => check.label);
   const verified = checks.filter((check) => check.ok).map((check) => check.label);
   const label = score >= 82 ? "High" : score >= 60 ? "Good" : score >= 38 ? "Partial" : "Needs Data";
-  const detail = missing.length ? `Missing: ${missing.slice(0, 3).join(", ")}${missing.length > 3 ? "..." : ""}` : "Core lead data is ready.";
+  const detail = missing.length ? `Missing: ${missing.slice(0, 3).join(", ")}${missing.length > 3 ? "..." : ""}` : "Core property data is ready.";
   return { score, label, detail, missing, verified };
 }
 
@@ -7020,7 +7020,7 @@ function exportLeadsCsv(leads) {
   const link = document.createElement("a");
 
   link.href = url;
-  link.download = `chatcrm-leads-${new Date().toISOString().slice(0, 10)}.csv`;
+  link.download = `legacy-properties-${new Date().toISOString().slice(0, 10)}.csv`;
   document.body.appendChild(link);
   link.click();
   link.remove();
@@ -7108,7 +7108,7 @@ function exportBuyersCsv(buyers) {
   const link = document.createElement("a");
 
   link.href = url;
-  link.download = `chatcrm-buyers-${new Date().toISOString().slice(0, 10)}.csv`;
+  link.download = `legacy-buyers-${new Date().toISOString().slice(0, 10)}.csv`;
   document.body.appendChild(link);
   link.click();
   link.remove();
@@ -7520,12 +7520,12 @@ function createLeadFromParsedPdf(parsedLead, fileName, index) {
   };
 }
 
-function ChatCrmLogo() {
+function LegacyLogo() {
   return (
     <img
-      alt="ChatCRM logo"
+      alt="LEGACY logo"
       className="brand-logo"
-      src="/assets/chatcrm-logo.png"
+      src="/assets/legacy-logo.svg"
     />
   );
 }

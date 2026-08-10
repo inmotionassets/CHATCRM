@@ -2376,7 +2376,7 @@ textarea::placeholder {
 }
 
 .login-shell::after {
-  background: url("/assets/chatcrm-logo.png") center / contain no-repeat;
+  background: url("/assets/legacy-logo.svg") center / contain no-repeat;
   content: "";
   height: min(46vw, 600px);
   left: 37%;
@@ -3620,7 +3620,7 @@ textarea::placeholder {
   }
 }
 
-/* Disposition Intelligence vertical slice */
+/* Disposition vertical slice */
 .disposition-workspace {
   display: grid;
   gap: 16px;
@@ -5286,7 +5286,7 @@ textarea::placeholder {
   }
 }
 
-/* LEGACY Property Intelligence Workspace v1 */
+/* LEGACY Workspace v1 */
 .lead-detail {
   max-width: min(1280px, calc(100vw - 48px));
 }

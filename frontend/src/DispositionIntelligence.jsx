@@ -65,7 +65,7 @@ export function DispositionIntelligenceView({ authToken, currentUser, leads }) {
   const [selectedSaleId, setSelectedSaleId] = React.useState("");
   const [selectedBuyerKey, setSelectedBuyerKey] = React.useState("");
   const [selectedIntelReason, setSelectedIntelReason] = React.useState(null);
-  const [message, setMessage] = React.useState("Loading Disposition Intelligence...");
+  const [message, setMessage] = React.useState("Loading Disposition...");
   const [sourceMessage, setSourceMessage] = React.useState("");
   const [contactMessage, setContactMessage] = React.useState("");
   const [buyerContactSnapshot, setBuyerContactSnapshot] = React.useState(null);
@@ -112,7 +112,7 @@ export function DispositionIntelligenceView({ authToken, currentUser, leads }) {
     async function loadWorkspace() {
       if (!authToken || !selectedLead?.id) {
         setWorkspace(null);
-        setMessage("Move a lead to Offer, Under Contract, or Closed to activate Disposition Intelligence.");
+        setMessage("Move a property to Offer, Under Contract, or Closed to activate Disposition.");
         return;
       }
 
@@ -128,7 +128,7 @@ export function DispositionIntelligenceView({ authToken, currentUser, leads }) {
       } catch (error) {
         if (!cancelled) {
           setWorkspace(null);
-          setMessage(error.message || "Could not load Disposition Intelligence yet.");
+          setMessage(error.message || "Could not load Disposition yet.");
         }
       }
     }
@@ -269,7 +269,7 @@ export function DispositionIntelligenceView({ authToken, currentUser, leads }) {
       <div className="panel wide-panel disposition-workspace">
         <div className="panel-header">
           <div>
-            <p className="eyebrow">Disposition Intelligence</p>
+            <p className="eyebrow">Disposition</p>
             <h2>Leadership Workspace</h2>
           </div>
         </div>
@@ -1580,10 +1580,10 @@ async function fetchDispositionWorkspace(leadId, filters, token) {
   });
 
   if (response.status === 403) {
-    throw new Error("Disposition Intelligence is protected for leadership.");
+    throw new Error("Disposition is protected for leadership.");
   }
   if (!response.ok) {
-    throw new Error("Disposition Intelligence is not ready yet.");
+    throw new Error("Disposition is not ready yet.");
   }
 
   return response.json();
@@ -1645,7 +1645,7 @@ function buildBuyerContactEntity(match, sale, footprint, selectedBuyerKey) {
     mailingAddress,
     address: mailingAddress || sale?.address || "",
     county: sale?.county || "Dallas",
-    source: sale?.sourceName || sale?.source || "Disposition Intelligence",
+    source: sale?.sourceName || sale?.source || "Disposition",
     website: footprint?.website || match?.website || "",
     contactFormUrl: footprint?.contactFormUrl || "",
     linkedinUrl: footprint?.linkedinUrl || "",

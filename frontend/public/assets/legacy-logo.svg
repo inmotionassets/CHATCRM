@@ -1,0 +1,25 @@
+﻿<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="LEGACY logo">
+  <defs>
+    <linearGradient id="legacyGold" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#fde68a"/>
+      <stop offset="0.48" stop-color="#f5b300"/>
+      <stop offset="1" stop-color="#b45309"/>
+    </linearGradient>
+    <linearGradient id="legacyGreen" x1="0" x2="1" y1="1" y2="0">
+      <stop offset="0" stop-color="#064e3b"/>
+      <stop offset="0.5" stop-color="#10b981"/>
+      <stop offset="1" stop-color="#9cffcb"/>
+    </linearGradient>
+    <filter id="glow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="9" result="blur"/>
+      <feColorMatrix in="blur" type="matrix" values="0 0 0 0 0.96 0 0 0 0 0.72 0 0 0 0 0.12 0 0 0 .75 0"/>
+      <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <rect width="512" height="512" rx="96" fill="#050b0c"/>
+  <rect x="32" y="32" width="448" height="448" rx="78" fill="#071315" stroke="url(#legacyGold)" stroke-width="10"/>
+  <path d="M120 372V112h66v205h118v55H120Z" fill="url(#legacyGold)" filter="url(#glow)"/>
+  <path d="M208 346c61-101 121-165 203-214-29 69-35 139-13 211-45-38-102-38-190 3Z" fill="url(#legacyGreen)" stroke="#d9f99d" stroke-width="8" filter="url(#glow)"/>
+  <path d="M303 162l-34 96 74-36-51 128 105-170-76 39 25-76-43 19Z" fill="#fef3c7" opacity=".96"/>
+  <text x="256" y="446" fill="#fde68a" font-family="Arial, Helvetica, sans-serif" font-size="42" font-weight="900" letter-spacing="4" text-anchor="middle">LEGACY</text>
+</svg>
