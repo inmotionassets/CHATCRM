@@ -1,25 +1,40 @@
-﻿<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="LEGACY logo">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="LEGACY logo">
   <defs>
-    <linearGradient id="legacyGold" x1="0" x2="1" y1="0" y2="1">
-      <stop offset="0" stop-color="#fde68a"/>
-      <stop offset="0.48" stop-color="#f5b300"/>
-      <stop offset="1" stop-color="#b45309"/>
+    <linearGradient id="gold" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#fff4b8"/>
+      <stop offset="0.44" stop-color="#f5c542"/>
+      <stop offset="1" stop-color="#9a6508"/>
     </linearGradient>
-    <linearGradient id="legacyGreen" x1="0" x2="1" y1="1" y2="0">
+    <linearGradient id="green" x1="0" x2="1" y1="1" y2="0">
       <stop offset="0" stop-color="#064e3b"/>
-      <stop offset="0.5" stop-color="#10b981"/>
-      <stop offset="1" stop-color="#9cffcb"/>
+      <stop offset="0.52" stop-color="#10b981"/>
+      <stop offset="1" stop-color="#b7f7cf"/>
     </linearGradient>
-    <filter id="glow" x="-40%" y="-40%" width="180%" height="180%">
-      <feGaussianBlur stdDeviation="9" result="blur"/>
-      <feColorMatrix in="blur" type="matrix" values="0 0 0 0 0.96 0 0 0 0 0.72 0 0 0 0 0.12 0 0 0 .75 0"/>
+    <radialGradient id="glass" cx="35%" cy="18%" r="85%">
+      <stop offset="0" stop-color="#173f35"/>
+      <stop offset="0.46" stop-color="#081916"/>
+      <stop offset="1" stop-color="#020605"/>
+    </radialGradient>
+    <filter id="softGlow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="7" result="blur"/>
+      <feColorMatrix in="blur" type="matrix" values="0 0 0 0 0.95 0 0 0 0 0.70 0 0 0 0 0.18 0 0 0 .62 0"/>
+      <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="emeraldGlow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="8" result="blur"/>
+      <feColorMatrix in="blur" type="matrix" values="0 0 0 0 0.05 0 0 0 0 0.85 0 0 0 0 0.52 0 0 0 .55 0"/>
       <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
     </filter>
   </defs>
-  <rect width="512" height="512" rx="96" fill="#050b0c"/>
-  <rect x="32" y="32" width="448" height="448" rx="78" fill="#071315" stroke="url(#legacyGold)" stroke-width="10"/>
-  <path d="M120 372V112h66v205h118v55H120Z" fill="url(#legacyGold)" filter="url(#glow)"/>
-  <path d="M208 346c61-101 121-165 203-214-29 69-35 139-13 211-45-38-102-38-190 3Z" fill="url(#legacyGreen)" stroke="#d9f99d" stroke-width="8" filter="url(#glow)"/>
-  <path d="M303 162l-34 96 74-36-51 128 105-170-76 39 25-76-43 19Z" fill="#fef3c7" opacity=".96"/>
-  <text x="256" y="446" fill="#fde68a" font-family="Arial, Helvetica, sans-serif" font-size="42" font-weight="900" letter-spacing="4" text-anchor="middle">LEGACY</text>
+  <rect width="512" height="512" rx="92" fill="#030706"/>
+  <rect x="30" y="30" width="452" height="452" rx="74" fill="url(#glass)" stroke="url(#gold)" stroke-width="9"/>
+  <path d="M91 358V148c0-28 17-45 45-45h154" fill="none" stroke="#182a24" stroke-width="28" stroke-linecap="round"/>
+  <path d="M129 365V129h69v178h119v58H129Z" fill="url(#gold)" filter="url(#softGlow)"/>
+  <path d="M134 125h67v34h-35v171h-32V125Z" fill="#fff0a6" opacity=".26"/>
+  <path d="M168 352c66-99 134-161 232-203l-26 88 67-33-104 155 24-88c-54 14-111 43-193 81Z" fill="url(#green)" stroke="#d9f99d" stroke-width="7" stroke-linejoin="round" filter="url(#emeraldGlow)"/>
+  <path d="M296 183l-18 52 49-23-35 91 75-112-51 23 15-47-35 16Z" fill="#fff7cc" opacity=".95"/>
+  <path d="M94 396h326" stroke="url(#gold)" stroke-width="7" stroke-linecap="round" opacity=".88"/>
+  <path d="M111 414h220" stroke="#10b981" stroke-width="5" stroke-linecap="round" opacity=".68"/>
+  <circle cx="410" cy="105" r="7" fill="#fff4b8" opacity=".96"/>
+  <circle cx="102" cy="408" r="5" fill="#f5c542" opacity=".95"/>
 </svg>

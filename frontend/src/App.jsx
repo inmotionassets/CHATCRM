@@ -1057,7 +1057,7 @@ export function App() {
           <LegacyLogo />
           <div>
             <p className="eyebrow">LEGACY</p>
-            <h1>Real Estate Intelligence</h1>
+            <h1>Real Estate Intelligence Platform</h1>
           </div>
         </div>
 
@@ -1660,7 +1660,7 @@ function LoginPage({ error, onLogin }) {
           <LegacyLogo />
           <div>
             <p className="eyebrow">LEGACY</p>
-            <h1>Real Estate Intelligence</h1>
+            <h1>Real Estate Intelligence Platform</h1>
           </div>
         </div>
         <div>

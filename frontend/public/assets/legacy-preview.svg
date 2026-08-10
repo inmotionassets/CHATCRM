@@ -1,29 +1,36 @@
-﻿<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" role="img" aria-label="LEGACY Real Estate Intelligence Platform preview">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" role="img" aria-label="LEGACY Real Estate Intelligence Platform preview">
   <defs>
     <linearGradient id="bg" x1="0" x2="1" y1="0" y2="1">
-      <stop offset="0" stop-color="#04110f"/>
-      <stop offset="0.55" stop-color="#0b1f1e"/>
-      <stop offset="1" stop-color="#070b10"/>
+      <stop offset="0" stop-color="#030706"/>
+      <stop offset="0.52" stop-color="#071817"/>
+      <stop offset="1" stop-color="#0a0f0d"/>
     </linearGradient>
-    <linearGradient id="gold" x1="0" x2="1">
-      <stop offset="0" stop-color="#fde68a"/>
-      <stop offset="0.6" stop-color="#f5b300"/>
-      <stop offset="1" stop-color="#b45309"/>
+    <linearGradient id="gold" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#fff4b8"/>
+      <stop offset="0.55" stop-color="#f5c542"/>
+      <stop offset="1" stop-color="#9a6508"/>
+    </linearGradient>
+    <linearGradient id="green" x1="0" x2="1" y1="1" y2="0">
+      <stop offset="0" stop-color="#064e3b"/>
+      <stop offset="0.52" stop-color="#10b981"/>
+      <stop offset="1" stop-color="#b7f7cf"/>
     </linearGradient>
   </defs>
   <rect width="1200" height="630" fill="url(#bg)"/>
-  <circle cx="920" cy="160" r="220" fill="#0f9f6e" opacity=".12"/>
-  <circle cx="240" cy="500" r="260" fill="#f5b300" opacity=".10"/>
-  <rect x="82" y="82" width="164" height="164" rx="32" fill="#071315" stroke="url(#gold)" stroke-width="6"/>
-  <text x="164" y="185" fill="url(#gold)" font-family="Arial, Helvetica, sans-serif" font-size="96" font-weight="900" text-anchor="middle">L</text>
-  <text x="284" y="160" fill="#f8fafc" font-family="Arial, Helvetica, sans-serif" font-size="86" font-weight="900">LEGACY</text>
-  <text x="288" y="222" fill="#fde68a" font-family="Arial, Helvetica, sans-serif" font-size="30" font-weight="800">Real Estate Intelligence Platform</text>
-  <text x="88" y="360" fill="#f8fafc" font-family="Arial, Helvetica, sans-serif" font-size="58" font-weight="900">Understand the property.</text>
-  <text x="88" y="426" fill="#f8fafc" font-family="Arial, Helvetica, sans-serif" font-size="58" font-weight="900">Read the market.</text>
-  <text x="88" y="492" fill="#f8fafc" font-family="Arial, Helvetica, sans-serif" font-size="58" font-weight="900">Move with confidence.</text>
-  <rect x="780" y="306" width="322" height="190" rx="24" fill="#0d1d22" stroke="#204b45"/>
-  <circle cx="848" cy="374" r="22" fill="#f5b300"/>
-  <circle cx="948" cy="402" r="18" fill="#10b981"/>
-  <circle cx="1016" cy="350" r="18" fill="#7c3aed"/>
-  <path d="M848 374 C900 340 962 440 1016 350" fill="none" stroke="#fde68a" stroke-width="5" opacity=".85"/>
+  <path d="M0 560C210 480 420 575 620 492S945 348 1200 420v210H0Z" fill="#0f3b31" opacity=".42"/>
+  <path d="M0 508C255 438 444 505 618 443s352-156 582-89" fill="none" stroke="#f5c542" stroke-width="3" opacity=".42"/>
+  <rect x="84" y="92" width="162" height="162" rx="34" fill="#06110f" stroke="url(#gold)" stroke-width="6"/>
+  <path d="M126 211v-88h29v66h45v22h-74Z" fill="url(#gold)"/>
+  <path d="M146 210c33-49 67-80 116-101l-13 44 33-16-52 77 12-44c-27 7-55 21-96 40Z" fill="url(#green)" stroke="#d9f99d" stroke-width="3"/>
+  <text x="282" y="150" fill="#f8fafc" font-family="Arial, Helvetica, sans-serif" font-size="82" font-weight="900">LEGACY</text>
+  <text x="286" y="208" fill="#f5c542" font-family="Arial, Helvetica, sans-serif" font-size="28" font-weight="800">Real Estate Intelligence Platform</text>
+  <text x="86" y="360" fill="#f8fafc" font-family="Arial, Helvetica, sans-serif" font-size="58" font-weight="900">Understand the property.</text>
+  <text x="86" y="426" fill="#f8fafc" font-family="Arial, Helvetica, sans-serif" font-size="58" font-weight="900">Read the market.</text>
+  <text x="86" y="492" fill="#f8fafc" font-family="Arial, Helvetica, sans-serif" font-size="58" font-weight="900">Move with confidence.</text>
+  <rect x="792" y="302" width="318" height="188" rx="24" fill="#081916" stroke="#286653"/>
+  <circle cx="858" cy="370" r="24" fill="#f5c542"/>
+  <circle cx="952" cy="402" r="18" fill="#10b981"/>
+  <circle cx="1024" cy="348" r="18" fill="#7c3aed"/>
+  <path d="M858 370 C912 333 962 436 1024 348" fill="none" stroke="#f5c542" stroke-width="5" opacity=".9"/>
+  <text x="828" y="548" fill="#b7f7cf" font-family="Arial, Helvetica, sans-serif" font-size="23" font-weight="800">Property. Market. Buyer. Decision.</text>
 </svg>
