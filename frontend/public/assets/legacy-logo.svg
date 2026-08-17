@@ -1,40 +1,15 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="LEGACY logo">
   <defs>
-    <linearGradient id="gold" x1="0" x2="1" y1="0" y2="1">
-      <stop offset="0" stop-color="#fff4b8"/>
-      <stop offset="0.44" stop-color="#f5c542"/>
-      <stop offset="1" stop-color="#9a6508"/>
-    </linearGradient>
-    <linearGradient id="green" x1="0" x2="1" y1="1" y2="0">
-      <stop offset="0" stop-color="#064e3b"/>
-      <stop offset="0.52" stop-color="#10b981"/>
-      <stop offset="1" stop-color="#b7f7cf"/>
-    </linearGradient>
-    <radialGradient id="glass" cx="35%" cy="18%" r="85%">
-      <stop offset="0" stop-color="#173f35"/>
-      <stop offset="0.46" stop-color="#081916"/>
-      <stop offset="1" stop-color="#020605"/>
-    </radialGradient>
-    <filter id="softGlow" x="-40%" y="-40%" width="180%" height="180%">
-      <feGaussianBlur stdDeviation="7" result="blur"/>
-      <feColorMatrix in="blur" type="matrix" values="0 0 0 0 0.95 0 0 0 0 0.70 0 0 0 0 0.18 0 0 0 .62 0"/>
-      <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
-    </filter>
-    <filter id="emeraldGlow" x="-40%" y="-40%" width="180%" height="180%">
-      <feGaussianBlur stdDeviation="8" result="blur"/>
-      <feColorMatrix in="blur" type="matrix" values="0 0 0 0 0.05 0 0 0 0 0.85 0 0 0 0 0.52 0 0 0 .55 0"/>
-      <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
-    </filter>
+    <linearGradient id="steel" x1="0" x2="1" y1="0" y2="1"><stop offset="0" stop-color="#f8fafc"/><stop offset="0.5" stop-color="#cbd5e1"/><stop offset="1" stop-color="#64748b"/></linearGradient>
+    <linearGradient id="signal" x1="0" x2="1" y1="1" y2="0"><stop offset="0" stop-color="#0ea5e9"/><stop offset="1" stop-color="#f43f5e"/></linearGradient>
+    <radialGradient id="core" cx="40%" cy="20%" r="82%"><stop offset="0" stop-color="#172033"/><stop offset="0.52" stop-color="#070b12"/><stop offset="1" stop-color="#020617"/></radialGradient>
+    <filter id="glow" x="-35%" y="-35%" width="170%" height="170%"><feGaussianBlur stdDeviation="6" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
   </defs>
-  <rect width="512" height="512" rx="92" fill="#030706"/>
-  <rect x="30" y="30" width="452" height="452" rx="74" fill="url(#glass)" stroke="url(#gold)" stroke-width="9"/>
-  <path d="M91 358V148c0-28 17-45 45-45h154" fill="none" stroke="#182a24" stroke-width="28" stroke-linecap="round"/>
-  <path d="M129 365V129h69v178h119v58H129Z" fill="url(#gold)" filter="url(#softGlow)"/>
-  <path d="M134 125h67v34h-35v171h-32V125Z" fill="#fff0a6" opacity=".26"/>
-  <path d="M168 352c66-99 134-161 232-203l-26 88 67-33-104 155 24-88c-54 14-111 43-193 81Z" fill="url(#green)" stroke="#d9f99d" stroke-width="7" stroke-linejoin="round" filter="url(#emeraldGlow)"/>
-  <path d="M296 183l-18 52 49-23-35 91 75-112-51 23 15-47-35 16Z" fill="#fff7cc" opacity=".95"/>
-  <path d="M94 396h326" stroke="url(#gold)" stroke-width="7" stroke-linecap="round" opacity=".88"/>
-  <path d="M111 414h220" stroke="#10b981" stroke-width="5" stroke-linecap="round" opacity=".68"/>
-  <circle cx="410" cy="105" r="7" fill="#fff4b8" opacity=".96"/>
-  <circle cx="102" cy="408" r="5" fill="#f5c542" opacity=".95"/>
+  <rect width="512" height="512" rx="94" fill="#020617"/>
+  <rect x="32" y="32" width="448" height="448" rx="82" fill="url(#core)" stroke="url(#signal)" stroke-width="8"/>
+  <path d="M257 52 423 136 401 358 257 453 111 358 89 136Z" fill="rgba(255,255,255,.035)" stroke="#cbd5e1" stroke-opacity=".38" stroke-width="3"/>
+  <path d="M171 367V118l71-30v216h105l29 63H171Z" fill="url(#steel)" stroke="#f8fafc" stroke-opacity=".5" stroke-width="4" filter="url(#glow)"/>
+  <path d="M268 305v-88h24v88m9 0V180h27v125m11 0V144h31v161" stroke="#94a3b8" stroke-width="16"/>
+  <path d="M203 336 257 284 312 336" fill="none" stroke="#e2e8f0" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M312 381 436 244l-22 80 48-24-105 122 22-79Z" fill="url(#signal)" stroke="#f8fafc" stroke-opacity=".58" stroke-width="3"/>
 </svg>

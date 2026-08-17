@@ -1068,7 +1068,8 @@ export function App() {
               key={view}
               onClick={() => navigateMainView(view)}
             >
-              {view}
+              <span className="nav-item-mark" aria-hidden="true">{view.slice(0, 1)}</span>
+              <span>{view}</span>
             </button>
           ))}
         </nav>
@@ -1150,6 +1151,19 @@ export function App() {
 
         {activeView === "Dashboard" || (isAdmin && activeView === "Properties") ? (
           <>
+            <section className="briefing-panel" aria-label="LEGACY mission briefing">
+              <div>
+                <p className="eyebrow">Today</p>
+                <h2>Priority Intelligence</h2>
+                <p>Start with the properties and follow-ups that can move the business today.</p>
+              </div>
+              <div className="briefing-metrics">
+                <span><b>{strongProperties}</b> Strong Properties</span>
+                <span><b>{followUps}</b> Follow-Ups</span>
+                <span><b>{hotLeads}</b> Hot Sellers</span>
+              </div>
+            </section>
+
             <section className="stats-grid" aria-label="Property stats">
               <Stat label="Total Properties" value={leads.length} />
               <Stat label="Needs Follow-Up" value={followUps} />
@@ -1647,6 +1661,13 @@ function UnderConstructionPage({ onLogout, user }) {
 function LoginPage({ error, onLogin }) {
   const [username, setUsername] = React.useState("");
   const [password, setPassword] = React.useState("");
+  const intelligencePillars = ["Property", "Buyer", "Market", "Contact", "Outcome"];
+  const systemStatus = [
+    ["County Records", "Connected"],
+    ["Market Intelligence", "Connected"],
+    ["Google Maps", "Connected"],
+    ["Contact Intelligence", "Ready"]
+  ];
 
   function submitLogin(event) {
     event.preventDefault();
@@ -1654,34 +1675,40 @@ function LoginPage({ error, onLogin }) {
   }
 
   return (
-    <main className="login-shell">
-      <section className="login-hero">
-        <div className="brand-block">
+    <main className="login-shell legacy-login-v2">
+      <section className="login-command-stage" aria-label="LEGACY platform welcome">
+        <div className="login-mark-orbit" aria-hidden="true" />
+        <div className="login-logo-hero">
           <LegacyLogo />
-          <div>
-            <p className="eyebrow">LEGACY</p>
-            <h1>Real Estate Intelligence Platform</h1>
-          </div>
         </div>
-        <div>
-          <p className="login-kicker">LEGACY Command Center</p>
-          <h2>Understand the property. Read the market. Move with confidence.</h2>
-          <p>
-            Built for land investors: property data, market signals, buyer activity, contact quality, maps, and deal decisions in one command center.
-          </p>
+        <div className="login-wordmark-block">
+          <p className="login-kicker">Welcome To</p>
+          <h1>LEGACY</h1>
+          <p>Real Estate Intelligence Platform</p>
+          <strong>Information. Intelligence. Advantage.</strong>
+        </div>
+        <div className="login-intelligence-row" aria-label="LEGACY intelligence modules">
+          {intelligencePillars.map((pillar) => (
+            <span key={pillar}>
+              <i aria-hidden="true" />
+              {pillar} Intelligence
+            </span>
+          ))}
         </div>
       </section>
 
-      <form className="login-panel" onSubmit={submitLogin}>
+      <form className="login-panel legacy-access-panel" onSubmit={submitLogin}>
         <div>
-          <p className="eyebrow">Login</p>
-          <h2>Welcome to LEGACY</h2>
+          <p className="eyebrow">Command Access</p>
+          <h2>Sign In To LEGACY</h2>
+          <small>Enter your workspace credentials.</small>
         </div>
 
         <label>
-          Username
+          Email Or Username
           <input
-            autoComplete="off"
+            autoComplete="username"
+            placeholder="Enter username"
             value={username}
             onChange={(event) => setUsername(event.target.value)}
           />
@@ -1689,7 +1716,8 @@ function LoginPage({ error, onLogin }) {
         <label>
           Password
           <input
-            autoComplete="new-password"
+            autoComplete="current-password"
+            placeholder="Enter password"
             type="password"
             value={password}
             onChange={(event) => setPassword(event.target.value)}
@@ -1698,12 +1726,22 @@ function LoginPage({ error, onLogin }) {
 
         {error ? <p className="login-error">{error}</p> : null}
 
-        <button className="primary-button" type="submit">Login</button>
+        <button className="primary-button login-submit" type="submit">Sign In To LEGACY</button>
       </form>
+
+      <footer className="login-status-line" aria-label="LEGACY system status">
+        {systemStatus.map(([label, value]) => (
+          <span key={label}>
+            <i aria-hidden="true" />
+            <b>{label}</b>
+            <em>{value}</em>
+          </span>
+        ))}
+        <small>v2.5.0</small>
+      </footer>
     </main>
   );
 }
-
 function Action({ icon, onClick, text }) {
   return (
     <button className="assistant-action" onClick={onClick}>
@@ -7525,7 +7563,7 @@ function LegacyLogo() {
     <img
       alt="LEGACY logo"
       className="brand-logo"
-      src="/assets/legacy-icon.png?v=4"
+      src="/assets/legacy-icon.png?v=5"
     />
   );
 }
