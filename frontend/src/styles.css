@@ -8296,3 +8296,229 @@ textarea::placeholder {
     min-height: 360px;
   }
 }
+/* LEGACY light mode restoration v1 */
+:root:not([data-theme="dark"]) {
+  --accent: #0ea5e9;
+  --accent-dark: #0369a1;
+  --accent-soft: rgba(14, 165, 233, 0.1);
+  --crimson: #e11d48;
+  --crimson-soft: rgba(225, 29, 72, 0.08);
+  --gold: #b88a1d;
+  --gold-soft: rgba(184, 138, 29, 0.12);
+  --border: rgba(15, 23, 42, 0.14);
+  --border-soft: rgba(15, 23, 42, 0.08);
+  --muted: #64748b;
+  --muted-strong: #334155;
+  --page: #f4f7fb;
+  --panel: rgba(255, 255, 255, 0.88);
+  --panel-soft: rgba(248, 250, 252, 0.9);
+  --sidebar: #07111f;
+  --sidebar-active: rgba(14, 165, 233, 0.14);
+  --text: #0f172a;
+  --text-strong: #020617;
+  --legacy-blue: #0284c7;
+  --legacy-blue-deep: #eff6ff;
+  --legacy-red: #e11d48;
+  --legacy-steel: #475569;
+  --legacy-glass: rgba(255, 255, 255, 0.78);
+  --legacy-shadow: 0 22px 70px rgba(15, 23, 42, 0.12);
+}
+
+:root:not([data-theme="dark"]) body {
+  background: #f4f7fb;
+}
+
+:root:not([data-theme="dark"]) body {
+  background:
+    radial-gradient(circle at 16% 0%, rgba(14, 165, 233, 0.12), transparent 28%),
+    radial-gradient(circle at 96% 4%, rgba(225, 29, 72, 0.08), transparent 24%),
+    linear-gradient(135deg, #f8fafc 0%, #edf4fb 48%, #f7f7fb 100%);
+  color: var(--text);
+}
+
+:root:not([data-theme="dark"]) body::before {
+  background:
+    linear-gradient(rgba(2, 132, 199, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(2, 132, 199, 0.035) 1px, transparent 1px);
+  background-size: 78px 78px;
+  opacity: 0.7;
+}
+
+:root:not([data-theme="dark"]) .app-shell {
+  background:
+    radial-gradient(circle at 78% 0%, rgba(225, 29, 72, 0.08), transparent 24%),
+    radial-gradient(circle at 32% 12%, rgba(14, 165, 233, 0.11), transparent 30%),
+    linear-gradient(135deg, rgba(248, 250, 252, 0.96), rgba(239, 246, 255, 0.94));
+}
+
+:root:not([data-theme="dark"]) .workspace {
+  color: var(--text);
+}
+
+:root:not([data-theme="dark"]) .topbar,
+:root:not([data-theme="dark"]) .stat,
+:root:not([data-theme="dark"]) .panel,
+:root:not([data-theme="dark"]) .stage,
+:root:not([data-theme="dark"]) .dashboard-card,
+:root:not([data-theme="dark"]) .lead-row,
+:root:not([data-theme="dark"]) .import-list,
+:root:not([data-theme="dark"]) .buyer-list-section,
+:root:not([data-theme="dark"]) .cad-import-wizard,
+:root:not([data-theme="dark"]) .lead-detail-card,
+:root:not([data-theme="dark"]) .contact-best-card,
+:root:not([data-theme="dark"]) .contact-empty-card,
+:root:not([data-theme="dark"]) .activity-card,
+:root:not([data-theme="dark"]) .legacy-launcher-card {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(248, 250, 252, 0.88));
+  border-color: rgba(15, 23, 42, 0.11);
+  box-shadow: 0 18px 52px rgba(15, 23, 42, 0.1);
+  color: var(--text);
+}
+
+:root:not([data-theme="dark"]) .search-box,
+:root:not([data-theme="dark"]) input,
+:root:not([data-theme="dark"]) select,
+:root:not([data-theme="dark"]) textarea {
+  background: rgba(255, 255, 255, 0.9);
+  border-color: rgba(15, 23, 42, 0.14);
+  color: var(--text);
+}
+
+:root:not([data-theme="dark"]) .search-box input::placeholder,
+:root:not([data-theme="dark"]) input::placeholder,
+:root:not([data-theme="dark"]) textarea::placeholder {
+  color: #64748b;
+}
+
+:root:not([data-theme="dark"]) .panel-header h2,
+:root:not([data-theme="dark"]) .dashboard-card h2,
+:root:not([data-theme="dark"]) .section-heading h2,
+:root:not([data-theme="dark"]) .stat strong,
+:root:not([data-theme="dark"]) .lead-main h3,
+:root:not([data-theme="dark"]) .lead-detail h2,
+:root:not([data-theme="dark"]) .profile-panel h2 {
+  color: #020617;
+}
+
+:root:not([data-theme="dark"]) .stat p,
+:root:not([data-theme="dark"]) .results-count,
+:root:not([data-theme="dark"]) .dashboard-card p,
+:root:not([data-theme="dark"]) .lead-main p,
+:root:not([data-theme="dark"]) .lead-main small,
+:root:not([data-theme="dark"]) .lead-meta,
+:root:not([data-theme="dark"]) .import-help,
+:root:not([data-theme="dark"]) .quote-card p:last-child {
+  color: #64748b;
+}
+
+:root:not([data-theme="dark"]) .secondary-button,
+:root:not([data-theme="dark"]) .icon-button,
+:root:not([data-theme="dark"]) .row-actions a,
+:root:not([data-theme="dark"]) .row-actions button,
+:root:not([data-theme="dark"]) .ghost-button {
+  background: rgba(255, 255, 255, 0.82);
+  border-color: rgba(15, 23, 42, 0.14);
+  color: #0f172a;
+}
+
+:root:not([data-theme="dark"]) .secondary-button:hover,
+:root:not([data-theme="dark"]) .icon-button:hover,
+:root:not([data-theme="dark"]) .row-actions a:hover,
+:root:not([data-theme="dark"]) .row-actions button:hover,
+:root:not([data-theme="dark"]) .ghost-button:hover {
+  background: #ffffff;
+  border-color: rgba(14, 165, 233, 0.34);
+}
+
+:root:not([data-theme="dark"]) .user-badge {
+  background: rgba(184, 138, 29, 0.12);
+  border-color: rgba(184, 138, 29, 0.26);
+  color: #854d0e;
+}
+
+:root:not([data-theme="dark"]) .save-status,
+:root:not([data-theme="dark"]) .save-status.saved {
+  background: rgba(14, 165, 233, 0.1);
+  border-color: rgba(14, 165, 233, 0.18);
+  color: #0369a1;
+}
+
+:root:not([data-theme="dark"]) .theme-toggle-track {
+  background: rgba(226, 232, 240, 0.94);
+  border-color: rgba(15, 23, 42, 0.16);
+}
+
+:root:not([data-theme="dark"]) .theme-toggle-thumb {
+  background: linear-gradient(135deg, #f59e0b, #0ea5e9);
+  transform: translateX(0);
+}
+
+:root:not([data-theme="dark"]) .briefing-panel {
+  background:
+    linear-gradient(135deg, rgba(14, 165, 233, 0.1), rgba(225, 29, 72, 0.05)),
+    rgba(255, 255, 255, 0.86);
+  border-color: rgba(14, 165, 233, 0.18);
+  box-shadow: var(--legacy-shadow);
+}
+
+:root:not([data-theme="dark"]) .briefing-panel h2,
+:root:not([data-theme="dark"]) .briefing-metrics b {
+  color: #0369a1;
+}
+
+:root:not([data-theme="dark"]) .briefing-panel p,
+:root:not([data-theme="dark"]) .briefing-metrics span {
+  color: #334155;
+}
+
+:root:not([data-theme="dark"]) .briefing-metrics span {
+  background: rgba(255, 255, 255, 0.72);
+  border-color: rgba(15, 23, 42, 0.1);
+}
+
+:root:not([data-theme="dark"]) .lead-workspace-modal-backdrop {
+  background: linear-gradient(135deg, rgba(226, 232, 240, 0.76), rgba(241, 245, 249, 0.68));
+}
+
+:root:not([data-theme="dark"]) .lead-workspace-modal,
+:root:not([data-theme="dark"]) .lead-workspace-modal .legacy-property-workspace {
+  background: linear-gradient(135deg, rgba(248, 250, 252, 0.98), rgba(239, 246, 255, 0.96));
+  border-color: rgba(14, 165, 233, 0.24);
+  color: #0f172a;
+}
+
+:root:not([data-theme="dark"]) .lead-workspace-modal-header,
+:root:not([data-theme="dark"]) .lead-workspace-modal .legacy-workspace-header.premium,
+:root:not([data-theme="dark"]) .lead-workspace-modal .legacy-assessment-panel,
+:root:not([data-theme="dark"]) .lead-workspace-modal .legacy-assessment-card,
+:root:not([data-theme="dark"]) .lead-workspace-modal .legacy-panel,
+:root:not([data-theme="dark"]) .lead-workspace-modal .legacy-transaction-drawer,
+:root:not([data-theme="dark"]) .lead-workspace-modal .legacy-evidence-box,
+:root:not([data-theme="dark"]) .lead-workspace-modal .legacy-outcome-panel,
+:root:not([data-theme="dark"]) .lead-workspace-modal .lead-legacy-market-map .activity-map-panel.market-map-panel,
+:root:not([data-theme="dark"]) .lead-workspace-modal .lead-legacy-market-map .market-map-controls,
+:root:not([data-theme="dark"]) .lead-workspace-modal .lead-legacy-market-map .upgraded-map-controls,
+:root:not([data-theme="dark"]) .lead-workspace-modal .lead-legacy-market-map .map-truth-strip,
+:root:not([data-theme="dark"]) .lead-workspace-modal .lead-legacy-market-map .road-intelligence-card,
+:root:not([data-theme="dark"]) .lead-workspace-modal .legacy-narrative-list button,
+:root:not([data-theme="dark"]) .lead-workspace-modal .legacy-buyer-list button {
+  background: rgba(255, 255, 255, 0.86);
+  border-color: rgba(15, 23, 42, 0.12);
+  color: #0f172a;
+}
+
+:root:not([data-theme="dark"]) .lead-workspace-modal-header h2,
+:root:not([data-theme="dark"]) .lead-workspace-modal .legacy-header-main h2,
+:root:not([data-theme="dark"]) .lead-workspace-modal .legacy-score-badge strong {
+  color: #020617;
+}
+
+:root:not([data-theme="dark"]) .lead-workspace-modal .legacy-header-main p,
+:root:not([data-theme="dark"]) .lead-workspace-modal .legacy-assessment-main p,
+:root:not([data-theme="dark"]) .lead-workspace-modal .legacy-buyer-list small,
+:root:not([data-theme="dark"]) .lead-workspace-modal .legacy-evidence-box p {
+  color: #475569;
+}
+html:not([data-theme="dark"]) {
+  background: #f4f7fb;
+}
