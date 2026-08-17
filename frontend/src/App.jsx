@@ -4466,13 +4466,13 @@ function LegacyWorkspaceLauncher({ lead, message, onOpen, snapshot }) {
   const buyers = intelligence.mostProbableBuyers || [];
   const assessment = intelligence.assessment || snapshot?.assessment || {};
   const confidence = intelligence.workspaceHeader?.confidence || assessment?.confidence?.score || lead.score || 0;
-  const summary = assessment.summary || intelligence.summary || message || "Open the full market map, buyer evidence, and property context when you need deeper research.";
+  const summary = assessment.summary || intelligence.summary || message || "Open the live map, buyer evidence, and deal signals when you need to decide what to do next.";
 
   return (
     <section className="legacy-launcher-card" aria-label="LEGACY workspace launcher">
       <div>
         <p className="eyebrow">LEGACY Workspace</p>
-        <h3>Market research is tucked away.</h3>
+        <h3>Open the market view.</h3>
         <p>{summary}</p>
       </div>
       <div className="legacy-launcher-meta">
