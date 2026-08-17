@@ -2,6 +2,7 @@ import base64
 import hashlib
 import hmac
 import json
+import logging
 import os
 import sqlite3
 import time
@@ -29,6 +30,7 @@ RAW_DATABASE_URL = os.getenv("DATABASE_URL", "")
 CONTRACTS_PATH = Path(__file__).resolve().parents[1] / "contracts"
 CONTRACTS_PATH.mkdir(exist_ok=True)
 QUOTE_CACHE: dict[str, object] = {"date": "", "quote": None}
+LOGGER = logging.getLogger(__name__)
 
 
 def normalize_database_url(value: str) -> str:
@@ -112,6 +114,8 @@ USERS = {
         "password_hash": hashlib.sha256("Virgo2026!".encode()).hexdigest(),
         "name": "Virgo Davis",
         "role": "Admin",
+        "profile_complete": True,
+        "agreement_signed": True,
     },
     "shawn": {
         "password_hash": "be26741b2ba331681301031661dd7aed10503ac1614a3af9c16c1629a7a72b2f",
@@ -236,15 +240,23 @@ def get_profile_connection() -> Iterator[object]:
 
 def load_profile(username: str) -> UserProfile:
     clean_username = username.lower().strip()
-    with get_profile_connection() as connection:
-        placeholder = "%s" if USE_POSTGRES else "?"
-        row = connection.execute(f"SELECT payload FROM user_profiles WHERE username = {placeholder}", (clean_username,)).fetchone()
+    try:
+        with get_profile_connection() as connection:
+            placeholder = "%s" if USE_POSTGRES else "?"
+            row = connection.execute(f"SELECT payload FROM user_profiles WHERE username = {placeholder}", (clean_username,)).fetchone()
+    except Exception as exc:
+        LOGGER.warning("Profile database unavailable for %s: %s", clean_username, exc)
+        return UserProfile(username=clean_username)
 
     if not row:
         return UserProfile(username=clean_username)
 
-    payload = row[0] if USE_POSTGRES else row["payload"]
-    return UserProfile.model_validate(parse_payload(payload) | {"username": clean_username})
+    try:
+        payload = row[0] if USE_POSTGRES else row["payload"]
+        return UserProfile.model_validate(parse_payload(payload) | {"username": clean_username})
+    except Exception as exc:
+        LOGGER.warning("Profile payload invalid for %s: %s", clean_username, exc)
+        return UserProfile(username=clean_username)
 
 
 def save_profile(profile: UserProfile) -> UserProfile:
@@ -305,8 +317,8 @@ def build_user(username: str) -> User | None:
         return None
 
     profile = load_profile(clean_username)
-    profile_complete = bool(profile.name.strip() and profile.email.strip())
-    agreement_signed = is_current_agreement_signed(profile)
+    profile_complete = bool(profile.name.strip() and profile.email.strip()) or bool(record.get("profile_complete", False))
+    agreement_signed = is_current_agreement_signed(profile) or bool(record.get("agreement_signed", False))
 
     return User(
         username=clean_username,
