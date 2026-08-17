@@ -405,8 +405,9 @@ export function App() {
   }, [activeView, visibleMainViews.join("|")]);
 
   async function login(username, password) {
+    const cleanUsername = username.trim();
     setLoginError("");
-    if (!username.trim() || !password) {
+    if (!cleanUsername || !password) {
       setLoginError("Enter your username and password.");
       return;
     }
@@ -415,7 +416,7 @@ export function App() {
       const response = await fetch(`${apiBaseUrl}/auth/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, password })
+        body: JSON.stringify({ username: cleanUsername, password })
       });
 
       if (!response.ok) {
