@@ -1701,11 +1701,11 @@ function LoginPage({ error, onLogin }) {
         <div>
           <p className="eyebrow">Command Access</p>
           <h2>Sign In To LEGACY</h2>
-          <small>Enter your workspace credentials.</small>
+          <small>Use your assigned username and password.</small>
         </div>
 
         <label>
-          Email Or Username
+          Username
           <input
             autoComplete="username"
             placeholder="Enter username"

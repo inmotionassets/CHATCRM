@@ -7791,6 +7791,7 @@ textarea::placeholder {
 
 .login-mark-orbit {
   animation: legacyOrbit 8s ease-in-out infinite;
+  pointer-events: none;
   border: 1px solid rgba(56, 189, 248, 0.16);
   border-radius: 32px;
   height: clamp(300px, 38vw, 510px);
@@ -7861,6 +7862,7 @@ textarea::placeholder {
 
 .legacy-access-panel {
   background: rgba(4, 8, 17, 0.68);
+  pointer-events: auto;
   border: 1px solid rgba(56, 189, 248, 0.28);
   border-radius: 28px;
   box-shadow: 0 30px 90px rgba(0, 0, 0, 0.52), 0 0 45px rgba(56, 189, 248, 0.1), 0 0 42px rgba(244, 63, 94, 0.1);
@@ -7898,6 +7900,7 @@ textarea::placeholder {
 
 .login-status-line {
   align-items: center;
+  pointer-events: none;
   background: rgba(2, 6, 23, 0.58);
   border: 1px solid rgba(56, 189, 248, 0.18);
   border-radius: 20px;
