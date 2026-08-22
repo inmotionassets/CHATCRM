@@ -1662,13 +1662,6 @@ function UnderConstructionPage({ onLogout, user }) {
 function LoginPage({ error, onLogin }) {
   const [username, setUsername] = React.useState("");
   const [password, setPassword] = React.useState("");
-  const intelligencePillars = ["Property", "Buyer", "Market", "Contact", "Outcome"];
-  const systemStatus = [
-    ["County Records", "Connected"],
-    ["Market Intelligence", "Connected"],
-    ["Google Maps", "Connected"],
-    ["Contact Intelligence", "Ready"]
-  ];
 
   function submitLogin(event) {
     event.preventDefault();
@@ -1676,33 +1669,12 @@ function LoginPage({ error, onLogin }) {
   }
 
   return (
-    <main className="login-shell legacy-login-v2">
-      <section className="login-command-stage" aria-label="LEGACY platform welcome">
-        <div className="login-mark-orbit" aria-hidden="true" />
-        <div className="login-logo-hero">
-          <LegacyLogo />
-        </div>
-        <div className="login-wordmark-block">
-          <p className="login-kicker">Welcome To</p>
-          <h1>LEGACY</h1>
-          <p>Real Estate Intelligence Platform</p>
-          <strong>Information. Intelligence. Advantage.</strong>
-        </div>
-        <div className="login-intelligence-row" aria-label="LEGACY intelligence modules">
-          {intelligencePillars.map((pillar) => (
-            <span key={pillar}>
-              <i aria-hidden="true" />
-              {pillar} Intelligence
-            </span>
-          ))}
-        </div>
-      </section>
-
+    <main className="login-shell legacy-login-simple">
       <form className="login-panel legacy-access-panel" onSubmit={submitLogin}>
-        <div>
-          <p className="eyebrow">Command Access</p>
-          <h2>Sign In To LEGACY</h2>
-          <small>Use your assigned username and password.</small>
+        <div className="login-simple-brand">
+          <LegacyLogo />
+          <h1>LEGACY</h1>
+          <p>Sign in to continue.</p>
         </div>
 
         <label>
@@ -1727,19 +1699,8 @@ function LoginPage({ error, onLogin }) {
 
         {error ? <p className="login-error">{error}</p> : null}
 
-        <button className="primary-button login-submit" type="submit">Sign In To LEGACY</button>
+        <button className="primary-button login-submit" type="submit">Sign In</button>
       </form>
-
-      <footer className="login-status-line" aria-label="LEGACY system status">
-        {systemStatus.map(([label, value]) => (
-          <span key={label}>
-            <i aria-hidden="true" />
-            <b>{label}</b>
-            <em>{value}</em>
-          </span>
-        ))}
-        <small>v2.5.0</small>
-      </footer>
     </main>
   );
 }

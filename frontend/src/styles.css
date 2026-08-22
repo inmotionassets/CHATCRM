@@ -8522,3 +8522,93 @@ textarea::placeholder {
 html:not([data-theme="dark"]) {
   background: #f4f7fb;
 }
+/* LEGACY simplified login v1 */
+.legacy-login-simple {
+  align-items: center;
+  background:
+    radial-gradient(circle at 50% 10%, rgba(56, 189, 248, 0.14), transparent 34%),
+    radial-gradient(circle at 78% 28%, rgba(244, 63, 94, 0.1), transparent 28%),
+    linear-gradient(135deg, #020617 0%, #07111f 48%, #030712 100%);
+  display: grid;
+  gap: 0;
+  grid-template-columns: minmax(0, 1fr);
+  justify-items: center;
+  min-height: 100vh;
+  overflow: hidden;
+  padding: clamp(22px, 4vw, 56px);
+}
+
+.legacy-login-simple::after {
+  display: none;
+}
+
+.legacy-login-simple .legacy-access-panel {
+  background: rgba(4, 8, 17, 0.76);
+  border: 1px solid rgba(56, 189, 248, 0.3);
+  border-radius: 28px;
+  box-shadow: 0 34px 100px rgba(0, 0, 0, 0.56), 0 0 54px rgba(56, 189, 248, 0.14), 0 0 48px rgba(244, 63, 94, 0.1);
+  gap: 18px;
+  max-width: 440px;
+  padding: clamp(26px, 4vw, 38px);
+  width: min(100%, 440px);
+}
+
+.login-simple-brand {
+  align-items: center;
+  display: grid;
+  gap: 10px;
+  justify-items: center;
+  margin-bottom: 8px;
+  text-align: center;
+}
+
+.login-simple-brand .brand-logo {
+  height: 132px;
+  width: 132px;
+}
+
+.login-simple-brand h1 {
+  color: #ffffff;
+  font-size: clamp(2.45rem, 8vw, 4rem);
+  letter-spacing: 0.08em;
+  line-height: 0.95;
+  margin: 8px 0 0;
+  text-shadow: 0 0 36px rgba(56, 189, 248, 0.24);
+}
+
+.login-simple-brand p {
+  color: #a8b6c8;
+  font-weight: 700;
+  margin: 0;
+}
+
+.legacy-login-simple .legacy-access-panel label {
+  color: #dbeafe;
+  gap: 8px;
+}
+
+.legacy-login-simple .legacy-access-panel input {
+  background: rgba(226, 232, 240, 0.96);
+  border: 1px solid rgba(56, 189, 248, 0.2);
+  border-radius: 16px;
+  color: #020617;
+  min-height: 56px;
+}
+
+.legacy-login-simple .login-submit {
+  border-radius: 16px;
+  min-height: 56px;
+  text-transform: none;
+}
+
+@media (max-width: 620px) {
+  .legacy-login-simple .legacy-access-panel {
+    border-radius: 22px;
+    padding: 24px;
+  }
+
+  .login-simple-brand .brand-logo {
+    height: 104px;
+    width: 104px;
+  }
+}
