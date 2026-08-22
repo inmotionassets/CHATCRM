@@ -181,7 +181,7 @@ USERS = {
         "password_hash": "20e8461e945e9a0ffe606b150e35b4294a3c95ecc781f67d4cf814f185418fb6",
         "name": "Acquisition Demo",
         "role": "Acquisition",
-        "email": "acq-demo@chatcrm.local",
+        "email": "acq-demo@legacy.local",
         "profile_complete": True,
         "agreement_signed": True,
     },
@@ -398,7 +398,7 @@ def sign_partner_agreement(username: str, request: AgreementSignRequest) -> Agre
 
 def signed_agreement_path(username: str) -> Path:
     safe_username = "".join(ch for ch in username.lower().strip() if ch.isalnum() or ch in {"-", "_"}) or "user"
-    return CONTRACTS_PATH / f"chatcrm-signed-partner-agreement-{safe_username}.pdf"
+    return CONTRACTS_PATH / f"legacy-signed-partner-agreement-{safe_username}.pdf"
 
 
 def get_or_build_signed_agreement(username: str) -> Path:
@@ -438,7 +438,7 @@ def build_signed_partner_pdf(profile: UserProfile) -> Path:
         bottomMargin=0.55 * inch,
     )
     story = [
-        Paragraph("CHATCRM", styles["AgreementTitle"]),
+        Paragraph("LEGACY", styles["AgreementTitle"]),
         Paragraph("One-Page Partner & Acquisition Agreement", styles["AgreementTitle"]),
         Spacer(1, 10),
         Paragraph("Mission: Find more sellers. Contract more deals. Build the largest buyer network in Texas. Scale nationwide.", styles["AgreementBody"]),
@@ -446,11 +446,11 @@ def build_signed_partner_pdf(profile: UserProfile) -> Path:
     ]
 
     clauses = [
-        ("Confidentiality (NDA)", "All seller lists, buyer lists, lead data, training materials, scripts, processes, and ChatCRM information are confidential and remain property of ChatCRM."),
-        ("Non-Circumvention", "Team members may not bypass ChatCRM to work directly with sellers, buyers, investors, builders, or business relationships introduced through the platform."),
-        ("Compensation", "Commissions are paid after a successful closing and receipt of funds. ChatCRM will handle compensation and applicable tax reporting requirements."),
+        ("Confidentiality (NDA)", "All seller lists, buyer lists, lead data, training materials, scripts, processes, and LEGACY information is confidential and remains property of LEGACY."),
+        ("Non-Circumvention", "Team members may not bypass LEGACY to work directly with sellers, buyers, investors, builders, or business relationships introduced through the platform."),
+        ("Compensation", "Commissions are paid after a successful closing and receipt of funds. LEGACY will handle compensation and applicable tax reporting requirements."),
         ("Commission Structure", "15% ($0-$9,999) | 20% ($10k-$19,999) | 22.5% ($20k-$34,999) | 25% ($35k+)"),
-        ("Caller Responsibilities", "Contact sellers, verify ownership, determine motivation, gather property details, update ChatCRM, and schedule follow-ups."),
+        ("Caller Responsibilities", "Contact sellers, verify ownership, determine motivation, gather property details, update LEGACY, and schedule follow-ups."),
     ]
     for title, detail in clauses:
         story.extend([Paragraph(f"<b>{title}</b>", styles["AgreementBody"]), Paragraph(detail, styles["AgreementBody"]), Spacer(1, 7)])
@@ -479,7 +479,7 @@ def build_signed_partner_pdf(profile: UserProfile) -> Path:
         )
     )
     story.extend([Spacer(1, 8), table, Spacer(1, 12)])
-    story.append(Paragraph("CHATCRM - WE'RE GOING TO THE MOON", styles["SmallNotice"]))
+    story.append(Paragraph("LEGACY - WE'RE GOING TO THE MOON", styles["SmallNotice"]))
     document.build(story)
     return file_path
 
@@ -518,9 +518,9 @@ def get_daily_quote() -> DailyQuote:
     if QUOTE_CACHE.get("date") == today and isinstance(cached_quote, DailyQuote):
         return cached_quote
 
-    fallback = DailyQuote(quote="Discipline turns opportunity into income.", author="ChatCRM", source="Fallback")
+    fallback = DailyQuote(quote="Discipline turns opportunity into income.", author="LEGACY", source="Fallback")
     try:
-        request = Request("https://zenquotes.io/api/today", headers={"User-Agent": "ChatCRM/1.0"})
+        request = Request("https://zenquotes.io/api/today", headers={"User-Agent": "LEGACY/1.0"})
         with urlopen(request, timeout=4) as response:
             data = json.loads(response.read().decode("utf-8"))
         item = data[0] if isinstance(data, list) and data else data if isinstance(data, dict) else {}

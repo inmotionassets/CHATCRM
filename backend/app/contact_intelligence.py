@@ -888,7 +888,7 @@ def build_public_source_links(lead_data: dict[str, Any]) -> list[ContactSourceLi
             ContactSourceLink(
                 label="Public business/contact search",
                 url=f"https://www.google.com/search?q={quote_plus(' '.join(query_parts))}",
-                notes="Manual public search path. ChatCRM does not scrape Google results.",
+                notes="Manual public search path. LEGACY does not scrape Google results.",
             )
         )
 

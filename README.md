@@ -1,6 +1,6 @@
-# ChatCRM
+# LEGACY
 
-ChatCRM is a real estate CRM for managing leads, importing county/property PDFs, researching properties, and eventually using AI to summarize, score, and automate follow-up work.
+LEGACY is a real estate intelligence platform for managing properties, importing county/property data, researching markets, tracking buyer activity, and turning deal evidence into better decisions.
 
 ## First Build Goal
 
@@ -19,7 +19,7 @@ Advanced features like AI parsing, maps, SMS, phone calls, and property intellig
 ## Project Structure
 
 ```text
-chatcrm/
+legacy/
   frontend/   React + Vite app
   backend/    FastAPI app
   docs/       planning notes and blueprint breakdown

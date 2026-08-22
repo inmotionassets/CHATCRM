@@ -18,7 +18,7 @@ class ErrorBoundary extends React.Component {
       const errorMessage = this.state.error?.message || String(this.state.error || "Unknown display error");
       return (
         <main style={{ fontFamily: "Arial, sans-serif", padding: 24 }}>
-          <h1>ChatCRM recovery</h1>
+          <h1>LEGACY recovery</h1>
           <p>The app hit a browser-side display error, but your uploaded leads are still saved in the backend.</p>
           <p style={{ opacity: 0.8 }}>Error: {errorMessage}</p>
           <p style={{ opacity: 0.8 }}>Build: cache-recovery-2</p>

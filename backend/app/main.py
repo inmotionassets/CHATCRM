@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .routers import agreements, auth, buyers, contact_intelligence, counties, disposition, imports, leads, outcomes, parcels
 
-app = FastAPI(title="ChatCRM API")
+app = FastAPI(title="LEGACY API")
 BUILD_ID = "nda-reset-admin-onboarding-v1"
 
 app.add_middleware(

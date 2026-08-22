@@ -33,7 +33,7 @@ OWNER_ACCESS_USERNAMES = {"virgo"}
 
 def require_owner_access(current_user) -> None:
     if current_user.username.lower().strip() not in OWNER_ACCESS_USERNAMES:
-        raise HTTPException(status_code=403, detail="ChatCRM is under construction for this account.")
+        raise HTTPException(status_code=403, detail="LEGACY is under construction for this account.")
 
 class Lead(BaseModel):
     id: str

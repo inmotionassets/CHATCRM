@@ -175,7 +175,7 @@ class MarketIntelligenceService:
             "lastRefreshAt": provider_result.get("lastRefreshAt") or fallback_result.get("lastRefreshAt") or "",
             "errors": [
                 *(provider_result.get("errors") or []),
-                "No saved transactions found for this provider yet, so ChatCRM is showing mock activity until a CSV is imported.",
+                "No saved transactions found for this provider yet, so LEGACY is showing mock activity until a CSV is imported.",
             ],
         }
 
@@ -685,7 +685,7 @@ def build_plain_language_summary(
     corridor_count = sum(len(item.get("corridorSignals") or []) for item in buyer_footprints.values())
     return (
         f"Opportunity Score {opportunity['score']} ({opportunity['grade']}). "
-        f"ChatCRM found {overview.get('verifiedNearbyBuyers', 0)} nearby buyer groups, "
+        f"LEGACY found {overview.get('verifiedNearbyBuyers', 0)} nearby buyer groups, "
         f"{overview.get('activeBuilders', 0)} active builders, and {corridor_count} corridor signals. "
         f"Strongest buyer match: {strongest.get('buyerName') or 'none yet'}."
     )
@@ -838,7 +838,7 @@ def build_source_badges(
             "status": "Active" if address else "Needs Address",
             "confidence": 86 if address else 35,
             "verified": bool(address),
-            "source": "ChatCRM lead record",
+            "source": "LEGACY lead record",
             "detail": "Lead address and workflow history are available." if address else "Address is needed before LEGACY can build the workspace.",
         },
     ]
