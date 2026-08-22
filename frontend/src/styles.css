@@ -8659,3 +8659,579 @@ html:not([data-theme="dark"]) {
 :root:not([data-theme="dark"]) .lead-main small {
   color: #475569;
 }
+/* LEGACY visual consistency pass v1 */
+:root,
+:root[data-theme="dark"],
+:root:not([data-theme="dark"]) {
+  --legacy-bg: #020617;
+  --legacy-surface-1: rgba(8, 13, 24, 0.92);
+  --legacy-surface-2: rgba(15, 23, 42, 0.84);
+  --legacy-surface-3: rgba(30, 41, 59, 0.7);
+  --legacy-border: rgba(148, 163, 184, 0.18);
+  --legacy-border-strong: rgba(56, 189, 248, 0.34);
+  --legacy-blue: #0ea5e9;
+  --legacy-cyan: #38bdf8;
+  --legacy-crimson: #f43f5e;
+  --legacy-text: #f8fafc;
+  --legacy-text-muted: #94a3b8;
+  --legacy-success: #22c55e;
+  --legacy-warning: #f59e0b;
+  --legacy-danger: #f43f5e;
+  --accent: var(--legacy-cyan);
+  --accent-dark: #7dd3fc;
+  --accent-soft: rgba(56, 189, 248, 0.12);
+  --border: var(--legacy-border);
+  --border-soft: rgba(148, 163, 184, 0.1);
+  --gold: var(--legacy-cyan);
+  --gold-soft: rgba(56, 189, 248, 0.1);
+  --muted: var(--legacy-text-muted);
+  --muted-strong: #cbd5e1;
+  --page: var(--legacy-bg);
+  --panel: var(--legacy-surface-1);
+  --panel-soft: var(--legacy-surface-2);
+  --sidebar: #020617;
+  --sidebar-active: rgba(14, 165, 233, 0.14);
+  --text: var(--legacy-text);
+  color-scheme: dark;
+}
+
+html,
+html:not([data-theme="dark"]),
+body {
+  background: var(--legacy-bg);
+}
+
+body,
+.app-shell,
+:root:not([data-theme="dark"]) .workspace,
+:root[data-theme="dark"] .workspace,
+.workspace {
+  color: var(--legacy-text);
+}
+
+.app-shell,
+.workspace {
+  background:
+    radial-gradient(circle at 82% 0%, rgba(244, 63, 94, 0.08), transparent 28%),
+    radial-gradient(circle at 25% 8%, rgba(56, 189, 248, 0.12), transparent 34%),
+    linear-gradient(135deg, rgba(2, 6, 23, 0.98), rgba(8, 13, 24, 0.98));
+}
+
+.sidebar {
+  background:
+    linear-gradient(180deg, rgba(15, 23, 42, 0.88), rgba(2, 6, 23, 0.96)),
+    radial-gradient(circle at 16% 10%, rgba(56, 189, 248, 0.2), transparent 34%),
+    radial-gradient(circle at 92% 38%, rgba(244, 63, 94, 0.1), transparent 30%);
+  border-right: 1px solid rgba(56, 189, 248, 0.16);
+}
+
+.sidebar .eyebrow,
+.eyebrow,
+:root:not([data-theme="dark"]) .lead-meta b,
+:root[data-theme="dark"] .lead-meta b,
+.lead-meta b,
+.section-heading .eyebrow,
+.panel-header .eyebrow,
+.visual-future-hooks span {
+  color: var(--legacy-cyan);
+}
+
+.nav-item.active,
+.nav-item:hover {
+  background:
+    linear-gradient(90deg, rgba(14, 165, 233, 0.24), rgba(15, 23, 42, 0.72)),
+    linear-gradient(135deg, rgba(244, 63, 94, 0.08), transparent);
+  border-left-color: var(--legacy-cyan);
+  box-shadow: inset -1px 0 0 rgba(244, 63, 94, 0.22), 0 12px 34px rgba(14, 165, 233, 0.08);
+  color: #ffffff;
+}
+
+.theme-toggle-thumb {
+  background: linear-gradient(135deg, var(--legacy-cyan), var(--legacy-crimson));
+}
+
+:root:not([data-theme="dark"]) .topbar,
+:root:not([data-theme="dark"]) .stat,
+:root:not([data-theme="dark"]) .panel,
+:root:not([data-theme="dark"]) .stage,
+:root:not([data-theme="dark"]) .dashboard-card,
+:root:not([data-theme="dark"]) .lead-row,
+:root:not([data-theme="dark"]) .import-list,
+:root:not([data-theme="dark"]) .buyer-list-section,
+:root:not([data-theme="dark"]) .cad-import-wizard,
+:root:not([data-theme="dark"]) .lead-detail-card,
+:root:not([data-theme="dark"]) .contact-best-card,
+:root:not([data-theme="dark"]) .contact-review-card,
+:root:not([data-theme="dark"]) .quote-card,
+:root:not([data-theme="dark"]) .activity-card,
+:root:not([data-theme="dark"]) .legacy-launcher-card,
+:root:not([data-theme="dark"]) .lead-workspace-assessment-card,
+:root:not([data-theme="dark"]) .lead-workspace-support-card,
+:root:not([data-theme="dark"]) .lead-workspace-summary,
+:root:not([data-theme="dark"]) .property-visual-panel,
+:root:not([data-theme="dark"]) .lead-workspace-main-panel,
+:root:not([data-theme="dark"]) .lead-detail.lead-detail-workspace .detail-address,
+:root:not([data-theme="dark"]) .lead-detail.lead-detail-workspace .detail-nav,
+:root:not([data-theme="dark"]) .activity-timeline,
+:root:not([data-theme="dark"]) .team-activity-card,
+.topbar,
+.stat,
+.panel,
+.stage,
+.dashboard-card,
+.lead-row,
+.import-list,
+.buyer-list-section,
+.cad-import-wizard,
+.lead-detail-card,
+.contact-best-card,
+.contact-review-card,
+.quote-card,
+.activity-card,
+.legacy-launcher-card,
+.lead-workspace-assessment-card,
+.lead-workspace-support-card,
+.lead-workspace-summary,
+.property-visual-panel,
+.lead-workspace-main-panel,
+.lead-detail.lead-detail-workspace .detail-address,
+.lead-detail.lead-detail-workspace .detail-nav,
+.activity-timeline,
+.team-activity-card {
+  background: linear-gradient(180deg, var(--legacy-surface-1), rgba(10, 18, 33, 0.84));
+  border-color: var(--legacy-border);
+  box-shadow: 0 18px 54px rgba(0, 0, 0, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.035);
+  color: var(--legacy-text);
+}
+
+:root:not([data-theme="dark"]) .lead-meta,
+:root[data-theme="dark"] .lead-meta,
+.lead-meta,
+.detail-item,
+.lead-workspace-assessment-metrics span,
+.support-facts span,
+.lead-summary-grid span,
+.activity-item,
+.visual-future-hooks,
+.status-legend,
+.bulk-toolbar,
+.property-command-bar,
+.property-tools-menu div,
+.lead-detail.lead-detail-workspace .workspace-tool-section,
+.lead-detail.lead-detail-workspace .workspace-tool-section summary,
+.workspace-followup-field,
+.workspace-notes-field,
+.contact-health-card,
+.buyer-profile-card,
+.buyer-card,
+.candidate-card,
+.table-card {
+  background: linear-gradient(180deg, var(--legacy-surface-2), rgba(11, 18, 32, 0.82));
+  border-color: var(--legacy-border);
+  color: var(--legacy-text);
+}
+
+:root:not([data-theme="dark"]) .lead-meta,
+:root:not([data-theme="dark"]) .lead-main p,
+:root:not([data-theme="dark"]) .lead-main small,
+:root:not([data-theme="dark"]) .lead-row p,
+:root:not([data-theme="dark"]) .stage p,
+:root:not([data-theme="dark"]) .dashboard-card p,
+:root:not([data-theme="dark"]) .section-heading p,
+:root:not([data-theme="dark"]) .quote-card p:last-child,
+.lead-row p,
+.stage p,
+.dashboard-card p,
+.section-heading p,
+.lead-workspace-title p,
+.lead-workspace-assessment-card p,
+.lead-workspace-support-card p,
+.visual-future-hooks p,
+.property-visual-panel small,
+.support-note,
+.detail-subtitle,
+.activity-item p,
+.activity-item small {
+  color: var(--legacy-text-muted);
+}
+
+:root:not([data-theme="dark"]) .panel-header h2,
+:root:not([data-theme="dark"]) .dashboard-card h2,
+:root:not([data-theme="dark"]) .section-heading h2,
+:root:not([data-theme="dark"]) .stat strong,
+:root:not([data-theme="dark"]) .lead-main h3,
+:root:not([data-theme="dark"]) .lead-detail h2,
+:root:not([data-theme="dark"]) .lead-detail h3,
+.panel-header h2,
+.dashboard-card h2,
+.section-heading h2,
+.stat strong,
+.lead-main h3,
+.lead-detail h2,
+.lead-detail h3,
+.lead-workspace-title h2,
+.lead-workspace-support-card h3,
+.lead-workspace-assessment-card h3,
+.lead-workspace-summary strong,
+.detail-item strong,
+.activity-item strong {
+  color: var(--legacy-text);
+}
+
+.search-box,
+:root:not([data-theme="dark"]) .search-box {
+  background: rgba(8, 13, 24, 0.78);
+  border-color: rgba(56, 189, 248, 0.22);
+  box-shadow: 0 16px 44px rgba(0, 0, 0, 0.22);
+  color: var(--legacy-text);
+}
+
+input,
+select,
+textarea,
+.search-box input,
+.detail-field input,
+.detail-field select,
+.detail-field textarea,
+.owner-name-field input,
+.lead-form input,
+.lead-form select,
+.lead-form textarea,
+:root:not([data-theme="dark"]) input,
+:root:not([data-theme="dark"]) select,
+:root:not([data-theme="dark"]) textarea {
+  background: rgba(15, 23, 42, 0.72);
+  border-color: rgba(148, 163, 184, 0.22);
+  color: var(--legacy-text);
+}
+
+input::placeholder,
+textarea::placeholder,
+.search-box input::placeholder {
+  color: rgba(148, 163, 184, 0.74);
+}
+
+input:focus,
+select:focus,
+textarea:focus,
+.search-box:focus-within,
+.detail-field input:focus,
+.detail-field select:focus,
+.detail-field textarea:focus,
+.lead-form input:focus,
+.lead-form select:focus,
+.lead-form textarea:focus,
+.owner-name-field input:focus {
+  border-color: var(--legacy-cyan);
+  box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.16);
+  outline: 0;
+}
+
+.primary-button,
+.actions .primary-button,
+.property-command-bar .primary-command,
+.property-command-bar > button,
+.legacy-assessment-actions button,
+.legacy-why-header button,
+.legacy-action-row a,
+.legacy-action-row button {
+  background: linear-gradient(135deg, var(--legacy-blue), #2563eb 48%, var(--legacy-crimson));
+  border: 0;
+  box-shadow: 0 16px 42px rgba(14, 165, 233, 0.18), 0 0 24px rgba(244, 63, 94, 0.12);
+  color: #ffffff;
+}
+
+.secondary-button,
+.icon-button,
+.ghost-button,
+:root:not([data-theme="dark"]) .secondary-button,
+:root:not([data-theme="dark"]) .icon-button,
+:root:not([data-theme="dark"]) .row-actions a,
+:root:not([data-theme="dark"]) .row-actions button,
+:root:not([data-theme="dark"]) .ghost-button,
+.row-actions button,
+.row-actions a,
+.map-panel-actions a,
+.property-buyer-actions a,
+.property-command-bar a,
+.property-command-bar button,
+.property-tools-menu summary,
+.property-tools-menu div a,
+.property-tools-menu div button,
+.fullscreen-button,
+.drive-neighborhood-controls button,
+.sale-actions button,
+.sale-actions a,
+.contact-actions-row button,
+.contact-actions-row a,
+.ranked-buyer-actions button,
+.buyer-profile-actions button,
+.buyer-profile-actions a,
+.buyer-profile-close {
+  background: rgba(15, 23, 42, 0.74);
+  border: 1px solid rgba(56, 189, 248, 0.2);
+  box-shadow: none;
+  color: var(--legacy-text);
+}
+
+.secondary-button:hover,
+.icon-button:hover,
+.ghost-button:hover,
+.row-actions button:hover,
+.row-actions a:hover,
+.map-panel-actions a:hover,
+.property-buyer-actions a:hover,
+.property-command-bar a:hover,
+.property-command-bar button:hover,
+.property-tools-menu summary:hover,
+.property-tools-menu div a:hover,
+.property-tools-menu div button:hover,
+.fullscreen-button:hover,
+.drive-neighborhood-controls button:hover,
+.sale-actions button:hover,
+.sale-actions a:hover,
+.contact-actions-row button:hover,
+.contact-actions-row a:hover,
+.ranked-buyer-actions button:hover,
+.buyer-profile-actions button:hover,
+.buyer-profile-actions a:hover,
+.buyer-profile-close:hover {
+  background: rgba(14, 165, 233, 0.14);
+  border-color: rgba(56, 189, 248, 0.42);
+  color: #ffffff;
+  filter: none;
+  transform: translateY(-1px);
+}
+
+.danger-button,
+.row-actions .danger-button,
+.bulk-toolbar .danger-button {
+  color: #fecdd3;
+}
+
+.danger-button:hover,
+.row-actions .danger-button:hover,
+.bulk-toolbar .danger-button:hover {
+  background: rgba(244, 63, 94, 0.14);
+  border-color: rgba(244, 63, 94, 0.42);
+  color: #ffffff;
+}
+
+.lead-detail.lead-detail-workspace .detail-nav .secondary-button:first-child,
+.drive-neighborhood-controls button:first-child,
+.drive-neighborhood-controls button:nth-child(2) {
+  background: linear-gradient(135deg, rgba(30, 41, 59, 0.96), rgba(15, 23, 42, 0.92));
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  box-shadow: none;
+}
+
+.lead-detail.lead-detail-workspace .detail-nav .secondary-button:last-child,
+.drive-neighborhood-controls button:nth-child(4),
+.drive-neighborhood-controls button:last-child {
+  background: linear-gradient(135deg, rgba(14, 165, 233, 0.9), rgba(37, 99, 235, 0.88));
+  border: 1px solid rgba(125, 211, 252, 0.36);
+  box-shadow: 0 16px 36px rgba(14, 165, 233, 0.18);
+}
+
+.drive-neighborhood-controls button:nth-child(3) {
+  background: linear-gradient(135deg, rgba(56, 189, 248, 0.16), rgba(244, 63, 94, 0.14));
+  border-color: rgba(56, 189, 248, 0.3);
+}
+
+.property-command-bar .tax-command {
+  background: rgba(15, 23, 42, 0.74);
+  border-color: rgba(56, 189, 248, 0.22);
+  color: var(--legacy-text);
+}
+
+.lead-workspace-hero,
+.legacy-launcher-card {
+  background:
+    linear-gradient(135deg, rgba(14, 165, 233, 0.12), rgba(244, 63, 94, 0.08)),
+    linear-gradient(180deg, var(--legacy-surface-1), rgba(10, 18, 33, 0.82));
+  border-color: rgba(56, 189, 248, 0.24);
+  border-left: 4px solid var(--legacy-cyan);
+}
+
+.lead-workspace-score,
+.lead-workspace-confidence,
+.lead-workspace-score.compact-score,
+.seller-heat,
+.data-confidence {
+  background: rgba(15, 23, 42, 0.72);
+  border: 1px solid rgba(56, 189, 248, 0.22);
+  color: var(--legacy-text);
+}
+
+.lead-workspace-score span,
+.lead-workspace-score small,
+.lead-workspace-confidence span,
+.lead-workspace-confidence small {
+  color: var(--legacy-cyan);
+}
+
+.seller-heat {
+  border-color: rgba(244, 63, 94, 0.24);
+}
+
+.seller-heat span,
+.seller-heat small {
+  color: #fda4af;
+}
+
+.data-confidence span,
+.data-confidence small {
+  color: #bfdbfe;
+}
+
+.lead-detail.lead-detail-workspace .workspace-followup-field,
+.lead-detail.lead-detail-workspace .workspace-notes-field,
+:root[data-theme="dark"] .lead-detail.lead-detail-workspace .workspace-followup-field,
+:root[data-theme="dark"] .lead-detail.lead-detail-workspace .workspace-notes-field {
+  background: linear-gradient(135deg, rgba(15, 23, 42, 0.82), rgba(11, 18, 32, 0.78));
+  border: 1px solid rgba(56, 189, 248, 0.18);
+  border-left: 4px solid var(--legacy-cyan);
+}
+
+.lead-detail.lead-detail-workspace .workspace-notes-field {
+  border-left-color: var(--legacy-crimson);
+}
+
+.lead-detail.lead-detail-workspace .workspace-notes-field textarea,
+:root[data-theme="dark"] .lead-detail.lead-detail-workspace .workspace-notes-field textarea {
+  background: rgba(2, 6, 23, 0.56);
+  border-color: rgba(148, 163, 184, 0.2);
+  color: var(--legacy-text);
+}
+
+.property-visual-frame {
+  background: #020617;
+  border: 1px solid rgba(56, 189, 248, 0.2);
+  box-shadow: 0 18px 54px rgba(0, 0, 0, 0.24);
+}
+
+.visual-mode-toggle,
+.property-visual-controls {
+  background: rgba(15, 23, 42, 0.7);
+  border-color: rgba(56, 189, 248, 0.16);
+}
+
+.visual-mode-toggle button[aria-pressed="true"],
+.segmented-filter button.active,
+.segmented-filter button:hover,
+.buyer-highlight-strip button:hover {
+  background: linear-gradient(135deg, var(--legacy-blue), var(--legacy-crimson));
+  border-color: transparent;
+  color: #ffffff;
+}
+
+.lead-workspace-modal-backdrop,
+:root:not([data-theme="dark"]) .lead-workspace-modal-backdrop {
+  background: linear-gradient(135deg, rgba(2, 6, 23, 0.92), rgba(4, 10, 22, 0.8));
+  backdrop-filter: blur(12px);
+}
+
+.lead-workspace-modal,
+.lead-workspace-modal .legacy-property-workspace,
+:root:not([data-theme="dark"]) .lead-workspace-modal,
+:root:not([data-theme="dark"]) .lead-workspace-modal .legacy-property-workspace {
+  background: linear-gradient(135deg, rgba(2, 6, 23, 0.98), rgba(8, 15, 31, 0.96));
+  border-color: rgba(56, 189, 248, 0.3);
+  color: var(--legacy-text);
+}
+
+:root:not([data-theme="dark"]) .lead-workspace-modal-header,
+:root:not([data-theme="dark"]) .lead-workspace-modal .legacy-workspace-header.premium,
+:root:not([data-theme="dark"]) .lead-workspace-modal .legacy-assessment-panel,
+:root:not([data-theme="dark"]) .lead-workspace-modal .legacy-assessment-card,
+:root:not([data-theme="dark"]) .lead-workspace-modal .legacy-panel,
+:root:not([data-theme="dark"]) .lead-workspace-modal .legacy-transaction-drawer,
+:root:not([data-theme="dark"]) .lead-workspace-modal .legacy-evidence-box,
+:root:not([data-theme="dark"]) .lead-workspace-modal .legacy-outcome-panel,
+:root:not([data-theme="dark"]) .lead-workspace-modal .lead-legacy-market-map .activity-map-panel.market-map-panel,
+:root:not([data-theme="dark"]) .lead-workspace-modal .lead-legacy-market-map .market-map-controls,
+:root:not([data-theme="dark"]) .lead-workspace-modal .lead-legacy-market-map .upgraded-map-controls,
+:root:not([data-theme="dark"]) .lead-workspace-modal .lead-legacy-market-map .map-truth-strip,
+:root:not([data-theme="dark"]) .lead-workspace-modal .lead-legacy-market-map .road-intelligence-card,
+:root:not([data-theme="dark"]) .lead-workspace-modal .legacy-narrative-list button,
+:root:not([data-theme="dark"]) .lead-workspace-modal .legacy-buyer-list button,
+.lead-workspace-modal-header,
+.lead-workspace-modal .legacy-workspace-header.premium,
+.lead-workspace-modal .legacy-assessment-panel,
+.lead-workspace-modal .legacy-assessment-card,
+.lead-workspace-modal .legacy-panel,
+.lead-workspace-modal .legacy-transaction-drawer,
+.lead-workspace-modal .legacy-evidence-box,
+.lead-workspace-modal .legacy-outcome-panel,
+.lead-workspace-modal .lead-legacy-market-map .activity-map-panel.market-map-panel,
+.lead-workspace-modal .lead-legacy-market-map .market-map-controls,
+.lead-workspace-modal .lead-legacy-market-map .upgraded-map-controls,
+.lead-workspace-modal .lead-legacy-market-map .map-truth-strip,
+.lead-workspace-modal .lead-legacy-market-map .road-intelligence-card,
+.lead-workspace-modal .legacy-narrative-list button,
+.lead-workspace-modal .legacy-buyer-list button {
+  background: rgba(15, 23, 42, 0.76);
+  border-color: rgba(56, 189, 248, 0.18);
+  color: var(--legacy-text);
+}
+
+:root:not([data-theme="dark"]) .lead-workspace-modal-header h2,
+:root:not([data-theme="dark"]) .lead-workspace-modal .legacy-header-main h2,
+:root:not([data-theme="dark"]) .lead-workspace-modal .legacy-score-badge strong,
+.lead-workspace-modal-header h2,
+.lead-workspace-modal .legacy-header-main h2,
+.lead-workspace-modal .legacy-score-badge strong {
+  color: var(--legacy-text);
+}
+
+:root:not([data-theme="dark"]) .lead-workspace-modal .legacy-header-main p,
+:root:not([data-theme="dark"]) .lead-workspace-modal .legacy-assessment-main p,
+:root:not([data-theme="dark"]) .lead-workspace-modal .legacy-buyer-list small,
+:root:not([data-theme="dark"]) .lead-workspace-modal .legacy-evidence-box p,
+.lead-workspace-modal .legacy-header-main p,
+.lead-workspace-modal .legacy-assessment-main p,
+.lead-workspace-modal .legacy-buyer-list small,
+.lead-workspace-modal .legacy-evidence-box p {
+  color: #cbd5e1;
+}
+
+.done-badge,
+.import-status,
+.status-pill.good,
+.save-status {
+  background: rgba(34, 197, 94, 0.12);
+  border-color: rgba(34, 197, 94, 0.26);
+  color: #bbf7d0;
+}
+
+.status-pill.warn,
+.user-badge,
+.role-badge {
+  background: rgba(245, 158, 11, 0.12);
+  border-color: rgba(245, 158, 11, 0.26);
+  color: #fde68a;
+}
+
+.status-pill.danger,
+.login-error,
+.error-message {
+  background: rgba(244, 63, 94, 0.12);
+  border-color: rgba(244, 63, 94, 0.28);
+  color: #fecdd3;
+}
+
+iframe[src*="google"],
+.property-visual-frame iframe,
+.buyer-activity-map iframe {
+  filter: none;
+}
+/* Keep the approved login field treatment isolated from authenticated-app normalization. */
+.legacy-login-simple .legacy-access-panel input {
+  background: rgba(226, 232, 240, 0.96);
+  border: 1px solid rgba(56, 189, 248, 0.2);
+  color: #020617;
+}
+
+.legacy-login-simple .legacy-access-panel input::placeholder {
+  color: rgba(51, 65, 85, 0.72);
+}
