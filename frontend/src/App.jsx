@@ -311,6 +311,7 @@ const parcelMapLayers = [
 export function App() {
   const [auth, setAuth] = React.useState(() => loadAuth());
   const [loginError, setLoginError] = React.useState("");
+  const [loginPhase, setLoginPhase] = React.useState("idle");
   const [leads, setLeads] = React.useState(() => loadLeads());
   const [buyers, setBuyers] = React.useState(() => loadBuyers());
   const [imports, setImports] = React.useState(() => loadImports());
@@ -408,9 +409,12 @@ export function App() {
     const cleanUsername = username.trim();
     setLoginError("");
     if (!cleanUsername || !password) {
+      setLoginPhase("idle");
       setLoginError("Enter your username and password.");
       return;
     }
+
+    setLoginPhase("signing-in");
 
     try {
       const response = await fetch(`${apiBaseUrl}/auth/login`, {
@@ -428,6 +432,8 @@ export function App() {
         accessToken: result.access_token,
         user: result.user
       };
+      setLoginPhase("initializing");
+      await new Promise((resolve) => window.setTimeout(resolve, 550));
       setAuth(nextAuth);
       safeStorageSet(authStorageKey, JSON.stringify(nextAuth));
       setBackendReady(false);
@@ -435,11 +441,13 @@ export function App() {
       setBuyers([]);
       setSaveStatus("Connecting...");
     } catch {
+      setLoginPhase("idle");
       setLoginError("Login failed. Check the username and password.");
     }
   }
 
   function logout() {
+    setLoginPhase("idle");
     setAuth(null);
     setBackendReady(false);
     setLeads([]);
@@ -622,7 +630,7 @@ export function App() {
   }, [imports]);
 
   if (!authToken) {
-    return <LoginPage error={loginError} onLogin={login} />;
+    return <LoginPage error={loginError} onLogin={login} phase={loginPhase} />;
   }
 
   if (!hasFullAccess) {
@@ -1659,22 +1667,25 @@ function UnderConstructionPage({ onLogout, user }) {
     </main>
   );
 }
-function LoginPage({ error, onLogin }) {
+function LoginPage({ error, onLogin, phase = "idle" }) {
   const [username, setUsername] = React.useState("");
   const [password, setPassword] = React.useState("");
+  const isWorking = phase === "signing-in" || phase === "initializing";
+  const buttonText = phase === "initializing" ? "Initializing LEGACY..." : phase === "signing-in" ? "Checking Access..." : "Sign In";
 
   function submitLogin(event) {
     event.preventDefault();
+    if (isWorking) return;
     onLogin(username, password);
   }
 
   return (
     <main className="login-shell legacy-login-simple">
-      <form className="login-panel legacy-access-panel" onSubmit={submitLogin}>
+      <form className={`login-panel legacy-access-panel ${phase === "initializing" ? "is-initializing" : ""}`} onSubmit={submitLogin}>
         <div className="login-simple-brand">
           <LegacyLogo />
           <h1>LEGACY</h1>
-          <p>Sign in to continue.</p>
+          <p className="login-tagline">Information. Intelligence. Advantage.</p>
         </div>
 
         <label>
@@ -1699,11 +1710,12 @@ function LoginPage({ error, onLogin }) {
 
         {error ? <p className="login-error">{error}</p> : null}
 
-        <button className="primary-button login-submit" type="submit">Sign In</button>
+        <button className="primary-button login-submit" disabled={isWorking} type="submit">{buttonText}</button>
       </form>
     </main>
   );
 }
+
 function Action({ icon, onClick, text }) {
   return (
     <button className="assistant-action" onClick={onClick}>
