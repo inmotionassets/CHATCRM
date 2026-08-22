@@ -9232,6 +9232,353 @@ iframe[src*="google"],
   color: #020617;
 }
 
+/* LEGACY theme toggle repair v1 */
+:root:not([data-theme="dark"]) {
+  --legacy-bg: #edf3f8;
+  --legacy-surface-1: rgba(255, 255, 255, 0.94);
+  --legacy-surface-2: rgba(241, 245, 249, 0.92);
+  --legacy-surface-3: rgba(226, 232, 240, 0.86);
+  --legacy-border: rgba(15, 23, 42, 0.13);
+  --legacy-border-strong: rgba(14, 165, 233, 0.32);
+  --legacy-blue: #0284c7;
+  --legacy-cyan: #0ea5e9;
+  --legacy-crimson: #e11d48;
+  --legacy-text: #0f172a;
+  --legacy-text-muted: #64748b;
+  --legacy-success: #15803d;
+  --legacy-warning: #b45309;
+  --legacy-danger: #dc2626;
+  --accent: var(--legacy-cyan);
+  --accent-dark: #0369a1;
+  --accent-soft: rgba(14, 165, 233, 0.1);
+  --border: var(--legacy-border);
+  --border-soft: rgba(15, 23, 42, 0.08);
+  --gold: var(--legacy-cyan);
+  --gold-soft: rgba(14, 165, 233, 0.1);
+  --muted: var(--legacy-text-muted);
+  --muted-strong: #334155;
+  --page: var(--legacy-bg);
+  --panel: var(--legacy-surface-1);
+  --panel-soft: var(--legacy-surface-2);
+  --sidebar: #020617;
+  --sidebar-active: rgba(14, 165, 233, 0.14);
+  --text: var(--legacy-text);
+  color-scheme: light;
+}
+
+html:not([data-theme="dark"]),
+:root:not([data-theme="dark"]) body {
+  background:
+    radial-gradient(circle at 18% 0%, rgba(14, 165, 233, 0.12), transparent 30%),
+    radial-gradient(circle at 94% 8%, rgba(225, 29, 72, 0.08), transparent 26%),
+    linear-gradient(135deg, #eef4fa 0%, #f8fafc 48%, #e8eef6 100%);
+  color: var(--legacy-text);
+}
+
+:root:not([data-theme="dark"]) .app-shell,
+:root:not([data-theme="dark"]) .workspace {
+  background:
+    radial-gradient(circle at 82% 0%, rgba(225, 29, 72, 0.07), transparent 28%),
+    radial-gradient(circle at 25% 8%, rgba(14, 165, 233, 0.11), transparent 34%),
+    linear-gradient(135deg, #eef4fa 0%, #f8fafc 54%, #e9eff7 100%);
+  color: var(--legacy-text);
+}
+
+:root:not([data-theme="dark"]) .sidebar {
+  background:
+    linear-gradient(180deg, rgba(15, 23, 42, 0.92), rgba(2, 6, 23, 0.98)),
+    radial-gradient(circle at 16% 10%, rgba(56, 189, 248, 0.2), transparent 34%),
+    radial-gradient(circle at 92% 38%, rgba(244, 63, 94, 0.1), transparent 30%);
+  color: #f8fafc;
+}
+
+:root:not([data-theme="dark"]) .topbar,
+:root:not([data-theme="dark"]) .stat,
+:root:not([data-theme="dark"]) .panel,
+:root:not([data-theme="dark"]) .stage,
+:root:not([data-theme="dark"]) .dashboard-card,
+:root:not([data-theme="dark"]) .lead-row,
+:root:not([data-theme="dark"]) .import-list,
+:root:not([data-theme="dark"]) .buyer-list-section,
+:root:not([data-theme="dark"]) .cad-import-wizard,
+:root:not([data-theme="dark"]) .lead-detail-card,
+:root:not([data-theme="dark"]) .contact-best-card,
+:root:not([data-theme="dark"]) .contact-review-card,
+:root:not([data-theme="dark"]) .quote-card,
+:root:not([data-theme="dark"]) .activity-card,
+:root:not([data-theme="dark"]) .legacy-launcher-card,
+:root:not([data-theme="dark"]) .lead-workspace-assessment-card,
+:root:not([data-theme="dark"]) .lead-workspace-support-card,
+:root:not([data-theme="dark"]) .lead-workspace-summary,
+:root:not([data-theme="dark"]) .property-visual-panel,
+:root:not([data-theme="dark"]) .lead-workspace-main-panel,
+:root:not([data-theme="dark"]) .lead-detail.lead-detail-workspace .detail-address,
+:root:not([data-theme="dark"]) .lead-detail.lead-detail-workspace .detail-nav,
+:root:not([data-theme="dark"]) .activity-timeline,
+:root:not([data-theme="dark"]) .team-activity-card {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(248, 250, 252, 0.92));
+  border-color: var(--legacy-border);
+  box-shadow: 0 18px 48px rgba(15, 23, 42, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.88);
+  color: var(--legacy-text);
+}
+
+:root:not([data-theme="dark"]) .lead-meta,
+:root:not([data-theme="dark"]) .detail-item,
+:root:not([data-theme="dark"]) .lead-workspace-assessment-metrics span,
+:root:not([data-theme="dark"]) .support-facts span,
+:root:not([data-theme="dark"]) .lead-summary-grid span,
+:root:not([data-theme="dark"]) .activity-item,
+:root:not([data-theme="dark"]) .visual-future-hooks,
+:root:not([data-theme="dark"]) .status-legend,
+:root:not([data-theme="dark"]) .bulk-toolbar,
+:root:not([data-theme="dark"]) .property-command-bar,
+:root:not([data-theme="dark"]) .property-tools-menu div,
+:root:not([data-theme="dark"]) .lead-detail.lead-detail-workspace .workspace-tool-section,
+:root:not([data-theme="dark"]) .lead-detail.lead-detail-workspace .workspace-tool-section summary,
+:root:not([data-theme="dark"]) .workspace-followup-field,
+:root:not([data-theme="dark"]) .workspace-notes-field,
+:root:not([data-theme="dark"]) .contact-health-card,
+:root:not([data-theme="dark"]) .buyer-profile-card,
+:root:not([data-theme="dark"]) .buyer-card,
+:root:not([data-theme="dark"]) .candidate-card,
+:root:not([data-theme="dark"]) .table-card {
+  background: linear-gradient(180deg, rgba(248, 250, 252, 0.96), rgba(241, 245, 249, 0.92));
+  border-color: var(--legacy-border);
+  color: var(--legacy-text);
+}
+
+:root:not([data-theme="dark"]) .lead-row p,
+:root:not([data-theme="dark"]) .stage p,
+:root:not([data-theme="dark"]) .dashboard-card p,
+:root:not([data-theme="dark"]) .section-heading p,
+:root:not([data-theme="dark"]) .lead-workspace-title p,
+:root:not([data-theme="dark"]) .lead-workspace-assessment-card p,
+:root:not([data-theme="dark"]) .lead-workspace-support-card p,
+:root:not([data-theme="dark"]) .visual-future-hooks p,
+:root:not([data-theme="dark"]) .property-visual-panel small,
+:root:not([data-theme="dark"]) .support-note,
+:root:not([data-theme="dark"]) .detail-subtitle,
+:root:not([data-theme="dark"]) .activity-item p,
+:root:not([data-theme="dark"]) .activity-item small,
+:root:not([data-theme="dark"]) .lead-meta {
+  color: var(--legacy-text-muted);
+}
+
+:root:not([data-theme="dark"]) .panel-header h2,
+:root:not([data-theme="dark"]) .dashboard-card h2,
+:root:not([data-theme="dark"]) .section-heading h2,
+:root:not([data-theme="dark"]) .stat strong,
+:root:not([data-theme="dark"]) .lead-main h3,
+:root:not([data-theme="dark"]) .lead-detail h2,
+:root:not([data-theme="dark"]) .lead-detail h3,
+:root:not([data-theme="dark"]) .lead-workspace-title h2,
+:root:not([data-theme="dark"]) .lead-workspace-support-card h3,
+:root:not([data-theme="dark"]) .lead-workspace-assessment-card h3,
+:root:not([data-theme="dark"]) .lead-workspace-summary strong,
+:root:not([data-theme="dark"]) .detail-item strong,
+:root:not([data-theme="dark"]) .activity-item strong {
+  color: var(--legacy-text);
+}
+
+:root:not([data-theme="dark"]) .search-box {
+  background: rgba(255, 255, 255, 0.92);
+  border-color: rgba(15, 23, 42, 0.12);
+  box-shadow: 0 16px 38px rgba(15, 23, 42, 0.08);
+  color: var(--legacy-text);
+}
+
+:root:not([data-theme="dark"]) input,
+:root:not([data-theme="dark"]) select,
+:root:not([data-theme="dark"]) textarea,
+:root:not([data-theme="dark"]) .search-box input,
+:root:not([data-theme="dark"]) .detail-field input,
+:root:not([data-theme="dark"]) .detail-field select,
+:root:not([data-theme="dark"]) .detail-field textarea,
+:root:not([data-theme="dark"]) .owner-name-field input,
+:root:not([data-theme="dark"]) .lead-form input,
+:root:not([data-theme="dark"]) .lead-form select,
+:root:not([data-theme="dark"]) .lead-form textarea {
+  background: rgba(248, 250, 252, 0.96);
+  border-color: rgba(15, 23, 42, 0.14);
+  color: var(--legacy-text);
+}
+
+:root:not([data-theme="dark"]) input::placeholder,
+:root:not([data-theme="dark"]) textarea::placeholder,
+:root:not([data-theme="dark"]) .search-box input::placeholder {
+  color: rgba(100, 116, 139, 0.78);
+}
+
+:root:not([data-theme="dark"]) .secondary-button,
+:root:not([data-theme="dark"]) .icon-button,
+:root:not([data-theme="dark"]) .ghost-button,
+:root:not([data-theme="dark"]) .row-actions button,
+:root:not([data-theme="dark"]) .row-actions a,
+:root:not([data-theme="dark"]) .map-panel-actions a,
+:root:not([data-theme="dark"]) .property-buyer-actions a,
+:root:not([data-theme="dark"]) .property-command-bar a,
+:root:not([data-theme="dark"]) .property-command-bar button,
+:root:not([data-theme="dark"]) .property-tools-menu summary,
+:root:not([data-theme="dark"]) .property-tools-menu div a,
+:root:not([data-theme="dark"]) .property-tools-menu div button,
+:root:not([data-theme="dark"]) .fullscreen-button,
+:root:not([data-theme="dark"]) .drive-neighborhood-controls button,
+:root:not([data-theme="dark"]) .sale-actions button,
+:root:not([data-theme="dark"]) .sale-actions a,
+:root:not([data-theme="dark"]) .contact-actions-row button,
+:root:not([data-theme="dark"]) .contact-actions-row a,
+:root:not([data-theme="dark"]) .ranked-buyer-actions button,
+:root:not([data-theme="dark"]) .buyer-profile-actions button,
+:root:not([data-theme="dark"]) .buyer-profile-actions a,
+:root:not([data-theme="dark"]) .buyer-profile-close {
+  background: rgba(255, 255, 255, 0.88);
+  border: 1px solid rgba(15, 23, 42, 0.14);
+  color: var(--legacy-text);
+}
+
+:root:not([data-theme="dark"]) .secondary-button:hover,
+:root:not([data-theme="dark"]) .icon-button:hover,
+:root:not([data-theme="dark"]) .ghost-button:hover,
+:root:not([data-theme="dark"]) .row-actions button:hover,
+:root:not([data-theme="dark"]) .row-actions a:hover,
+:root:not([data-theme="dark"]) .map-panel-actions a:hover,
+:root:not([data-theme="dark"]) .property-buyer-actions a:hover,
+:root:not([data-theme="dark"]) .property-command-bar a:hover,
+:root:not([data-theme="dark"]) .property-command-bar button:hover,
+:root:not([data-theme="dark"]) .drive-neighborhood-controls button:hover,
+:root:not([data-theme="dark"]) .sale-actions button:hover,
+:root:not([data-theme="dark"]) .sale-actions a:hover {
+  background: rgba(14, 165, 233, 0.1);
+  border-color: rgba(14, 165, 233, 0.32);
+  color: #0f172a;
+}
+
+:root:not([data-theme="dark"]) .lead-detail.lead-detail-workspace .detail-nav .secondary-button:first-child,
+:root:not([data-theme="dark"]) .drive-neighborhood-controls button:first-child,
+:root:not([data-theme="dark"]) .drive-neighborhood-controls button:nth-child(2) {
+  background: linear-gradient(135deg, rgba(241, 245, 249, 0.96), rgba(226, 232, 240, 0.92));
+  border-color: rgba(15, 23, 42, 0.14);
+  color: #0f172a;
+}
+
+:root:not([data-theme="dark"]) .lead-detail.lead-detail-workspace .detail-nav .secondary-button:last-child,
+:root:not([data-theme="dark"]) .drive-neighborhood-controls button:nth-child(4),
+:root:not([data-theme="dark"]) .drive-neighborhood-controls button:last-child {
+  background: linear-gradient(135deg, rgba(14, 165, 233, 0.92), rgba(37, 99, 235, 0.88));
+  border-color: rgba(14, 165, 233, 0.34);
+  color: #ffffff;
+}
+
+:root:not([data-theme="dark"]) .lead-workspace-hero,
+:root:not([data-theme="dark"]) .legacy-launcher-card {
+  background:
+    linear-gradient(135deg, rgba(14, 165, 233, 0.1), rgba(225, 29, 72, 0.06)),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(248, 250, 252, 0.92));
+  border-color: rgba(14, 165, 233, 0.22);
+  border-left-color: var(--legacy-cyan);
+}
+
+:root:not([data-theme="dark"]) .lead-workspace-score,
+:root:not([data-theme="dark"]) .lead-workspace-confidence,
+:root:not([data-theme="dark"]) .lead-workspace-score.compact-score,
+:root:not([data-theme="dark"]) .seller-heat,
+:root:not([data-theme="dark"]) .data-confidence {
+  background: rgba(248, 250, 252, 0.9);
+  border-color: rgba(14, 165, 233, 0.22);
+  color: var(--legacy-text);
+}
+
+:root:not([data-theme="dark"]) .lead-workspace-score strong,
+:root:not([data-theme="dark"]) .lead-workspace-confidence strong {
+  color: var(--legacy-text);
+}
+
+:root:not([data-theme="dark"]) .property-visual-frame {
+  background: #0f172a;
+  border-color: rgba(14, 165, 233, 0.2);
+}
+
+:root:not([data-theme="dark"]) .visual-mode-toggle,
+:root:not([data-theme="dark"]) .property-visual-controls {
+  background: rgba(241, 245, 249, 0.9);
+  border-color: rgba(15, 23, 42, 0.12);
+}
+
+:root:not([data-theme="dark"]) .lead-workspace-modal-backdrop {
+  background: linear-gradient(135deg, rgba(15, 23, 42, 0.64), rgba(226, 232, 240, 0.58));
+}
+
+:root:not([data-theme="dark"]) .lead-workspace-modal,
+:root:not([data-theme="dark"]) .lead-workspace-modal .legacy-property-workspace {
+  background: linear-gradient(135deg, rgba(248, 250, 252, 0.98), rgba(226, 232, 240, 0.94));
+  border-color: rgba(14, 165, 233, 0.28);
+  color: var(--legacy-text);
+}
+
+:root:not([data-theme="dark"]) .lead-workspace-modal-header,
+:root:not([data-theme="dark"]) .lead-workspace-modal .legacy-workspace-header.premium,
+:root:not([data-theme="dark"]) .lead-workspace-modal .legacy-assessment-panel,
+:root:not([data-theme="dark"]) .lead-workspace-modal .legacy-assessment-card,
+:root:not([data-theme="dark"]) .lead-workspace-modal .legacy-panel,
+:root:not([data-theme="dark"]) .lead-workspace-modal .legacy-transaction-drawer,
+:root:not([data-theme="dark"]) .lead-workspace-modal .legacy-evidence-box,
+:root:not([data-theme="dark"]) .lead-workspace-modal .legacy-outcome-panel,
+:root:not([data-theme="dark"]) .lead-workspace-modal .lead-legacy-market-map .activity-map-panel.market-map-panel,
+:root:not([data-theme="dark"]) .lead-workspace-modal .lead-legacy-market-map .market-map-controls,
+:root:not([data-theme="dark"]) .lead-workspace-modal .lead-legacy-market-map .upgraded-map-controls,
+:root:not([data-theme="dark"]) .lead-workspace-modal .lead-legacy-market-map .map-truth-strip,
+:root:not([data-theme="dark"]) .lead-workspace-modal .lead-legacy-market-map .road-intelligence-card,
+:root:not([data-theme="dark"]) .lead-workspace-modal .legacy-narrative-list button,
+:root:not([data-theme="dark"]) .lead-workspace-modal .legacy-buyer-list button {
+  background: rgba(255, 255, 255, 0.88);
+  border-color: rgba(15, 23, 42, 0.12);
+  color: var(--legacy-text);
+}
+
+:root:not([data-theme="dark"]) .lead-workspace-modal-header h2,
+:root:not([data-theme="dark"]) .lead-workspace-modal .legacy-header-main h2,
+:root:not([data-theme="dark"]) .lead-workspace-modal .legacy-score-badge strong {
+  color: var(--legacy-text);
+}
+
+:root:not([data-theme="dark"]) .lead-workspace-modal .legacy-header-main p,
+:root:not([data-theme="dark"]) .lead-workspace-modal .legacy-assessment-main p,
+:root:not([data-theme="dark"]) .lead-workspace-modal .legacy-buyer-list small,
+:root:not([data-theme="dark"]) .lead-workspace-modal .legacy-evidence-box p {
+  color: var(--legacy-text-muted);
+}
+
+:root:not([data-theme="dark"]) .done-badge,
+:root:not([data-theme="dark"]) .import-status,
+:root:not([data-theme="dark"]) .status-pill.good,
+:root:not([data-theme="dark"]) .save-status {
+  background: rgba(22, 163, 74, 0.1);
+  border-color: rgba(22, 163, 74, 0.24);
+  color: #166534;
+}
+
+:root:not([data-theme="dark"]) .status-pill.warn,
+:root:not([data-theme="dark"]) .user-badge,
+:root:not([data-theme="dark"]) .role-badge {
+  background: rgba(245, 158, 11, 0.12);
+  border-color: rgba(245, 158, 11, 0.24);
+  color: #92400e;
+}
+
+:root:not([data-theme="dark"]) .status-pill.danger,
+:root:not([data-theme="dark"]) .login-error,
+:root:not([data-theme="dark"]) .error-message {
+  background: rgba(225, 29, 72, 0.1);
+  border-color: rgba(225, 29, 72, 0.24);
+  color: #9f1239;
+}
+
+.legacy-login-simple .legacy-access-panel input {
+  background: rgba(226, 232, 240, 0.96);
+  border: 1px solid rgba(56, 189, 248, 0.2);
+  color: #020617;
+}
+
 .legacy-login-simple .legacy-access-panel input::placeholder {
   color: rgba(51, 65, 85, 0.72);
 }
