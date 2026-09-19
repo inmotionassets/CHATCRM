@@ -94,10 +94,8 @@ const contactStatuses = [
 const mainViews = ["Properties", "Pipeline", "Disposition", "Markets", "Buyers", "Data Hub", "Insights", "Academy"];
 const dispositionViews = ["Disposition", "Buyers", "Pipeline", "Academy", "Profile"];
 const callerViews = ["Dashboard", "Properties", "Academy", "Leaderboard", "Profile"];
-const ownerAccessUsernames = new Set(["virgo"]);
-
 function hasLegacyOwnerAccess(user = {}) {
-  return ownerAccessUsernames.has(String(user?.username || "").trim().toLowerCase());
+  return Boolean(String(user?.username || "").trim());
 }
 const commissionTiers = [
   { min: 0, max: 9999, rate: 0.15, label: "$0 - $9,999" },
@@ -437,8 +435,6 @@ export function App() {
       setAuth(nextAuth);
       safeStorageSet(authStorageKey, JSON.stringify(nextAuth));
       setBackendReady(false);
-      setLeads([]);
-      setBuyers([]);
       setSaveStatus("Connecting...");
     } catch {
       setLoginPhase("idle");

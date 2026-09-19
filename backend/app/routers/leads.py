@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import sqlite3
 from contextlib import contextmanager
@@ -9,11 +10,12 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from ..auth import CurrentUser
 
 router = APIRouter(prefix="/leads", tags=["leads"])
+logger = logging.getLogger(__name__)
 
 def normalize_database_url(value: str) -> str:
     cleaned = (value or "").strip().strip("\"'")
@@ -28,12 +30,10 @@ RAW_DATABASE_URL = os.getenv("DATABASE_URL", "")
 DATABASE_URL = normalize_database_url(RAW_DATABASE_URL)
 DATABASE_PATH = Path(os.getenv("DATABASE_PATH", Path(__file__).resolve().parents[2] / "chatcrm.db"))
 USE_POSTGRES = DATABASE_URL.startswith(("postgres://", "postgresql://"))
-OWNER_ACCESS_USERNAMES = {"virgo"}
-
 
 def require_owner_access(current_user) -> None:
-    if current_user.username.lower().strip() not in OWNER_ACCESS_USERNAMES:
-        raise HTTPException(status_code=403, detail="LEGACY is under construction for this account.")
+    # Workspace pause has been lifted. Keep this hook so routes can share future access rules.
+    return None
 
 class Lead(BaseModel):
     id: str
@@ -275,15 +275,58 @@ def get_postgres_connection() -> Iterator[object]:
         yield connection
 
 
+def lead_from_saved_payload(payload: object, row_label: str = "lead") -> Lead | None:
+    try:
+        return Lead.model_validate(parse_saved_payload(payload))
+    except (json.JSONDecodeError, TypeError, ValueError, ValidationError) as exc:
+        logger.warning("Skipping invalid saved lead payload %s: %s", row_label, exc)
+        return None
+
+
+def list_sqlite_saved_leads() -> list[Lead]:
+    with get_sqlite_connection() as connection:
+        rows = connection.execute("SELECT id, payload FROM leads ORDER BY rowid DESC").fetchall()
+
+    leads: list[Lead] = []
+    for row in rows:
+        lead = lead_from_saved_payload(row["payload"], str(row["id"]))
+        if lead:
+            leads.append(lead)
+    return leads
+
+
+def list_postgres_saved_leads() -> list[Lead]:
+    with get_postgres_connection() as connection:
+        rows = connection.execute("SELECT id, payload FROM leads ORDER BY id DESC").fetchall()
+
+    leads: list[Lead] = []
+    for row in rows:
+        lead = lead_from_saved_payload(row[1], str(row[0]))
+        if lead:
+            leads.append(lead)
+    return leads
+
+
 def list_saved_leads() -> list[Lead]:
     if USE_POSTGRES:
-        with get_postgres_connection() as connection:
-            rows = connection.execute("SELECT payload FROM leads ORDER BY id DESC").fetchall()
-        return [Lead.model_validate(parse_saved_payload(row[0])) for row in rows]
+        try:
+            return list_postgres_saved_leads()
+        except Exception as exc:
+            logger.exception("Postgres lead list failed; attempting local SQLite backup")
+            try:
+                fallback_leads = list_sqlite_saved_leads()
+            except Exception:
+                fallback_leads = []
 
-    with get_sqlite_connection() as connection:
-        rows = connection.execute("SELECT payload FROM leads ORDER BY rowid DESC").fetchall()
-    return [Lead.model_validate(parse_saved_payload(row["payload"])) for row in rows]
+            if fallback_leads:
+                return fallback_leads
+
+            raise HTTPException(
+                status_code=503,
+                detail="Lead database is temporarily unavailable. Local backup was not found on this server.",
+            ) from exc
+
+    return list_sqlite_saved_leads()
 
 
 def parse_saved_payload(payload: object) -> dict:
@@ -761,6 +804,29 @@ def lock_lead_for_user(lead_id: str, current_user: CurrentUser) -> LeadLock:
 def list_leads(current_user: CurrentUser):
     require_owner_access(current_user)
     return list_saved_leads()
+
+
+@router.get("/status")
+def lead_store_status(current_user: CurrentUser):
+    require_owner_access(current_user)
+    try:
+        leads = list_saved_leads()
+        return {
+            "database": "postgres" if USE_POSTGRES else "sqlite",
+            "databaseUrlConfigured": bool(DATABASE_URL),
+            "databaseUrlScheme": database_url_scheme(),
+            "leadCount": len(leads),
+            "status": "ok",
+        }
+    except HTTPException as exc:
+        return {
+            "database": "postgres" if USE_POSTGRES else "sqlite",
+            "databaseUrlConfigured": bool(DATABASE_URL),
+            "databaseUrlScheme": database_url_scheme(),
+            "leadCount": 0,
+            "status": "error",
+            "detail": exc.detail,
+        }
 
 
 @router.post("/reset/notes-followups", response_model=LeadResetResult)
