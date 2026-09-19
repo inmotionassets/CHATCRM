@@ -139,12 +139,15 @@ CALL_COUNT_ACTIVITY_TYPES = {"called", "call_started", "voicemail", "not_interes
 def get_sqlite_connection() -> sqlite3.Connection:
     connection = sqlite3.connect(DATABASE_PATH)
     connection.row_factory = sqlite3.Row
-    ensure_lead_tables(connection)
+    ensure_lead_tables(connection, use_postgres=False)
     return connection
 
 
-def ensure_lead_tables(connection) -> None:
-    if USE_POSTGRES:
+def ensure_lead_tables(connection, use_postgres: bool | None = None) -> None:
+    if use_postgres is None:
+        use_postgres = USE_POSTGRES
+
+    if use_postgres:
         connection.execute(
             """
             CREATE TABLE IF NOT EXISTS leads (
@@ -281,7 +284,7 @@ def get_postgres_connection() -> Iterator[object]:
     import psycopg
 
     with psycopg.connect(postgres_connection_url(), prepare_threshold=None) as connection:
-        ensure_lead_tables(connection)
+        ensure_lead_tables(connection, use_postgres=True)
         yield connection
 
 
