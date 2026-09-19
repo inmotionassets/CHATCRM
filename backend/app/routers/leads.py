@@ -28,7 +28,17 @@ def normalize_database_url(value: str) -> str:
 
 RAW_DATABASE_URL = os.getenv("DATABASE_URL", "")
 DATABASE_URL = normalize_database_url(RAW_DATABASE_URL)
-DATABASE_PATH = Path(os.getenv("DATABASE_PATH", Path(__file__).resolve().parents[2] / "chatcrm.db"))
+def default_sqlite_path() -> Path:
+    if os.getenv("DATABASE_PATH"):
+        return Path(os.getenv("DATABASE_PATH", ""))
+
+    if DATABASE_URL:
+        return Path(os.getenv("SQLITE_FALLBACK_PATH", "/tmp/chatcrm.db"))
+
+    return Path(__file__).resolve().parents[2] / "chatcrm.db"
+
+
+DATABASE_PATH = default_sqlite_path()
 USE_POSTGRES = DATABASE_URL.startswith(("postgres://", "postgresql://"))
 
 def require_owner_access(current_user) -> None:
@@ -844,6 +854,8 @@ def lead_store_status(current_user: CurrentUser):
             "database": "postgres" if USE_POSTGRES else "sqlite",
             "databaseUrlConfigured": bool(DATABASE_URL),
             "databaseUrlScheme": database_url_scheme(),
+            "sqliteFallbackPath": str(DATABASE_PATH),
+            "sqliteFallbackExists": DATABASE_PATH.exists(),
             "leadCount": len(leads),
             "status": "ok",
         }
@@ -852,6 +864,8 @@ def lead_store_status(current_user: CurrentUser):
             "database": "postgres" if USE_POSTGRES else "sqlite",
             "databaseUrlConfigured": bool(DATABASE_URL),
             "databaseUrlScheme": database_url_scheme(),
+            "sqliteFallbackPath": str(DATABASE_PATH),
+            "sqliteFallbackExists": DATABASE_PATH.exists(),
             "leadCount": 0,
             "status": "error",
             "detail": exc.detail,
