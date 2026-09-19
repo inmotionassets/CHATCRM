@@ -370,15 +370,23 @@ def user_display_name(current_user: CurrentUser) -> str:
     return (current_user.name or current_user.username).strip()
 
 
-def get_saved_lead(lead_id: str) -> Lead | None:
-    if USE_POSTGRES:
-        with get_postgres_connection() as connection:
-            row = connection.execute("SELECT payload FROM leads WHERE id = %s", (lead_id,)).fetchone()
-        return Lead.model_validate(parse_saved_payload(row[0])) if row else None
-
+def get_sqlite_saved_lead(lead_id: str) -> Lead | None:
     with get_sqlite_connection() as connection:
         row = connection.execute("SELECT payload FROM leads WHERE id = ?", (lead_id,)).fetchone()
-    return Lead.model_validate(parse_saved_payload(row["payload"])) if row else None
+    return lead_from_saved_payload(row["payload"], lead_id) if row else None
+
+
+def get_saved_lead(lead_id: str) -> Lead | None:
+    if USE_POSTGRES:
+        try:
+            with get_postgres_connection() as connection:
+                row = connection.execute("SELECT payload FROM leads WHERE id = %s", (lead_id,)).fetchone()
+            return lead_from_saved_payload(row[0], lead_id) if row else None
+        except Exception:
+            logger.exception("Postgres lead lookup failed; attempting local SQLite fallback")
+            return get_sqlite_saved_lead(lead_id)
+
+    return get_sqlite_saved_lead(lead_id)
 
 
 def update_lead_payload(lead_id: str, updates: dict[str, object]) -> Lead | None:
@@ -422,17 +430,7 @@ def lock_from_row(row) -> LeadLock:
     )
 
 
-def replace_saved_leads(leads: list[Lead]) -> None:
-    if USE_POSTGRES:
-        with get_postgres_connection() as connection:
-            connection.execute("DELETE FROM leads")
-            with connection.cursor() as cursor:
-                cursor.executemany(
-                    "INSERT INTO leads (id, payload) VALUES (%s, %s)",
-                    [(lead.id, lead.model_dump_json()) for lead in leads],
-                )
-        return
-
+def replace_sqlite_saved_leads(leads: list[Lead]) -> None:
     with get_sqlite_connection() as connection:
         connection.execute("DELETE FROM leads")
         connection.executemany(
@@ -441,19 +439,24 @@ def replace_saved_leads(leads: list[Lead]) -> None:
         )
 
 
-def save_lead(lead: Lead) -> None:
+def replace_saved_leads(leads: list[Lead]) -> None:
     if USE_POSTGRES:
-        with get_postgres_connection() as connection:
-            connection.execute(
-                """
-                INSERT INTO leads (id, payload)
-                VALUES (%s, %s)
-                ON CONFLICT (id) DO UPDATE SET payload = EXCLUDED.payload
-                """,
-                (lead.id, lead.model_dump_json()),
-            )
-        return
+        try:
+            with get_postgres_connection() as connection:
+                connection.execute("DELETE FROM leads")
+                with connection.cursor() as cursor:
+                    cursor.executemany(
+                        "INSERT INTO leads (id, payload) VALUES (%s, %s)",
+                        [(lead.id, lead.model_dump_json()) for lead in leads],
+                    )
+            return
+        except Exception:
+            logger.exception("Postgres lead replace failed; writing to local SQLite fallback")
 
+    replace_sqlite_saved_leads(leads)
+
+
+def save_sqlite_lead(lead: Lead) -> None:
     with get_sqlite_connection() as connection:
         connection.execute(
             "INSERT OR REPLACE INTO leads (id, payload) VALUES (?, ?)",
@@ -461,18 +464,44 @@ def save_lead(lead: Lead) -> None:
         )
 
 
-def remove_lead(lead_id: str) -> None:
+def save_lead(lead: Lead) -> None:
     if USE_POSTGRES:
-        with get_postgres_connection() as connection:
-            connection.execute("DELETE FROM lead_activities WHERE lead_id = %s", (lead_id,))
-            connection.execute("DELETE FROM lead_locks WHERE lead_id = %s", (lead_id,))
-            connection.execute("DELETE FROM leads WHERE id = %s", (lead_id,))
-        return
+        try:
+            with get_postgres_connection() as connection:
+                connection.execute(
+                    """
+                    INSERT INTO leads (id, payload)
+                    VALUES (%s, %s)
+                    ON CONFLICT (id) DO UPDATE SET payload = EXCLUDED.payload
+                    """,
+                    (lead.id, lead.model_dump_json()),
+                )
+            return
+        except Exception:
+            logger.exception("Postgres lead save failed; writing to local SQLite fallback")
 
+    save_sqlite_lead(lead)
+
+
+def remove_sqlite_lead(lead_id: str) -> None:
     with get_sqlite_connection() as connection:
         connection.execute("DELETE FROM lead_activities WHERE lead_id = ?", (lead_id,))
         connection.execute("DELETE FROM lead_locks WHERE lead_id = ?", (lead_id,))
         connection.execute("DELETE FROM leads WHERE id = ?", (lead_id,))
+
+
+def remove_lead(lead_id: str) -> None:
+    if USE_POSTGRES:
+        try:
+            with get_postgres_connection() as connection:
+                connection.execute("DELETE FROM lead_activities WHERE lead_id = %s", (lead_id,))
+                connection.execute("DELETE FROM lead_locks WHERE lead_id = %s", (lead_id,))
+                connection.execute("DELETE FROM leads WHERE id = %s", (lead_id,))
+            return
+        except Exception:
+            logger.exception("Postgres lead delete failed; deleting from local SQLite fallback")
+
+    remove_sqlite_lead(lead_id)
 
 
 def reset_notes_and_followups() -> LeadResetResult:
@@ -881,8 +910,7 @@ def sync_leads(leads: list[Lead], current_user: CurrentUser):
     if not leads:
         raise HTTPException(status_code=400, detail="Refusing to sync an empty lead list")
 
-    for lead in leads:
-        save_lead(lead)
+    replace_saved_leads(leads)
     return list_saved_leads()
 
 
