@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .routers import agreements, auth, buyers, contact_intelligence, counties, disposition, imports, leads, outcomes, parcels
+from .routers import agreements, auth, buyer_diagnostics, buyers, contact_intelligence, counties, disposition, imports, leads, outcomes, parcels
 
 app = FastAPI(title="LEGACY API")
 BUILD_ID = "lead-store-fallback-recovery-v1"
@@ -29,6 +29,7 @@ app.add_middleware(
 app.include_router(auth.router)
 app.include_router(leads.router)
 app.include_router(outcomes.router)
+app.include_router(buyer_diagnostics.router)
 app.include_router(buyers.router)
 app.include_router(contact_intelligence.router)
 app.include_router(counties.router)
