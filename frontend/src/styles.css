@@ -9582,3 +9582,419 @@ html:not([data-theme="dark"]),
 .legacy-login-simple .legacy-access-panel input::placeholder {
   color: rgba(51, 65, 85, 0.72);
 }
+
+/* LEGACY acquisition desk cleanup v1
+   Scope: presentation/workflow only. No data, scoring, or integration behavior changes. */
+.workspace {
+  gap: 14px;
+  padding: 14px 18px 18px;
+}
+
+.topbar {
+  align-items: center;
+  gap: 12px;
+  min-height: 64px;
+  padding: 10px 14px;
+}
+
+.topbar .search-box {
+  flex: 1 1 520px;
+  min-height: 46px;
+  max-width: 760px;
+  padding: 8px 12px;
+}
+
+.actions.compact-actions {
+  align-items: center;
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: nowrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.actions.compact-actions .primary-button,
+.actions.compact-actions .secondary-button,
+.toolbar-menu > summary {
+  min-height: 42px;
+  padding: 9px 13px;
+  white-space: nowrap;
+}
+
+.toolbar-menu {
+  position: relative;
+}
+
+.toolbar-menu > summary {
+  align-items: center;
+  background: var(--panel-soft);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--text);
+  cursor: pointer;
+  display: inline-flex;
+  font-weight: 900;
+  list-style: none;
+}
+
+.toolbar-menu > summary::-webkit-details-marker {
+  display: none;
+}
+
+.toolbar-menu > div {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 20px 48px rgba(2, 6, 23, 0.22);
+  display: grid;
+  gap: 7px;
+  min-width: 210px;
+  padding: 9px;
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  z-index: 60;
+}
+
+.toolbar-menu > div .secondary-button {
+  justify-content: flex-start;
+  width: 100%;
+}
+
+.lead-workspace-page {
+  gap: 12px;
+}
+
+.lead-workspace-hero.compact {
+  align-items: center;
+  gap: 12px;
+  grid-template-columns: auto minmax(320px, 1fr) auto auto auto;
+  padding: 13px 16px;
+}
+
+.lead-workspace-title h2 {
+  font-size: clamp(1.35rem, 2vw, 1.9rem);
+  margin: 0;
+}
+
+.lead-workspace-title p {
+  margin: 3px 0 0;
+}
+
+.lead-workspace-nav-inline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.lead-workspace-score,
+.lead-workspace-confidence,
+.lead-workspace-score.compact-score,
+.seller-heat,
+.data-confidence {
+  min-width: 108px;
+  padding: 10px 12px;
+}
+
+.property-command-bar.single-command-bar {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  padding: 9px;
+}
+
+.primary-phone-command {
+  align-items: center;
+  background: color-mix(in srgb, var(--accent-soft) 70%, transparent);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  color: var(--text);
+  display: inline-grid;
+  gap: 1px;
+  min-height: 42px;
+  min-width: 164px;
+  padding: 7px 12px;
+}
+
+.primary-phone-command b {
+  color: var(--muted-strong);
+  display: block;
+  font-size: 0.66rem;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.acquisition-desk-layout {
+  align-items: start;
+  display: grid;
+  gap: 14px;
+  grid-template-columns: minmax(500px, 0.95fr) minmax(420px, 1.05fr);
+}
+
+.acquisition-desk-layout .property-visual-panel {
+  position: sticky;
+  top: 86px;
+}
+
+.acquisition-desk-layout .property-visual-frame {
+  min-height: clamp(360px, 46vh, 560px);
+}
+
+.visual-future-hooks {
+  display: none;
+}
+
+.lead-workspace-main-panel {
+  padding: 0;
+}
+
+.lead-detail.lead-detail-workspace {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 0;
+}
+
+.lead-detail.lead-detail-workspace > .panel-header,
+.lead-detail.lead-detail-workspace > .detail-nav,
+.lead-detail.lead-detail-workspace > .detail-address {
+  display: none;
+}
+
+.lead-detail.lead-detail-workspace .recent-contact-warning {
+  order: 0;
+}
+
+.lead-detail.lead-detail-workspace .call-workspace {
+  align-items: stretch;
+  grid-template-columns: minmax(260px, 0.82fr) minmax(340px, 1.18fr);
+  order: 1;
+}
+
+.lead-detail.lead-detail-workspace .contact-call-column {
+  display: grid;
+  gap: 10px;
+}
+
+.lead-detail.lead-detail-workspace .phone-stack {
+  display: none;
+}
+
+.lead-detail.lead-detail-workspace .call-script-panel {
+  max-height: 430px;
+  overflow: auto;
+}
+
+.lead-detail.lead-detail-workspace .workspace-notes-field {
+  order: 2;
+}
+
+.lead-detail.lead-detail-workspace .workspace-followup-field {
+  order: 3;
+}
+
+.lead-detail.lead-detail-workspace .disposition-section {
+  order: 4;
+}
+
+.lead-detail.lead-detail-workspace .detail-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  order: 5;
+}
+
+.lead-detail.lead-detail-workspace .legacy-launcher-card {
+  order: 6;
+}
+
+.lead-detail.lead-detail-workspace > .detail-grid {
+  order: 7;
+}
+
+.lead-detail.lead-detail-workspace .workspace-tool-section {
+  order: 8;
+}
+
+.lead-detail.lead-detail-workspace .property-buyer-panel {
+  order: 9;
+}
+
+.lead-detail.lead-detail-workspace .activity-timeline {
+  order: 10;
+}
+
+.lead-detail.lead-detail-workspace .workspace-notes-field textarea {
+  min-height: 132px;
+}
+
+.lead-detail.lead-detail-workspace .workspace-followup-field,
+.lead-detail.lead-detail-workspace .workspace-notes-field,
+.lead-detail.lead-detail-workspace .disposition-section,
+.lead-detail.lead-detail-workspace .detail-actions,
+.lead-detail.lead-detail-workspace .call-workspace {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px;
+}
+
+.lead-detail.lead-detail-workspace .disposition-grid {
+  gap: 8px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.lead-detail.lead-detail-workspace .disposition-button {
+  min-height: 42px;
+  padding: 9px 10px;
+}
+
+.legacy-launcher-card.compact-intel-strip {
+  align-items: center;
+  grid-template-columns: minmax(260px, 1fr) minmax(260px, 0.9fr);
+  padding: 12px;
+}
+
+.legacy-launcher-read h3 {
+  font-size: 1.05rem;
+  margin: 0 0 4px;
+}
+
+.legacy-launcher-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  grid-column: 1 / -1;
+}
+
+.legacy-launcher-actions a,
+.legacy-launcher-actions button {
+  min-height: 36px;
+  padding: 8px 11px;
+  text-decoration: none;
+}
+
+.contact-intel-panel {
+  gap: 9px;
+}
+
+.contact-intel-header {
+  align-items: center;
+}
+
+.contact-best-card {
+  padding: 10px;
+}
+
+.contact-intel-badges,
+.contact-intel-actions {
+  gap: 6px;
+}
+
+.contact-extra-list,
+.contact-source-list {
+  margin-top: 0;
+}
+
+.lead-workspace-assessment-card {
+  align-items: center;
+  grid-template-columns: minmax(340px, 1fr) minmax(360px, 1fr) auto;
+  padding: 13px 15px;
+}
+
+.lead-workspace-assessment-card h3 {
+  font-size: 1.18rem;
+  margin: 0 0 4px;
+}
+
+.lead-workspace-assessment-metrics.trust-metrics {
+  gap: 7px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.lead-workspace-assessment-metrics.trust-metrics span {
+  padding: 8px;
+}
+
+.property-buyer-row {
+  align-items: start;
+  gap: 12px;
+  padding: 12px;
+}
+
+.property-buyer-main h3 {
+  margin-bottom: 4px;
+}
+
+.reason-list {
+  gap: 6px;
+}
+
+.property-buyer-actions {
+  align-content: start;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+:root:not([data-theme="dark"]) .lead-meta,
+:root:not([data-theme="dark"]) .detail-item,
+:root:not([data-theme="dark"]) .lead-workspace-assessment-metrics span,
+:root:not([data-theme="dark"]) .support-facts span,
+:root:not([data-theme="dark"]) .lead-summary-grid span {
+  background: rgba(255, 255, 255, 0.88);
+  border-color: rgba(15, 23, 42, 0.1);
+  color: #0f172a;
+}
+
+:root:not([data-theme="dark"]) .lead-meta b,
+:root:not([data-theme="dark"]) .detail-item span,
+:root:not([data-theme="dark"]) .lead-workspace-assessment-metrics b,
+:root:not([data-theme="dark"]) .support-facts b,
+:root:not([data-theme="dark"]) .lead-summary-grid b {
+  color: #0369a1;
+}
+
+@media (max-width: 1320px) {
+  .topbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .actions.compact-actions {
+    justify-content: flex-start;
+  }
+
+  .lead-workspace-hero.compact,
+  .lead-workspace-assessment-card,
+  .acquisition-desk-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .acquisition-desk-layout .property-visual-panel {
+    position: static;
+  }
+}
+
+@media (max-width: 760px) {
+  .workspace {
+    padding: 10px;
+  }
+
+  .actions.compact-actions,
+  .property-command-bar.single-command-bar,
+  .legacy-launcher-actions {
+    flex-wrap: wrap;
+  }
+
+  .lead-detail.lead-detail-workspace .call-workspace,
+  .lead-workspace-assessment-metrics.trust-metrics,
+  .lead-detail.lead-detail-workspace .disposition-grid {
+    grid-template-columns: 1fr;
+  }
+}

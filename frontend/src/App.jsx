@@ -1105,52 +1105,70 @@ export function App() {
             />
           </div>
 
-          <div className="actions">
+          <div className="actions compact-actions">
             <span className={`save-status ${saveStatus === "Synced" ? "saved" : ""}`}>{saveStatus}</span>
             <span className="user-badge">{auth.user?.role}</span>
             {isAdmin ? (
-            <>
-            <input
-              accept="application/pdf,text/csv,.pdf,.csv"
-              className="file-input"
-              multiple
-              onChange={uploadFiles}
-              ref={fileInputRef}
-              type="file"
-            />
-            <button
-              className="secondary-button"
-              onClick={() => fileInputRef.current?.click()}
-              title="Upload PDF or CSV"
-            >
-              <Upload size={18} />
-              Upload Files
-            </button>
-            <button className="primary-button" onClick={openCreateForm}>
-              <Plus size={18} />
-              Add Property
-            </button>
-            <button className="secondary-button" onClick={() => exportLeadsCsv(leads)}>
-              Export CSV
-            </button>
-            <button className="secondary-button" onClick={openReviewQueue}>
-              Review Queue
-            </button>
-            <button className="secondary-button" onClick={resetNotesAndFollowUps}>
-              Reset Notes
-            </button>
-            </>
-            ) : null}
-            <button
-              aria-label={theme === "dark" ? "Switch to Light Mode" : "Switch to Dark Mode"}
-              className="secondary-button toolbar-theme-button"
-              onClick={() => setTheme((current) => (current === "dark" ? "light" : "dark"))}
-            >
-              {theme === "dark" ? "Light Mode" : "Dark Mode"}
-            </button>
-            <button className="secondary-button" onClick={logout}>
-              Logout
-            </button>
+              <>
+                <button className="primary-button" onClick={openCreateForm}>
+                  <Plus size={18} />
+                  Add Property
+                </button>
+                <button className="secondary-button" onClick={openReviewQueue}>
+                  Review Queue
+                </button>
+                <details className="toolbar-menu">
+                  <summary>More</summary>
+                  <div>
+                    <input
+                      accept="application/pdf,text/csv,.pdf,.csv"
+                      className="file-input"
+                      multiple
+                      onChange={uploadFiles}
+                      ref={fileInputRef}
+                      type="file"
+                    />
+                    <button
+                      className="secondary-button"
+                      onClick={() => fileInputRef.current?.click()}
+                      title="Upload PDF or CSV"
+                    >
+                      <Upload size={18} />
+                      Upload Files
+                    </button>
+                    <button className="secondary-button" onClick={() => exportLeadsCsv(leads)}>
+                      Export CSV
+                    </button>
+                    <button className="secondary-button" onClick={resetNotesAndFollowUps}>
+                      Reset Notes
+                    </button>
+                    <button
+                      aria-label={theme === "dark" ? "Switch to Light Mode" : "Switch to Dark Mode"}
+                      className="secondary-button toolbar-theme-button"
+                      onClick={() => setTheme((current) => (current === "dark" ? "light" : "dark"))}
+                    >
+                      {theme === "dark" ? "Light Mode" : "Dark Mode"}
+                    </button>
+                    <button className="secondary-button" onClick={logout}>
+                      Logout
+                    </button>
+                  </div>
+                </details>
+              </>
+            ) : (
+              <>
+                <button
+                  aria-label={theme === "dark" ? "Switch to Light Mode" : "Switch to Dark Mode"}
+                  className="secondary-button toolbar-theme-button"
+                  onClick={() => setTheme((current) => (current === "dark" ? "light" : "dark"))}
+                >
+                  {theme === "dark" ? "Light Mode" : "Dark Mode"}
+                </button>
+                <button className="secondary-button" onClick={logout}>
+                  Logout
+                </button>
+              </>
+            )}
           </div>
         </header>
 
@@ -3228,9 +3246,13 @@ function LeadWorkspacePage({
       <header className="lead-workspace-hero compact">
         <button className="ghost-button" onClick={onBack} type="button">Back to Pipeline</button>
         <div className="lead-workspace-title">
-          <p className="eyebrow">LEGACY Workspace</p>
+          <p className="eyebrow">Acquisition Desk</p>
           <h2>{lead.address || "Missing Address"}</h2>
           <p>{ownerName} / {lead.county || "County needed"} / {status.label}</p>
+          <div className="lead-workspace-nav-inline">
+            <button className="secondary-button" onClick={onPrevious} type="button">Previous</button>
+            <button className="secondary-button" onClick={onNext} type="button">Next</button>
+          </div>
         </div>
         <div className="lead-workspace-score compact-score">
           <span>Property</span>
@@ -3250,6 +3272,10 @@ function LeadWorkspacePage({
       </header>
 
       <nav className="property-command-bar single-command-bar" aria-label="Property command bar">
+        <span className="primary-phone-command">
+          <b>Best Contact</b>
+          {primaryPhone ? formatPhone(primaryPhone) : "Missing"}
+        </span>
         <a className={`primary-command ${!phoneHref ? "disabled" : ""}`} href={phoneHref || undefined}>Call</a>
         <a className={!textHref ? "disabled" : ""} href={textHref || undefined}>Text</a>
         <a className={!emailHref ? "disabled" : ""} href={emailHref || undefined}>Email</a>
@@ -3271,30 +3297,28 @@ function LeadWorkspacePage({
 
       <LeadWorkspaceAssessmentCard lead={lead} ownerName={ownerName} primaryPhone={primaryPhone} />
 
-      <div className="lead-workspace-visual-grid">
+      <div className="acquisition-desk-layout">
+        <main className="lead-workspace-main-panel">
+          <LeadDetail
+            authToken={authToken}
+            currentUser={currentUser}
+            lead={lead}
+            onClose={onBack}
+            onEdit={onEdit}
+            onMarkReviewed={onMarkReviewed}
+            onMarkReviewedAndNext={onMarkReviewedAndNext}
+            onNext={onNext}
+            onPrevious={onPrevious}
+            onStartAgreement={onStartAgreement}
+            onStatusChange={onStatusChange}
+            onUpdate={onUpdate}
+            workspaceMode
+          />
+        </main>
         <PropertyVisualPanel address={lead.address} lead={lead} mode={visualMode} onModeChange={setVisualMode} />
-        <LeadWorkspaceSupportPanel lead={lead} ownerName={ownerName} primaryPhone={primaryPhone} />
       </div>
 
       <LeadWorkspaceLeadSummary lead={lead} ownerName={ownerName} phones={phones} />
-
-      <main className="lead-workspace-main-panel">
-        <LeadDetail
-          authToken={authToken}
-          currentUser={currentUser}
-          lead={lead}
-          onClose={onBack}
-          onEdit={onEdit}
-          onMarkReviewed={onMarkReviewed}
-          onMarkReviewedAndNext={onMarkReviewedAndNext}
-          onNext={onNext}
-          onPrevious={onPrevious}
-          onStartAgreement={onStartAgreement}
-          onStatusChange={onStatusChange}
-          onUpdate={onUpdate}
-          workspaceMode
-        />
-      </main>
     </section>
   );
 }
@@ -3327,10 +3351,10 @@ function LeadWorkspaceAssessmentCard({ lead, ownerName, primaryPhone }) {
         <p>{nextBestAction}</p>
       </div>
       <div className="lead-workspace-assessment-metrics trust-metrics">
-        <span><b>Property Opportunity</b>{opportunity.label} / {opportunity.score}</span>
-        <span><b>Seller Heat</b>{sellerHeat.label} / {sellerHeat.score}</span>
-        <span><b>Data Confidence</b>{dataConfidence.score}% / {dataConfidence.label}</span>
-        <span><b>Pricing Check</b>{pricing.label}</span>
+        <span><b>Property</b>{opportunity.label} / {opportunity.score}</span>
+        <span><b>Seller</b>{sellerHeat.label} / {sellerHeat.score}</span>
+        <span><b>Data</b>{dataConfidence.score}% / {dataConfidence.label}</span>
+        <span><b>Pricing</b>{pricing.label}</span>
       </div>
       <details className="lead-workspace-why-property">
         <summary>Why This Property?</summary>
@@ -3367,7 +3391,7 @@ function LeadWorkspaceSupportPanel({ lead, ownerName, primaryPhone }) {
 function LeadWorkspaceLeadSummary({ lead, ownerName, phones }) {
   const status = getLeadContactStatus(lead);
   return (
-    <details className="lead-workspace-summary">
+    <details className="lead-workspace-summary" id="property-details">
       <summary>
         <span>Property Details</span>
         <strong>{ownerName}</strong>
@@ -4352,7 +4376,7 @@ function ContactIntelligencePanel({ canEnrichContacts = false, isRefreshing, mes
   }
 
   return (
-    <section className="contact-intel-panel" aria-label="Contact Intelligence">
+    <section className="contact-intel-panel" id="contact-intelligence" aria-label="Contact Intelligence">
       <div className="contact-intel-header">
         <div>
           <p className="eyebrow">Contact Intelligence</p>
@@ -4435,21 +4459,29 @@ function LegacyWorkspaceLauncher({ lead, message, onOpen, snapshot }) {
   const buyers = intelligence.mostProbableBuyers || [];
   const assessment = intelligence.assessment || snapshot?.assessment || {};
   const confidence = intelligence.workspaceHeader?.confidence || assessment?.confidence?.score || lead.score || 0;
-  const summary = assessment.summary || intelligence.summary || message || "Open the live map, buyer evidence, and deal signals when you need to decide what to do next.";
+  const summary = assessment.summary || intelligence.summary || message || "Market read is ready when you need the deeper buyer and evidence layer.";
+  const buyerCount = buyers.length;
+  const topBuyer = buyers[0]?.buyerName || buyers[0]?.name || "Open to review";
+  const recommendedAction = assessment.recommendedAction || assessment.action || "Market read ready";
 
   return (
-    <section className="legacy-launcher-card" aria-label="LEGACY workspace launcher">
-      <div>
-        <p className="eyebrow">LEGACY Workspace</p>
-        <h3>Open the market view.</h3>
+    <section className="legacy-launcher-card compact-intel-strip" aria-label="LEGACY workspace launcher">
+      <div className="legacy-launcher-read">
+        <p className="eyebrow">Secondary Intelligence</p>
+        <h3>{recommendedAction}</h3>
         <p>{summary}</p>
       </div>
       <div className="legacy-launcher-meta">
+        <span><b>Top Buyer</b>{topBuyer}</span>
         <span><b>Confidence</b>{confidence ? `${confidence}%` : "Building"}</span>
-        <span><b>Buyer Matches</b>{buyers.length || "Open to review"}</span>
-        <span><b>County</b>{lead.county || "Missing"}</span>
+        <span><b>Buyer Matches</b>{buyerCount || "Open to review"}</span>
       </div>
-      <button className="primary-button" onClick={onOpen} type="button">Open LEGACY Workspace</button>
+      <div className="legacy-launcher-actions">
+        <button className="primary-button" onClick={onOpen} type="button">Market Intelligence</button>
+        <button className="secondary-button" onClick={onOpen} type="button">Buyer Matches{buyerCount ? ` (${buyerCount})` : ""}</button>
+        <a className="secondary-button" href="#contact-intelligence">Contact Intelligence</a>
+        <a className="secondary-button" href="#property-details">Property Details</a>
+      </div>
     </section>
   );
 }
