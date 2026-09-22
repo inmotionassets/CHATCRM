@@ -85,12 +85,24 @@ const starterLeads = [
 const stages = ["New Lead", "Contacted", "Follow Up", "Offer", "Closed"];
 const contactStatuses = [
   { value: "needs-review", label: "Needs Review", color: "orange" },
-  { value: "confirmed", label: "Confirmed Owner", color: "green" },
+  { value: "confirmed-owner", label: "Confirmed Owner", color: "green" },
   { value: "not-interested", label: "Not Interested", color: "red" },
-  { value: "no-answer", label: "Did Not Answer", color: "gray" },
+  { value: "did-not-answer", label: "Did Not Answer", color: "gray" },
   { value: "left-voicemail", label: "Left Voicemail", color: "blue" },
-  { value: "follow-up", label: "Follow Up", color: "yellow" }
+  { value: "follow-up", label: "Follow Up", color: "yellow" },
+  { value: "contact-review", label: "Contact Review", color: "yellow" }
 ];
+const contactStatusAliases = {
+  confirmed: "confirmed-owner",
+  "confirmed-owner": "confirmed-owner",
+  "no-answer": "did-not-answer",
+  "did-not-answer": "did-not-answer",
+  "needs-review": "needs-review",
+  "not-interested": "not-interested",
+  "left-voicemail": "left-voicemail",
+  "follow-up": "follow-up",
+  "contact-review": "contact-review"
+};
 const mainViews = ["Properties", "Pipeline", "Disposition", "Markets", "Buyers", "Data Hub", "Insights", "Academy"];
 const dispositionViews = ["Disposition", "Buyers", "Pipeline", "Academy", "Profile"];
 const callerViews = ["Dashboard", "Properties", "Academy", "Leaderboard", "Profile"];
@@ -662,6 +674,8 @@ export function App() {
   const sortedLeads = sortLeads(filteredLeads, sortMode);
 
   const strongProperties = leads.filter((lead) => getPropertyOpportunity(lead).score >= 80).length;
+  const callReadyLeads = leads.filter(isCallReadyLead).length;
+  const contactReviewLeads = leads.filter(isContactReviewLead).length;
   const hotLeads = leads.filter(isSellerHotLead).length;
   const followUps = leads.filter((lead) => lead.stage === "Follow Up").length;
   const selectedLead = leads.find((lead) => lead.id === selectedLeadId);
@@ -740,19 +754,20 @@ export function App() {
   }
 
   function markReviewed(id) {
-    updateLead(id, { needsReview: false, contactStatus: "confirmed" });
+    updateLead(id, { needsReview: false, contactStatus: "confirmed-owner" });
   }
 
   async function updateContactStatus(id, status) {
-    const statusLabel = getContactStatus(status).label;
+    const normalizedStatus = normalizeContactStatus(status);
+    const statusLabel = getContactStatus(normalizedStatus).label;
     const lead = leads.find((item) => item.id === id);
     const noteLine = `[${new Date().toLocaleString()}] ${statusLabel}`;
     const nextNotes = lead?.notes ? `${lead.notes}\n${noteLine}` : noteLine;
-    const stage = status === "follow-up" || status === "left-voicemail" || status === "no-answer" ? "Follow Up" : lead?.stage;
+    const stage = ["follow-up", "left-voicemail", "did-not-answer"].includes(normalizedStatus) ? "Follow Up" : lead?.stage;
 
     updateLead(id, {
-      contactStatus: status,
-      needsReview: status === "needs-review",
+      contactStatus: normalizedStatus,
+      needsReview: normalizedStatus === "needs-review" || normalizedStatus === "contact-review",
       notes: nextNotes,
       stage
     });
@@ -763,10 +778,10 @@ export function App() {
       const activity = await recordLeadActivity(
         id,
         {
-          actionType: getActivityTypeForStatus(status),
+          actionType: getActivityTypeForStatus(normalizedStatus),
           callOutcome: statusLabel,
           notes: statusLabel,
-          followUpDate: status === "follow-up" ? lead?.followUpDate || "" : ""
+          followUpDate: normalizedStatus === "follow-up" ? lead?.followUpDate || "" : ""
         },
         authToken
       );
@@ -834,15 +849,16 @@ export function App() {
 
   function applyBulkStatus(status) {
     if (selectedLeadIds.length === 0 || !status) return;
-    const statusLabel = getContactStatus(status).label;
+    const normalizedStatus = normalizeContactStatus(status);
+    const statusLabel = getContactStatus(normalizedStatus).label;
     const noteLine = `[${new Date().toLocaleString()}] Bulk update: ${statusLabel}`;
 
     setLeads((current) =>
       current.map((lead) => {
         if (!selectedLeadIds.includes(lead.id)) return lead;
         const nextNotes = lead.notes ? `${lead.notes}\n${noteLine}` : noteLine;
-        const stage = status === "follow-up" || status === "left-voicemail" || status === "no-answer" ? "Follow Up" : lead.stage;
-        return { ...lead, contactStatus: status, needsReview: status === "needs-review", notes: nextNotes, stage };
+        const stage = ["follow-up", "left-voicemail", "did-not-answer"].includes(normalizedStatus) ? "Follow Up" : lead.stage;
+        return { ...lead, contactStatus: normalizedStatus, needsReview: normalizedStatus === "needs-review" || normalizedStatus === "contact-review", notes: nextNotes, stage };
       })
     );
 
@@ -851,7 +867,7 @@ export function App() {
         recordLeadActivity(
           leadId,
           {
-            actionType: getActivityTypeForStatus(status),
+            actionType: getActivityTypeForStatus(normalizedStatus),
             callOutcome: statusLabel,
             notes: `Bulk update: ${statusLabel}`
           },
@@ -958,9 +974,9 @@ export function App() {
     const uniqueLeads = [];
 
     for (const lead of leads) {
-      const key = `${normalizeText(lead.address)}|${getLeadPhones(lead).map(normalizePhone).join("|")}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
+      const key = getLeadDuplicateKey(lead);
+      if (key && seen.has(key)) continue;
+      if (key) seen.add(key);
       uniqueLeads.push(lead);
     }
 
@@ -1181,17 +1197,17 @@ export function App() {
                 <p>Start with the properties and follow-ups that can move the business today.</p>
               </div>
               <div className="briefing-metrics">
-                <span><b>{strongProperties}</b> Strong Properties</span>
+                <span><b>{callReadyLeads}</b> Call Ready</span>
+                <span><b>{contactReviewLeads}</b> Contact Review</span>
                 <span><b>{followUps}</b> Follow-Ups</span>
-                <span><b>{hotLeads}</b> Hot Sellers</span>
               </div>
             </section>
 
             <section className="stats-grid" aria-label="Property stats">
               <Stat label="Total Properties" value={leads.length} />
-              <Stat label="Needs Follow-Up" value={followUps} />
-              <Stat label="Strong Properties" value={strongProperties} />
-        <Stat label="Hot Sellers" value={hotLeads} />
+              <Stat label="Call Ready" value={callReadyLeads} />
+              <Stat label="Contact Review" value={contactReviewLeads} />
+              <Stat label="Follow-Ups" value={followUps} />
               {isAdmin ? (
               <>
               <Stat label="Buyers" value={buyers.length} />
@@ -1244,7 +1260,7 @@ export function App() {
                   value={sortMode}
                 >
                   <option value="zip">ZIP Code</option>
-                  <option value="score">Score</option>
+                  <option value="score">Legacy Score</option>
                   <option value="address">Address</option>
                 </select>
                 <button className="ghost-button" onClick={clearFilters}>Clear</button>
@@ -1297,13 +1313,13 @@ export function App() {
                         </small>
                       ) : null}
                     </button>
-                    <div className="lead-meta-grid">
-                      <span className="lead-meta"><b>Stage</b>{lead.stage}</span>
-                      <span className="lead-meta"><b>Property</b>{getPropertyOpportunity(lead).label} {getPropertyOpportunity(lead).score}</span>
-                      <span className="lead-meta"><b>Assigned To</b>{lead.owner || "Unassigned"}</span>
-                      <span className="lead-meta"><b>Source</b>{cleanSourceName(lead.source)}</span>
-                      <span className="lead-meta"><b>Seller</b>{getSellerHeat(lead).label}</span>
+                    <div className="lead-meta-grid call-queue-grid">
+                      <span className="lead-meta"><b>Seller</b>{getDisplayOwnerName(lead) || "Owner needed"}</span>
+                      <span className="lead-meta"><b>Property</b>{lead.parcelNumber || getLeadZip(lead) || "Address saved"}</span>
+                      <span className="lead-meta"><b>Best Contact</b>{getBestContactLabel(lead)}</span>
+                      <span className="lead-meta"><b>Status</b>{getLeadQueueStatus(lead).label}</span>
                       <span className="lead-meta"><b>Last Contact</b>{lead.lastContactedAt ? `${lead.lastContactedBy || "Unknown"} / ${formatActivityTime(lead.lastContactedAt)}` : "None"}</span>
+                      <span className="lead-meta"><b>Next Action</b>{getLeadNextAction(lead)}</span>
                     </div>
                     <div className="row-actions">
                       <button onClick={() => openLeadWorkspace(lead.id)}>View</button>
@@ -1810,7 +1826,7 @@ function LeaderboardView({ leads, currentUser }) {
 
 function CallerProfileView({ currentUser, leads }) {
   const myName = safeText(currentUser?.name || currentUser?.username);
-  const myLeads = leads.filter((lead) => safeText(lead.lastContactedBy) === myName || safeText(lead.owner) === myName);
+  const myLeads = leads.filter((lead) => safeText(lead.lastContactedBy) === myName || getAssignedOwnerName(lead) === myName);
   const hotLeads = myLeads.filter(isSellerHotLead).length;
 
   return (
@@ -3110,7 +3126,7 @@ function LeadForm({ formLead, isEditing, onCancel, onChange, onSubmit }) {
       <div className="form-grid">
         <label>
           Assigned To
-          <input value={formLead.owner} onChange={(event) => updateField("owner", event.target.value)} />
+          <input value={isPlaceholderOwnerValue(formLead.owner) ? "" : formLead.owner} onChange={(event) => updateField("owner", event.target.value)} />
         </label>
 
         <label>
@@ -3402,7 +3418,7 @@ function LeadWorkspaceLeadSummary({ lead, ownerName, phones }) {
         <span><b>Email</b>{lead.email || "No email saved"}</span>
         <span><b>APN</b>{lead.parcelNumber || "Missing"}</span>
         <span><b>Last Contact</b>{lead.lastContactedAt ? formatActivityTime(lead.lastContactedAt) : "None"}</span>
-        <span><b>Assigned To</b>{lead.owner || "Unassigned"}</span>
+        <span><b>Assigned To</b>{getAssignedOwnerName(lead)}</span>
         <span><b>Source</b>{cleanSourceName(lead.source)}</span>
       </div>
     </details>
@@ -4025,7 +4041,7 @@ function LeadDetail({
         <DetailItem label="Email" value={lead.email || "Missing"} />
         <DetailItem label="Stage" value={lead.stage} />
         <DetailItem label="Score" value={lead.score} />
-        <DetailItem label="Owner" value={lead.owner || "Unassigned"} />
+        <DetailItem label="Seller" value={ownerLabel || "Owner name needed"} />
         <DetailItem label="Source" value={cleanSourceName(lead.source)} />
       </div>
 
@@ -6444,12 +6460,99 @@ function getLeadZip(lead = {}) {
 }
 
 function getDisplayOwnerName(lead = {}) {
-  const name = safeText(lead.name).trim();
-  if (!name || name === "Unknown Owner") return "";
+  const candidates = [lead.name, lead.owner, lead.ownerName];
 
-  if (isLikelyParsedAddressName(name, lead.address)) return "";
+  for (const candidate of candidates) {
+    const name = safeText(candidate).trim();
+    if (!name || isPlaceholderOwnerValue(name)) continue;
+    if (isLikelyParsedAddressName(name, lead.address)) continue;
+    return name;
+  }
 
-  return name;
+  return "";
+}
+
+function isPlaceholderOwnerValue(value = "") {
+  const normalized = normalizeText(value);
+  return new Set([
+    "unknownowner",
+    "ownerneeded",
+    "ownernameneeded",
+    "ownername",
+    "importreview",
+    "reviewowner",
+    "taxlist",
+    "manualentry",
+    "newlead",
+    "needsreview",
+    "missing",
+    "unassigned"
+  ]).has(normalized);
+}
+
+function getAssignedOwnerName(lead = {}) {
+  const assigned = safeText(lead.owner).trim();
+  return assigned && !isPlaceholderOwnerValue(assigned) ? assigned : "Unassigned";
+}
+
+function normalizeContactStatus(value = "") {
+  const normalized = safeText(value).trim().toLowerCase();
+  return contactStatusAliases[normalized] || normalized || "needs-review";
+}
+
+function normalizeFullAddress(value = "") {
+  return safeText(value)
+    .toLowerCase()
+    .replace(/\b(texas|tx)\b/g, "")
+    .replace(/\b\d{5}(?:-\d{4})?\b/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function getLeadDuplicateKey(lead = {}) {
+  const apn = normalizeText(lead.parcelNumber);
+  if (apn) return "apn:" + apn;
+
+  const address = normalizeFullAddress(lead.address);
+  return address ? "address:" + address : "";
+}
+
+function getBestContactLabel(lead = {}) {
+  const phone = getLeadPhones(lead)[0];
+  return phone ? formatPhone(phone) : "Missing Phone";
+}
+
+function hasCallableLeadPhone(lead = {}) {
+  if (getLeadPhones(lead).length === 0) return false;
+  return !["wrong-number", "disconnected", "dnc", "do-not-call"].includes(normalizeContactStatus(lead.contactStatus));
+}
+
+function isCallReadyLead(lead = {}) {
+  return Boolean(safeText(lead.address) && getDisplayOwnerName(lead) && hasCallableLeadPhone(lead));
+}
+
+function isContactReviewLead(lead = {}) {
+  return Boolean(safeText(lead.address) && getDisplayOwnerName(lead) && !hasCallableLeadPhone(lead));
+}
+
+function getLeadQueueStatus(lead = {}) {
+  if (getLeadPhones(lead).length === 0) return { label: "Contact Review", value: "contact-review" };
+
+  const status = getLeadContactStatus(lead);
+  if (status.value === "needs-review") return { label: "Uncontacted", value: "needs-review" };
+  return status;
+}
+
+function getLeadNextAction(lead = {}) {
+  const status = getLeadContactStatus(lead).value;
+  if (getLeadPhones(lead).length === 0) return "Research Contact";
+  if (status === "not-interested") return "Do Not Chase";
+  if (status === "follow-up" || lead.followUpDate) return "Work Follow-Up";
+  if (status === "left-voicemail") return "Call Again";
+  if (status === "did-not-answer") return "Retry Call";
+  if (status === "confirmed-owner") return "Confirm Motivation";
+  return "Call";
 }
 
 function isLikelyParsedAddressName(name, address = "") {
@@ -6489,21 +6592,23 @@ function isLikelyParsedAddressName(name, address = "") {
   return blockedNames.has(normalizedName) || (!ownerSignals.test(name) && (streetWords.test(name) || addressOverlap));
 }
 
-function getLeadContactStatus(lead) {
-  return getContactStatus(lead.contactStatus || (lead.needsReview ? "needs-review" : "confirmed"));
+function getLeadContactStatus(lead = {}) {
+  if (getLeadPhones(lead).length === 0) return getContactStatus("contact-review");
+  return getContactStatus(lead.contactStatus || (lead.needsReview ? "needs-review" : "confirmed-owner"));
 }
 
 function getContactStatus(value) {
-  return contactStatuses.find((status) => status.value === value) || contactStatuses[0];
+  const normalized = normalizeContactStatus(value);
+  return contactStatuses.find((status) => status.value === normalized) || contactStatuses[0];
 }
 
 function getPropertyOpportunity(lead = {}) {
   const score = clampNumber(Number(lead.score) || 0, 0, 100);
   if (score >= 85) {
-    return { score, label: "Excellent", level: "excellent", reason: "Strong property-side opportunity. Confirm seller motivation before calling it hot." };
+    return { score, label: "Imported Score", level: "excellent", reason: "Saved/imported property score is preserved for compatibility. Confirm seller heat before prioritizing." };
   }
   if (score >= 70) {
-    return { score, label: "Strong", level: "strong", reason: "Good property-side opportunity. Needs seller and pricing confirmation." };
+    return { score, label: "Review Score", level: "strong", reason: "Saved score suggests a useful property record. Needs seller, price, and market confirmation." };
   }
   if (score >= 50) {
     return { score, label: "Developing", level: "developing", reason: "Some opportunity signals are present, but evidence is still building." };
@@ -6528,7 +6633,7 @@ function getSellerHeat(lead = {}) {
   if (/\b(hot|wants offer|offer requested|motivated|ready to sell)\b/i.test(notes)) {
     return { score: 78, label: "Seller Interest", level: "warm", reason: "Notes mention offer interest or motivation." };
   }
-  if (status === "confirmed") {
+  if (status === "confirmed-owner") {
     return { score: 60, label: "Contact Made", level: "warm", reason: "Owner/contact was confirmed, but motivation still needs proof." };
   }
   if (status === "follow-up" || lead.followUpDate) {
@@ -6537,7 +6642,7 @@ function getSellerHeat(lead = {}) {
   if (status === "left-voicemail") {
     return { score: 25, label: "Voicemail", level: "low", reason: "A voicemail was left. No seller intent confirmed yet." };
   }
-  if (status === "no-answer") {
+  if (status === "did-not-answer") {
     return { score: 15, label: "No Answer", level: "low", reason: "No contact has been made yet." };
   }
   return { score: 10, label: "Uncontacted", level: "uncontacted", reason: "Seller heat has not been established by a conversation." };
@@ -6605,11 +6710,12 @@ function getActivityActionLabel(actionType = "") {
 }
 
 function getActivityTypeForStatus(status = "") {
-  if (status === "left-voicemail") return "voicemail";
-  if (status === "not-interested") return "not_interested";
-  if (status === "follow-up") return "follow_up_set";
-  if (status === "confirmed") return "called";
-  if (status === "no-answer") return "called";
+  const normalizedStatus = normalizeContactStatus(status);
+  if (normalizedStatus === "left-voicemail") return "voicemail";
+  if (normalizedStatus === "not-interested") return "not_interested";
+  if (normalizedStatus === "follow-up") return "follow_up_set";
+  if (normalizedStatus === "confirmed-owner") return "called";
+  if (normalizedStatus === "did-not-answer") return "called";
   return "status_changed";
 }
 
@@ -7454,8 +7560,9 @@ function buildCallerLeaderboard(leads = []) {
   const map = new globalThis.Map();
 
   for (const lead of leads) {
-    const name = safeText(lead.lastContactedBy || lead.owner);
-    if (!name || name === "Import Review" || name === "Unassigned") continue;
+    const assignedName = getAssignedOwnerName(lead);
+    const name = safeText(lead.lastContactedBy || (assignedName === "Unassigned" ? "" : assignedName));
+    if (!name || isPlaceholderOwnerValue(name) || name === "Unassigned") continue;
 
     const current = map.get(name) || { name, calls: 0, hotLeads: 0, followUps: 0 };
     if (lead.lastContactedAt || lead.lastActivityAction) current.calls += 1;

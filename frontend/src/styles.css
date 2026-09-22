@@ -3359,6 +3359,10 @@ textarea::placeholder {
   grid-template-columns: repeat(3, minmax(115px, 1fr));
 }
 
+.call-queue-grid {
+  grid-template-columns: minmax(150px, 1.1fr) minmax(170px, 1.2fr) minmax(130px, 0.9fr) minmax(120px, 0.8fr) minmax(155px, 1fr) minmax(120px, 0.8fr);
+}
+
 .lead-meta {
   background: color-mix(in srgb, var(--panel) 72%, var(--panel-soft));
   border: 1px solid var(--border-soft);
