@@ -387,6 +387,7 @@ h3 {
 }
 
 .lead-table {
+  container-type: inline-size;
   display: grid;
   gap: 10px;
 }
@@ -3366,6 +3367,18 @@ textarea::placeholder {
 .call-queue-grid {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   width: 100%;
+}
+
+@container (max-width: 1200px) {
+  .lead-row {
+    grid-template-columns: 24px minmax(0, 1fr);
+  }
+
+  .lead-main,
+  .lead-meta-grid,
+  .row-actions {
+    grid-column: 2 / -1;
+  }
 }
 
 .lead-meta {
