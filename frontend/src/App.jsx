@@ -1,6 +1,7 @@
 import React from "react";
 import GoogleVoiceActions from "./GoogleVoiceActions.jsx";
 import { getCallingContacts } from "./contactCalling.js";
+import { isAuthTokenExpired } from "./authSession.js";
 import { DispositionIntelligenceView, LeadLegacyMarketMap } from "./DispositionIntelligence.jsx";
 
 const starterLeads = [
@@ -521,8 +522,13 @@ export function App() {
         if (!cancelled) {
           updateStoredAuthUser(user);
         }
-      } catch {
-        // Keep the existing session; protected API calls will handle expired tokens.
+      } catch (error) {
+        if (!cancelled && error?.status === 401) {
+          safeStorageRemove(authStorageKey);
+          setAuth(null);
+          setBackendReady(false);
+          setLoginError("Your session expired. Sign in again to reconnect LEGACY.");
+        }
       }
     }
 
@@ -3731,7 +3737,7 @@ function LeadDetail({
           setContactIntelligenceMessage(snapshot.message || "");
         }
       } catch {
-        if (!cancelled) setContactIntelligenceMessage("Contact Intelligence is temporarily unavailable. Existing imported numbers remain ready below.");
+        if (!cancelled) setContactIntelligenceMessage("Contact Intelligence will load once the backend responds.");
       }
     }
 
@@ -5318,7 +5324,8 @@ function safeStorageRemove(key) {
 function loadAuth() {
   try {
     const savedAuth = JSON.parse(safeStorageGet(authStorageKey));
-    if (savedAuth?.accessToken && savedAuth?.user) return savedAuth;
+    if (savedAuth?.accessToken && savedAuth?.user && !isAuthTokenExpired(savedAuth.accessToken)) return savedAuth;
+    safeStorageRemove(authStorageKey);
   } catch {
     return null;
   }
@@ -5624,7 +5631,9 @@ async function fetchCurrentUser(token) {
   });
 
   if (!response.ok) {
-    throw new Error("User fetch failed");
+    const error = new Error("User fetch failed");
+    error.status = response.status;
+    throw error;
   }
 
   return response.json();
@@ -5770,29 +5779,15 @@ async function lockLeadForUser(leadId, token) {
 }
 
 async function fetchContactIntelligence(leadId, token) {
-  const url = `${apiBaseUrl}/contact-intelligence/leads/${encodeURIComponent(leadId)}`;
-  let lastError = null;
+  const response = await fetch(`${apiBaseUrl}/contact-intelligence/leads/${encodeURIComponent(leadId)}`, {
+    headers: authHeaders(token)
+  });
 
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    try {
-      const response = await fetch(url, { headers: authHeaders(token) });
-
-      if (response.ok) {
-        return sanitizeContactIntelligence(await response.json());
-      }
-
-      lastError = new Error(`Contact Intelligence fetch failed (${response.status})`);
-      if (![502, 503, 504].includes(response.status)) break;
-    } catch (error) {
-      lastError = error;
-    }
-
-    if (attempt < 2) {
-      await new Promise((resolve) => window.setTimeout(resolve, 600 * (attempt + 1)));
-    }
+  if (!response.ok) {
+    throw new Error("Contact Intelligence fetch failed");
   }
 
-  throw lastError || new Error("Contact Intelligence fetch failed");
+  return sanitizeContactIntelligence(await response.json());
 }
 
 async function enrichLeadContactIntelligence(leadId, token) {

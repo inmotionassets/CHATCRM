@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 import os
 from typing import Any
 
@@ -19,7 +18,6 @@ from ..contact_intelligence import (
 from . import leads as lead_store
 
 
-logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/contact-intelligence", tags=["contact-intelligence"])
 TEST_BATCH_LIMIT = 10
 
@@ -409,37 +407,8 @@ def eligible_missing_leads() -> list[str]:
 @router.get("/leads/{lead_id}", response_model=ContactIntelligenceSnapshot)
 def get_lead_contact_intelligence(lead_id: str, current_user: CurrentUser):
     lead = require_lead(lead_id)
-    try:
-        saved_snapshot = get_saved_snapshot(lead_id)
-    except Exception:
-        logger.exception("Could not read saved Contact Intelligence for lead %s", lead_id)
-        saved_snapshot = None
-
-    service = real_enrichment_service()
-    try:
-        return service.current_snapshot(lead, saved_snapshot)
-    except Exception:
-        logger.exception("Could not build current Contact Intelligence for lead %s", lead_id)
-
-    if saved_snapshot:
-        return saved_snapshot.model_copy(
-            update={
-                "message": "Saved Contact Intelligence loaded. Current imported contacts remain available on the lead.",
-                "paidProviderConfigured": service.provider_configured(),
-            }
-        )
-
-    fallback = ContactIntelligenceService(provider_name="free_public").build_snapshot(lead, enrich=False)
-    return fallback.model_copy(
-        update={
-            "status": "existing_contacts_ready" if fallback.contacts else "contact_review",
-            "message": (
-                "Existing/imported contacts loaded in safe mode."
-                if fallback.contacts
-                else "Contact Review: no existing callable number was found."
-            ),
-        }
-    )
+    saved_snapshot = get_saved_snapshot(lead_id)
+    return real_enrichment_service().current_snapshot(lead, saved_snapshot)
 
 
 @router.post("/entities/snapshot", response_model=ContactIntelligenceSnapshot)
