@@ -3731,7 +3731,7 @@ function LeadDetail({
           setContactIntelligenceMessage(snapshot.message || "");
         }
       } catch {
-        if (!cancelled) setContactIntelligenceMessage("Contact Intelligence will load once the backend responds.");
+        if (!cancelled) setContactIntelligenceMessage("Contact Intelligence is temporarily unavailable. Existing imported numbers remain ready below.");
       }
     }
 
@@ -5770,15 +5770,29 @@ async function lockLeadForUser(leadId, token) {
 }
 
 async function fetchContactIntelligence(leadId, token) {
-  const response = await fetch(`${apiBaseUrl}/contact-intelligence/leads/${encodeURIComponent(leadId)}`, {
-    headers: authHeaders(token)
-  });
+  const url = `${apiBaseUrl}/contact-intelligence/leads/${encodeURIComponent(leadId)}`;
+  let lastError = null;
 
-  if (!response.ok) {
-    throw new Error("Contact Intelligence fetch failed");
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      const response = await fetch(url, { headers: authHeaders(token) });
+
+      if (response.ok) {
+        return sanitizeContactIntelligence(await response.json());
+      }
+
+      lastError = new Error(`Contact Intelligence fetch failed (${response.status})`);
+      if (![502, 503, 504].includes(response.status)) break;
+    } catch (error) {
+      lastError = error;
+    }
+
+    if (attempt < 2) {
+      await new Promise((resolve) => window.setTimeout(resolve, 600 * (attempt + 1)));
+    }
   }
 
-  return sanitizeContactIntelligence(await response.json());
+  throw lastError || new Error("Contact Intelligence fetch failed");
 }
 
 async function enrichLeadContactIntelligence(leadId, token) {
