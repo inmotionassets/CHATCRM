@@ -9784,9 +9784,6 @@ html:not([data-theme="dark"]),
   gap: 10px;
 }
 
-.lead-detail.lead-detail-workspace .phone-stack {
-  display: none;
-}
 
 .lead-detail.lead-detail-workspace .call-script-panel {
   max-height: 430px;
@@ -10001,4 +9998,26 @@ html:not([data-theme="dark"]),
   .lead-detail.lead-detail-workspace .disposition-grid {
     grid-template-columns: 1fr;
   }
+}
+
+.google-voice-actions {
+  align-items: center;
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.google-voice-actions > small {
+  flex-basis: 100%;
+  max-width: 360px;
+}
+
+.google-voice-actions > .disabled {
+  opacity: 0.5;
+  padding: 6px;
+}
+
+.contact-extra-list > div {
+  display: grid;
+  gap: 8px;
 }

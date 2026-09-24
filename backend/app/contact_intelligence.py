@@ -454,6 +454,7 @@ class ContactIntelligenceService:
             ownerName=existing_snapshot.ownerName,
             propertyAddress=existing_snapshot.propertyAddress,
             provider=self.provider_name,
+            paidProviderConfigured=self.provider_name == "batchdata" and self.provider_configured(),
             updatedAt=current_timestamp(),
         )
 
@@ -462,6 +463,44 @@ class ContactIntelligenceService:
             merged.sourceUrls = build_public_source_links(lead_to_dict(lead))
 
         return normalize_snapshot(merged)
+
+    def current_snapshot(self, lead: Any, saved: ContactIntelligenceSnapshot | None = None) -> ContactIntelligenceSnapshot:
+        """Read current imported numbers without provider requests or persistence.
+
+        Saved records win for matching numbers, preserving feedback and evidence.
+        Current lead identity and provider availability are always recomputed.
+        """
+        current = self.build_snapshot(lead, enrich=False)
+        if saved is None:
+            return current
+
+        def key(contact):
+            value = contact.normalizedValue or contact.value
+            return (contact.contactType, normalize_phone(value) if contact.contactType == "phone" else value.lower())
+
+        contacts = {key(contact): contact for contact in current.contacts}
+        contacts.update({key(contact): contact for contact in saved.contacts})
+        result = saved.model_copy(update={
+            "leadId": current.leadId,
+            "ownerName": current.ownerName,
+            "propertyAddress": current.propertyAddress,
+            "provider": current.provider,
+            "paidProviderConfigured": current.paidProviderConfigured,
+            "contacts": list(contacts.values()),
+            "sourceUrls": dedupe_source_links([*saved.sourceUrls, *current.sourceUrls]),
+        })
+        has_callable = any(contact.contactType == "phone" and contact.isCallable
+                           and not contact.doNotCall and not contact.wrongNumber and not contact.disconnected
+                           for contact in result.contacts)
+        result.needsPaidSkipTrace = not has_callable
+        result.refreshRecommended = bool([c for c in result.contacts if c.contactType == "phone"]) and not has_callable
+        if has_callable and result.status not in {"failed", "unmatched", "enriched"}:
+            result.status = "ready"
+            result.message = "Existing contacts are ready. Paid enrichment is optional."
+        elif not has_callable and result.paidProviderConfigured and result.status == "provider_not_configured":
+            result.status = "not_enriched"
+            result.message = "Paid provider is configured and ready for a controlled single-lead test."
+        return normalize_snapshot(result)
 
     def apply_feedback(
         self,

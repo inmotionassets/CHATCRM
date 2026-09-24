@@ -1,4 +1,6 @@
 import React from "react";
+import GoogleVoiceActions from "./GoogleVoiceActions.jsx";
+import { getCallingContacts } from "./contactCalling.js";
 import { DispositionIntelligenceView, LeadLegacyMarketMap } from "./DispositionIntelligence.jsx";
 
 const starterLeads = [
@@ -3240,15 +3242,15 @@ function LeadWorkspacePage({
 }) {
   const [visualMode, setVisualMode] = React.useState("street");
   const phones = getLeadPhones(lead);
-  const primaryPhone = phones[0] || "";
+  const [contactSnapshot, setContactSnapshot] = React.useState(null);
+  const { best: bestContact } = getCallingContacts(lead, contactSnapshot);
+  const primaryPhone = bestContact?.normalizedValue || bestContact?.value || "";
   const ownerName = getDisplayOwnerName(lead) || "Owner name needed";
   const taxUrl = buildCountyTaxUrl(lead);
   const mapUrl = buildGoogleMapsUrl(lead.address);
   const streetUrl = buildStreetViewUrl(lead.address);
   const directionsUrl = buildDirectionsUrl(lead.address);
   const emailHref = lead.email ? `mailto:${lead.email}` : "";
-  const phoneHref = primaryPhone ? `tel:${primaryPhone.replace(/[^\d+]/g, "")}` : "";
-  const textHref = primaryPhone ? `sms:${primaryPhone.replace(/[^\d+]/g, "")}` : "";
   const status = getLeadContactStatus(lead);
   const opportunity = getPropertyOpportunity(lead);
   const sellerHeat = getSellerHeat(lead);
@@ -3292,8 +3294,7 @@ function LeadWorkspacePage({
           <b>Best Contact</b>
           {primaryPhone ? formatPhone(primaryPhone) : "Missing"}
         </span>
-        <a className={`primary-command ${!phoneHref ? "disabled" : ""}`} href={phoneHref || undefined}>Call</a>
-        <a className={!textHref ? "disabled" : ""} href={textHref || undefined}>Text</a>
+        <GoogleVoiceActions contact={bestContact} primary />
         <a className={!emailHref ? "disabled" : ""} href={emailHref || undefined}>Email</a>
         <a className="tax-command" href={taxUrl} rel="noreferrer" target="_blank">{taxLabel}</a>
         {canCreateOffer ? <button onClick={onStartAgreement} type="button">Create Offer</button> : null}
@@ -3328,6 +3329,7 @@ function LeadWorkspacePage({
             onStartAgreement={onStartAgreement}
             onStatusChange={onStatusChange}
             onUpdate={onUpdate}
+            onContactSnapshot={setContactSnapshot}
             workspaceMode
           />
         </main>
@@ -3570,6 +3572,7 @@ function LeadDetail({
   onStartAgreement,
   onStatusChange,
   onUpdate,
+  onContactSnapshot,
   workspaceMode = false
 }) {
   const [showMap, setShowMap] = React.useState(false);
@@ -3581,7 +3584,6 @@ function LeadDetail({
   const myMapsOpenUrl = buildMyMapsOpenUrl(myMapsUrl);
   const offer = calculateOffer(lead);
   const phones = getLeadPhones(lead);
-  const phoneHref = phones[0] ? `tel:${phones[0].replace(/[^\d+]/g, "")}` : null;
   const emailHref = lead.email ? `mailto:${lead.email}` : null;
   const ownerLabel = getDisplayOwnerName(lead);
   const rawOwnerName = safeText(lead.name).trim();
@@ -3598,6 +3600,10 @@ function LeadDetail({
   const [activityMessage, setActivityMessage] = React.useState("");
   const [isLegacyWorkspaceOpen, setIsLegacyWorkspaceOpen] = React.useState(false);
   const [contactIntelligence, setContactIntelligence] = React.useState(null);
+  const { best: bestCallingContact } = getCallingContacts(lead, contactIntelligence);
+  React.useEffect(() => {
+    if (contactIntelligence?.leadId === lead.id) onContactSnapshot?.(contactIntelligence);
+  }, [contactIntelligence, lead.id, onContactSnapshot]);
   const [contactIntelligenceMessage, setContactIntelligenceMessage] = React.useState("");
   const [isRefreshingContacts, setIsRefreshingContacts] = React.useState(false);
   const notesSnapshotRef = React.useRef(lead.notes || "");
@@ -3813,8 +3819,9 @@ function LeadDetail({
       return;
     }
     if (!authToken || !lead.id) return;
+    if (!window.confirm("Run enrichment for this one lead? A configured paid provider may charge for this request.")) return;
     setIsRefreshingContacts(true);
-    setContactIntelligenceMessage("Running free Contact Intelligence...");
+    setContactIntelligenceMessage("Running contact enrichment for this lead...");
 
     try {
       const snapshot = await enrichLeadContactIntelligence(lead.id, authToken);
@@ -3965,7 +3972,7 @@ function LeadDetail({
 
       {!workspaceMode ? (
         <div className="quick-actions">
-          <ContactLink disabled={!phoneHref} href={phoneHref} label="Call" onClick={() => handleCallClick(phones[0])} />
+          <GoogleVoiceActions contact={bestCallingContact} onCall={handleCallClick} />
           <ContactLink disabled={!emailHref} href={emailHref} label="Email" />
           <ContactLink href={streetViewUrl} label="Street View" />
           <ContactLink href={mapUrl} label="Map" />
@@ -4007,25 +4014,8 @@ function LeadDetail({
 
       <div className="call-workspace">
         <div className="contact-call-column">
-          {phones.length > 0 ? (
-            <section className="phone-stack" aria-label="Phone numbers">
-              <p>Phone Numbers</p>
-              <div>
-                {phones.map((phone) => (
-                  <span className="phone-action-group" key={phone}>
-                    <a href={`tel:${phone.replace(/[^\d+]/g, "")}`} onClick={() => handleCallClick(phone)}>{formatPhone(phone)}</a>
-                    <a href={buildGoogleVoiceUrl(phone)} onClick={() => handleCallClick(phone)} rel="noreferrer" target="_blank">Voice</a>
-                  </span>
-                ))}
-              </div>
-            </section>
-          ) : (
-            <section className="phone-stack" aria-label="Phone numbers">
-              <p>Phone Numbers</p>
-              <span className="missing-copy">No phone numbers saved yet.</span>
-            </section>
-          )}
           <ContactIntelligencePanel
+            lead={lead}
             canEnrichContacts={canUseAdminDealTools}
             isRefreshing={isRefreshingContacts}
             message={contactIntelligenceMessage}
@@ -4367,84 +4357,46 @@ function LeadDetail({
   );
 }
 
-function ContactIntelligencePanel({ canEnrichContacts = false, isRefreshing, message, onCall, onFeedback, onRefresh, snapshot }) {
-  const contacts = Array.isArray(snapshot?.contacts) ? snapshot.contacts : [];
-  const bestContact = snapshot?.bestContact || contacts[0] || null;
-  const phoneContacts = contacts.filter((contact) => contact.contactType === "phone");
+function ContactIntelligencePanel({ lead, canEnrichContacts = false, isRefreshing, message, onCall, onFeedback, onRefresh, snapshot }) {
+  const { best, contacts } = getCallingContacts(lead, snapshot);
+  const additional = contacts.filter((contact) => contact !== best);
   const sourceLinks = Array.isArray(snapshot?.sourceUrls) ? snapshot.sourceUrls : [];
-  const bestPhone = bestContact?.contactType === "phone" ? bestContact.normalizedValue || bestContact.value : "";
-  const canCall = Boolean(
-    bestPhone &&
-    bestContact?.contactType === "phone" &&
-    !bestContact.doNotCall &&
-    !bestContact.wrongNumber &&
-    !bestContact.disconnected
-  );
-  const isPaidProvider = snapshot?.provider === "batchdata";
-  const providerReady = Boolean(snapshot?.paidProviderConfigured);
-  const refreshLabel = !canEnrichContacts ? "Admin Only" : isRefreshing ? "Checking..." : isPaidProvider && providerReady ? "Enrich Contact" : "Check Provider";
-
-  function copyContactValue(value) {
-    if (!value) return;
-    if (navigator.clipboard?.writeText) {
-      navigator.clipboard.writeText(value).catch(() => {});
-    }
+  function renderContact(contact) {
+    const phone = contact.normalizedValue || contact.value;
+    return <div className="contact-best-card" key={contact.id || phone}>
+      <strong>{contact.isCallable === false && contact.status === "needs_review" ? contact.value : formatPhone(phone)}</strong>
+      <div className="contact-intel-badges">
+        <small>{formatContactStatusLabel(contact.status || "unverified")}</small>
+        {contact.source ? <small>{contact.source}</small> : null}
+        {contact.sourceConfidence != null ? <small>{contact.sourceConfidence}% source confidence</small> : null}
+      </div>
+      <div className="contact-intel-actions">
+        <GoogleVoiceActions contact={contact} onCall={onCall} />
+        {contact.id ? <>
+          <button onClick={() => onFeedback(contact.id, "confirmed_owner")} type="button">Confirmed</button>
+          <button onClick={() => onFeedback(contact.id, "wrong_number")} type="button">Wrong #</button>
+          <button onClick={() => onFeedback(contact.id, "disconnected")} type="button">Disconnected</button>
+          <button onClick={() => onFeedback(contact.id, "do_not_call")} type="button">DNC</button>
+        </> : null}
+      </div>
+    </div>;
   }
-
   return (
     <section className="contact-intel-panel" id="contact-intelligence" aria-label="Contact Intelligence">
       <div className="contact-intel-header">
-        <div>
-          <p className="eyebrow">Contact Intelligence</p>
-          <h3>{isPaidProvider ? "Provider Enrichment" : "Free Check"}</h3>
-        </div>
+        <div><p className="eyebrow">Contact Intelligence</p><h3>Existing Contacts</h3></div>
         <button className="contact-refresh-button" disabled={isRefreshing || !canEnrichContacts} onClick={onRefresh} type="button">
-          {refreshLabel}
+          {!canEnrichContacts ? "Admin Only" : isRefreshing ? "Checking..." : "Enrich Contact"}
         </button>
       </div>
-
       {message ? <p className="contact-intel-message">{message}</p> : null}
-
-      {bestContact ? (
-        <div className="contact-best-card">
-          <span>Best Contact</span>
-          <strong>{bestContact.displayValue || bestContact.value}</strong>
-          <div className="contact-intel-badges">
-            <small>{snapshot?.confidence || bestContact.sourceConfidence || 0}% confidence</small>
-            <small>{formatContactStatusLabel(bestContact.status || "unverified")}</small>
-            <small>{bestContact.source || "Unknown source"}</small>
-          </div>
-          <div className="contact-intel-actions">
-            {canCall ? <a href={`tel:${bestPhone}`} onClick={() => onCall(bestPhone)}>Call</a> : null}
-            {canCall ? <a href={buildGoogleVoiceUrl(bestPhone)} onClick={() => onCall(bestPhone)} rel="noreferrer" target="_blank">Voice</a> : null}
-            <button onClick={() => copyContactValue(bestContact.displayValue || bestContact.value)} type="button">Copy</button>
-            <button onClick={() => onFeedback(bestContact.id, "confirmed_owner")} type="button">Confirmed</button>
-            <button onClick={() => onFeedback(bestContact.id, "wrong_number")} type="button">Wrong #</button>
-            <button onClick={() => onFeedback(bestContact.id, "disconnected")} type="button">Disconnected</button>
-            <button onClick={() => onFeedback(bestContact.id, "do_not_call")} type="button">DNC</button>
-          </div>
-        </div>
-      ) : (
-        <div className="contact-empty-card">
-          <strong>No free number found yet.</strong>
-          <p>Run the free check to attach public lookup paths. Private owner cells usually need paid skip tracing.</p>
-        </div>
-      )}
-
-      {phoneContacts.length > 1 ? (
-        <details className="contact-extra-list">
-          <summary>{phoneContacts.length - 1} more number{phoneContacts.length - 1 === 1 ? "" : "s"}</summary>
-          <div>
-            {phoneContacts.slice(1).map((contact) => (
-              <span key={contact.id}>
-                <b>{contact.displayValue || contact.value}</b>
-                <small>{formatContactStatusLabel(contact.status || "unverified")}</small>
-              </span>
-            ))}
-          </div>
-        </details>
-      ) : null}
-
+      {best ? <><span>Best Contact</span>{renderContact(best)}</> : <div className="contact-empty-card">
+        <strong>Contact Review</strong><p>No existing callable number. Review saved contacts or request enrichment.</p>
+      </div>}
+      {additional.length ? <details className="contact-extra-list">
+        <summary>Additional Contacts ({additional.length})</summary>
+        <div>{additional.map(renderContact)}</div>
+      </details> : null}
       {snapshot?.status === "provider_not_configured" ? (
         <p className="contact-intel-warning">Paid enrichment provider not configured. Add the backend API key before running real skip trace.</p>
       ) : null}

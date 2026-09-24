@@ -133,6 +133,45 @@ class ContactIntelligenceTests(unittest.TestCase):
     def test_phone_normalization_handles_country_code(self):
         self.assertEqual(normalize_phone("+1 (972) 555-0101"), "9725550101")
 
+    def test_current_snapshot_unions_imports_and_preserves_feedback_without_provider_call(self):
+        def forbidden_request(payload):
+            self.fail("A read must never call paid enrichment")
+        provider = BatchDataContactProvider(api_key="test-only", request_json=forbidden_request)
+        service = ContactIntelligenceService(provider_name="batchdata", public_provider=provider)
+        lead = {**self.lead, "name": "Domingo Hernandez", "owner": "Import Review"}
+        saved = service.build_snapshot(lead)
+        saved = service.apply_feedback(saved, saved.bestContact.id, "do_not_call")
+        original_dump = saved.model_dump()
+        lead["phones"] = ["2145550199", "9725550111", "4695550101", "4695550102", "4695550103"]
+        current = service.current_snapshot(lead, saved)
+        phones = [c for c in current.contacts if c.contactType == "phone"]
+        self.assertEqual(len(phones), 5)
+        self.assertTrue(next(c for c in phones if c.normalizedValue == "2145550199").doNotCall)
+        self.assertNotEqual(current.bestContact.normalizedValue, "2145550199")
+        self.assertEqual(current.ownerName, "Domingo Hernandez")
+        self.assertTrue(current.paidProviderConfigured)
+        self.assertEqual(saved.model_dump(), original_dump)
+        self.assertEqual(provider.build_payload(lead)[0]["owner_name"], "Domingo Hernandez")
+
+    def test_missing_contacts_need_no_paid_request(self):
+        provider = BatchDataContactProvider(api_key="", request_json=lambda _: self.fail("No paid request"))
+        service = ContactIntelligenceService(provider_name="batchdata", public_provider=provider)
+        for name in ["Agustin Jaramillo", "Gilberto Lopez"]:
+            snapshot = service.current_snapshot({"id": name, "name": name, "owner": "Import Review"})
+            self.assertEqual(snapshot.contacts, [])
+            self.assertIsNone(snapshot.bestContact)
+            self.assertFalse(snapshot.paidProviderConfigured)
+
+    def test_feedback_can_target_new_import_after_saved_snapshot(self):
+        service = ContactIntelligenceService(provider_name="free_public")
+        saved = service.build_snapshot(self.lead)
+        lead = {**self.lead, "phones": [*self.lead["phones"], "4695550101"]}
+        current = service.current_snapshot(lead, saved)
+        new_contact = next(c for c in current.contacts if c.normalizedValue == "4695550101")
+        updated = service.apply_feedback(current, new_contact.id, "confirmed_owner")
+        self.assertEqual(updated.bestContact.id, new_contact.id)
+        self.assertTrue(updated.bestContact.verifiedOwner)
+
 
 if __name__ == "__main__":
     unittest.main()

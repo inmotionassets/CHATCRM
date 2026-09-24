@@ -406,14 +406,9 @@ def eligible_missing_leads() -> list[str]:
 
 @router.get("/leads/{lead_id}", response_model=ContactIntelligenceSnapshot)
 def get_lead_contact_intelligence(lead_id: str, current_user: CurrentUser):
-    saved_snapshot = get_saved_snapshot(lead_id)
-    if saved_snapshot:
-        queue_if_needed(lead_id, saved_snapshot)
-        return saved_snapshot
-
     lead = require_lead(lead_id)
-    snapshot = ContactIntelligenceService().build_snapshot(lead, enrich=False)
-    return save_snapshot(snapshot)
+    saved_snapshot = get_saved_snapshot(lead_id)
+    return real_enrichment_service().current_snapshot(lead, saved_snapshot)
 
 
 @router.post("/entities/snapshot", response_model=ContactIntelligenceSnapshot)
@@ -456,8 +451,7 @@ def enrich_lead_contact_intelligence(lead_id: str, current_user: CurrentUser):
 def record_contact_feedback(contact_id: str, request: ContactFeedbackRequest, current_user: CurrentUser):
     lead = require_lead(request.leadId)
     saved_snapshot = get_saved_snapshot(request.leadId)
-    if not saved_snapshot:
-        saved_snapshot = ContactIntelligenceService().build_snapshot(lead, enrich=False)
+    saved_snapshot = real_enrichment_service().current_snapshot(lead, saved_snapshot)
 
     snapshot = ContactIntelligenceService().apply_feedback(
         saved_snapshot,
