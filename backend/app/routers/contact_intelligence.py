@@ -198,6 +198,11 @@ def require_admin(current_user: CurrentUser) -> None:
         raise HTTPException(status_code=403, detail="Admin access required")
 
 
+def require_lead_contact_access(current_user: CurrentUser) -> None:
+    if current_user.role not in {"Admin", "Acquisition"}:
+        raise HTTPException(status_code=403, detail="Lead Contact Intelligence requires Admin or Acquisition access")
+
+
 def require_entity_contact_access(entity_type: str, current_user: CurrentUser) -> None:
     protected_types = {"buyer", "builder", "developer", "llc", "business", "entity"}
     if entity_type.lower() in protected_types and current_user.role not in {"Admin", "Disposition"}:
@@ -441,7 +446,7 @@ def get_entity_contact_intelligence(request: ContactEntitySnapshotRequest, curre
 
 @router.post("/leads/{lead_id}/enrich", response_model=ContactIntelligenceSnapshot)
 def enrich_lead_contact_intelligence(lead_id: str, current_user: CurrentUser):
-    require_admin(current_user)
+    require_lead_contact_access(current_user)
     service = real_enrichment_service()
     result = process_enrichment(lead_id, service)
     return result["snapshot"]

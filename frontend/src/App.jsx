@@ -1740,7 +1740,7 @@ function IntegrationStatusCard({ backendReady }) {
   const rows = [
     { label: "Backend", value: backendReady ? "Online" : "Check Render", state: backendReady ? "good" : "warn", detail: "Property save/load API" },
     { label: "Google Maps", value: googleMapsEmbedApiKey ? "Configured" : "Needs Key", state: googleMapsEmbedApiKey ? "good" : "warn", detail: "Street View, map, satellite" },
-    { label: "Contact Provider", value: "Admin Only", state: "warn", detail: "Paid enrichment stays disabled until configured" },
+    { label: "Contact Provider", value: "Acquisition Access", state: "warn", detail: "Contact Intelligence is available; paid enrichment still requires a configured provider" },
     { label: "Market Data", value: "Evidence First", state: "good", detail: "Mock/demo data must stay labeled" }
   ];
 
@@ -3702,11 +3702,15 @@ function LeadDetail({
   const [contactIntelligenceMessage, setContactIntelligenceMessage] = React.useState("");
   const [isRefreshingContacts, setIsRefreshingContacts] = React.useState(false);
   const notesSnapshotRef = React.useRef(lead.notes || "");
+  const notesSaveTimerRef = React.useRef(null);
+  const notesSavingValueRef = React.useRef("");
+  const [notesSaveStatus, setNotesSaveStatus] = React.useState("Saved in lead profile");
   const ownerPlaceholder =
     rawOwnerName && rawOwnerName !== "Unknown Owner"
       ? "Replace parsed text with owner name"
       : "Enter owner name";
   const canUseAdminDealTools = currentUser?.role === "Admin";
+  const canUseContactIntelligence = ["Admin", "Acquisition"].includes(currentUser?.role);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -3772,7 +3776,11 @@ function LeadDetail({
     setLeadLock(null);
     setActivityMessage("");
     setIsLegacyWorkspaceOpen(false);
+    if (notesSaveTimerRef.current) window.clearTimeout(notesSaveTimerRef.current);
+    notesSaveTimerRef.current = null;
+    notesSavingValueRef.current = "";
     notesSnapshotRef.current = lead.notes || "";
+    setNotesSaveStatus("Saved in lead profile");
   }, [lead.id]);
 
   React.useEffect(() => {
@@ -3909,8 +3917,8 @@ function LeadDetail({
   }
 
   async function refreshContactIntelligence() {
-    if (!canUseAdminDealTools) {
-      setContactIntelligenceMessage("Real contact enrichment is Admin-only.");
+    if (!canUseContactIntelligence) {
+      setContactIntelligenceMessage("Contact enrichment is unavailable for this role.");
       return;
     }
     if (!authToken || !lead.id) return;
@@ -4001,15 +4009,41 @@ function LeadDetail({
     }
   }
 
+  async function persistLeadNotes(notes) {
+    const currentNotes = String(notes || "");
+    if (!authToken || !lead.id || currentNotes === notesSnapshotRef.current || currentNotes === notesSavingValueRef.current) return;
+    notesSavingValueRef.current = currentNotes;
+    setNotesSaveStatus("Saving...");
+    try {
+      const savedLead = await saveLeadNotes(lead.id, currentNotes, authToken);
+      notesSnapshotRef.current = savedLead.notes || "";
+      setNotesSaveStatus("Saved in lead profile");
+      addLeadActivity({
+        actionType: "note_added",
+        callOutcome: "Note Saved",
+        notes: getLatestLeadNote(savedLead.notes) || "Lead notes cleared."
+      });
+    } catch {
+      setNotesSaveStatus("Save failed - click Save Notes");
+    } finally {
+      if (notesSavingValueRef.current === currentNotes) notesSavingValueRef.current = "";
+    }
+  }
+
+  function handleNotesChange(value) {
+    onUpdate({ notes: value });
+    setNotesSaveStatus("Saving...");
+    if (notesSaveTimerRef.current) window.clearTimeout(notesSaveTimerRef.current);
+    notesSaveTimerRef.current = window.setTimeout(() => {
+      notesSaveTimerRef.current = null;
+      persistLeadNotes(value);
+    }, 700);
+  }
+
   function handleNotesBlur() {
-    const currentNotes = lead.notes || "";
-    if (currentNotes === notesSnapshotRef.current) return;
-    notesSnapshotRef.current = currentNotes;
-    addLeadActivity({
-      actionType: "note_added",
-      callOutcome: "Note Updated",
-      notes: "Lead notes updated."
-    });
+    if (notesSaveTimerRef.current) window.clearTimeout(notesSaveTimerRef.current);
+    notesSaveTimerRef.current = null;
+    persistLeadNotes(lead.notes || "");
   }
 
   function handleMarkReviewed() {
@@ -4125,7 +4159,7 @@ function LeadDetail({
         <div className="contact-call-column">
           <ContactIntelligencePanel
             lead={lead}
-            canEnrichContacts={canUseAdminDealTools}
+            canEnrichContacts={canUseContactIntelligence}
             isRefreshing={isRefreshingContacts}
             message={contactIntelligenceMessage}
             onCall={handleCallClick}
@@ -4431,9 +4465,27 @@ function LeadDetail({
       </label>
 
       <label className="detail-field workspace-notes-field">
-        Notes
-        <textarea value={lead.notes || ""} onBlur={handleNotesBlur} onChange={(event) => onUpdate({ notes: event.target.value })} />
+        <span className="workspace-notes-heading">
+          <b>Lead Notes</b>
+          <small>{notesSaveStatus}</small>
+        </span>
+        <textarea
+          aria-label="Lead notes"
+          placeholder="Type the seller conversation, motivation, objections, and next step..."
+          value={lead.notes || ""}
+          onBlur={handleNotesBlur}
+          onChange={(event) => handleNotesChange(event.target.value)}
+        />
+        <button className="save-notes-button" onClick={() => persistLeadNotes(lead.notes || "")} type="button">Save Notes</button>
       </label>
+
+      <section className="lead-note-profile-preview" aria-label="Saved lead profile note">
+        <div>
+          <span>Lead Profile Note</span>
+          <small>{notesSaveStatus}</small>
+        </div>
+        <p>{getLatestLeadNote(lead.notes) || "No note saved yet."}</p>
+      </section>
 
       <ActivityTimeline activities={activities} message={activityMessage} />
 
@@ -4501,7 +4553,7 @@ function ContactIntelligencePanel({ lead, canEnrichContacts = false, isRefreshin
       <div className="contact-intel-header">
         <div><p className="eyebrow">Contact Intelligence</p><h3>Existing Contacts</h3></div>
         <button className="contact-refresh-button" disabled={isRefreshing || !canEnrichContacts} onClick={onRefresh} type="button">
-          {!canEnrichContacts ? "Admin Only" : isRefreshing ? "Checking..." : "Enrich Contact"}
+          {!canEnrichContacts ? "Unavailable" : isRefreshing ? "Checking..." : "Enrich Contact"}
         </button>
       </div>
       {message ? <p className="contact-intel-message">{message}</p> : null}
@@ -6016,6 +6068,23 @@ async function syncLeadsToBackend(leads, token) {
   }
 
   return response.json();
+}
+
+async function saveLeadNotes(leadId, notes, token) {
+  const response = await fetch(`${apiBaseUrl}/leads/${encodeURIComponent(leadId)}/notes`, {
+    method: "PUT",
+    headers: {
+      ...authHeaders(token),
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ notes })
+  });
+
+  if (!response.ok) {
+    throw new Error("Lead notes save failed");
+  }
+
+  return sanitizeLeads([await response.json()])[0];
 }
 
 async function deleteBackendLead(leadId, token) {

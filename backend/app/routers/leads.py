@@ -102,6 +102,10 @@ class LeadActivityCreate(BaseModel):
     phoneNumber: str = ""
 
 
+class LeadNotesUpdate(BaseModel):
+    notes: str = ""
+
+
 class LeadLock(BaseModel):
     leadId: str
     lockedByUserId: str = ""
@@ -944,6 +948,15 @@ def update_lead(lead_id: str, lead: Lead, current_user: CurrentUser):
     require_owner_access(current_user)
     saved_lead = lead.model_copy(update={"id": lead_id})
     save_lead(saved_lead)
+    return saved_lead
+
+
+@router.put("/{lead_id}/notes", response_model=Lead)
+def update_lead_notes(lead_id: str, request: LeadNotesUpdate, current_user: CurrentUser):
+    require_owner_access(current_user)
+    saved_lead = update_lead_payload(lead_id, {"notes": request.notes})
+    if not saved_lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
     return saved_lead
 
 
