@@ -4728,7 +4728,36 @@ textarea::placeholder {
 }
 
 .upgraded-map-controls {
-  grid-template-columns: minmax(220px, 0.8fr) minmax(200px, 0.7fr) minmax(260px, 1fr) minmax(180px, 0.65fr) minmax(320px, 1.1fr);
+  grid-template-areas:
+    "base radius timeline property"
+    "layers layers toggles toggles";
+  grid-template-columns: minmax(180px, 0.8fr) minmax(150px, 0.65fr) minmax(240px, 1fr) minmax(170px, 0.7fr);
+}
+
+.upgraded-map-controls .base-map-mode-control {
+  grid-area: base;
+}
+
+.upgraded-map-controls > .segmented-filter:not(.base-map-mode-control) {
+  grid-area: radius;
+}
+
+.upgraded-map-controls .timeline-control {
+  grid-area: timeline;
+}
+
+.upgraded-map-controls > label {
+  grid-area: property;
+}
+
+.upgraded-map-controls .layer-control-menu {
+  grid-area: layers;
+  min-width: 0;
+}
+
+.upgraded-map-controls .map-toggle-group {
+  grid-area: toggles;
+  min-width: 0;
 }
 
 .layer-control-menu {
@@ -5275,6 +5304,14 @@ textarea::placeholder {
   .transaction-provenance-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .upgraded-map-controls {
+    grid-template-areas:
+      "base radius"
+      "timeline property"
+      "layers layers"
+      "toggles toggles";
+  }
 }
 
 @media (max-width: 1380px) {
@@ -5306,6 +5343,16 @@ textarea::placeholder {
   .overview-panel .disposition-overview-grid,
   .intelligence-card-grid {
     grid-template-columns: 1fr;
+  }
+
+  .upgraded-map-controls {
+    grid-template-areas:
+      "base"
+      "radius"
+      "timeline"
+      "property"
+      "layers"
+      "toggles";
   }
 
   .premium-market-map {
