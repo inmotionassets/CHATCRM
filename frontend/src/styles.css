@@ -334,6 +334,10 @@ h3 {
   grid-template-columns: minmax(0, 1fr) 340px;
 }
 
+.content-grid > * {
+  min-width: 0;
+}
+
 .wide-panel {
   min-width: 0;
 }
@@ -3360,7 +3364,8 @@ textarea::placeholder {
 }
 
 .call-queue-grid {
-  grid-template-columns: minmax(150px, 1.1fr) minmax(170px, 1.2fr) minmax(130px, 0.9fr) minmax(120px, 0.8fr) minmax(155px, 1fr) minmax(120px, 0.8fr);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  width: 100%;
 }
 
 .lead-meta {
