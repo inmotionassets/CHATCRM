@@ -125,6 +125,7 @@ class LeadResetResult(BaseModel):
 CONTACT_ACTIVITY_TYPES = {
     "called",
     "call_started",
+    "text_started",
     "status_changed",
     "follow_up_set",
     "hot_lead_marked",

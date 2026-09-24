@@ -8,7 +8,8 @@
     "build": "vite build",
     "preview": "vite preview --host 127.0.0.1",
     "test:calling": "node --test src/contactCalling.test.js",
-    "test:auth": "node --test src/authSession.test.js"
+    "test:auth": "node --test src/authSession.test.js",
+    "test:phone-lookup": "node --test src/phoneLookup.test.js"
   },
   "dependencies": {
     "@vitejs/plugin-react": "^5.0.0",

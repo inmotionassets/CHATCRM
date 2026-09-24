@@ -1,7 +1,7 @@
 import React from "react";
 import { buildGoogleVoiceUrl, buildGoogleVoiceTextUrl, normalizeCallablePhone, canCallContact, canTextContact } from "./contactCalling.js";
 
-export default function GoogleVoiceActions({ contact, onCall, primary = false }) {
+export default function GoogleVoiceActions({ contact, leadContext, onCall, onText, primary = false }) {
   const [notice, setNotice] = React.useState("");
   const number = normalizeCallablePhone(contact?.normalizedValue || contact?.value);
   React.useEffect(() => setNotice(""), [number]);
@@ -14,8 +14,14 @@ export default function GoogleVoiceActions({ contact, onCall, primary = false })
     }
   }
   return <span className="google-voice-actions">
+    {leadContext?.ownerName && leadContext?.address ? (
+      <span className="google-voice-context">
+        <b>{leadContext.ownerName}</b>
+        <small>{leadContext.address}</small>
+      </span>
+    ) : null}
     {canCallContact(contact) ? <a className={primary ? "primary-command" : undefined} href={buildGoogleVoiceUrl(number)} target="_blank" rel="noreferrer" onClick={() => onCall?.(number)}>Call</a> : <span className="disabled" aria-disabled="true">Call</span>}
-    {canTextContact(contact) ? <a href={buildGoogleVoiceTextUrl(number)} target="_blank" rel="noreferrer" title="Open Google Voice Messages and copy this number" onClick={() => copyNumber(true)}>Text</a> : <span className="disabled" aria-disabled="true">Text</span>}
+    {canTextContact(contact) ? <a href={buildGoogleVoiceTextUrl(number)} target="_blank" rel="noreferrer" title="Open Google Voice Messages and copy this number" onClick={() => { onText?.(number); copyNumber(true); }}>Text</a> : <span className="disabled" aria-disabled="true">Text</span>}
     {number ? <button type="button" onClick={() => copyNumber()}>Copy</button> : null}
     {notice ? <small role="status">{notice}</small> : null}
   </span>;

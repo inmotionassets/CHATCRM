@@ -1,6 +1,7 @@
 import React from "react";
 import GoogleVoiceActions from "./GoogleVoiceActions.jsx";
 import { getCallingContacts } from "./contactCalling.js";
+import { findPhoneLeadMatches, getLatestLeadNote, isPhoneSearchQuery } from "./phoneLookup.js";
 import { isAuthTokenExpired } from "./authSession.js";
 import { DispositionIntelligenceView, LeadLegacyMarketMap } from "./DispositionIntelligence.jsx";
 
@@ -668,9 +669,12 @@ export function App() {
       />
     );
   }
+  const phoneLookupMatches = findPhoneLeadMatches(leads, query);
+  const phoneLookupActive = isPhoneSearchQuery(query);
+  const phoneLookupLeadIds = new Set(phoneLookupMatches.map((match) => match.lead.id));
   const filteredLeads = leads.filter((lead) => {
-    const searchText = `${lead.name} ${lead.address} ${getLeadPhones(lead).join(" ")} ${lead.email} ${lead.source}`.toLowerCase();
-    const matchesQuery = searchText.includes(query.toLowerCase());
+    const searchText = `${lead.name} ${lead.address} ${lead.parcelNumber} ${lead.county} ${getLeadPhones(lead).join(" ")} ${lead.email} ${lead.source}`.toLowerCase();
+    const matchesQuery = searchText.includes(query.toLowerCase()) || phoneLookupLeadIds.has(lead.id);
     const matchesStage = stageFilter === "All" || lead.stage === stageFilter;
     const matchesReview =
       reviewFilter === "All" ||
@@ -759,6 +763,31 @@ export function App() {
 
   function updateLead(id, updates) {
     setLeads((current) => current.map((lead) => (lead.id === id ? { ...lead, ...updates } : lead)));
+  }
+
+  async function recordPhoneInteraction(id, actionType, phone) {
+    const lead = leads.find((item) => item.id === id);
+    if (!lead || !authToken) return null;
+    const isText = actionType === "text_started";
+    const ownerName = getDisplayOwnerName(lead) || "Owner name needed";
+    const phoneLabel = formatPhone(phone) || phone || "Unknown number";
+    try {
+      const activity = await recordLeadActivity(
+        id,
+        {
+          actionType,
+          callOutcome: isText ? "Text started" : "Call started",
+          notes: `${isText ? "Opened Google Voice text" : "Opened Google Voice call"} for ${ownerName} / ${lead.address || "Missing address"} / ${phoneLabel}`,
+          phoneNumber: phone
+        },
+        authToken
+      );
+      updateLead(id, applyActivityToLead(activity));
+      return activity;
+    } catch {
+      setSaveStatus("Contact Log Pending");
+      return null;
+    }
   }
 
   function markReviewed(id) {
@@ -1120,13 +1149,24 @@ export function App() {
 
       <section className={`workspace ${isAdmin ? "admin-workspace" : "caller-workspace"} ${selectedLead ? "lead-workspace-active" : ""}`}>
         <header className="topbar">
-          <div className="search-box">
+          <div className={`search-box global-lead-search ${phoneLookupActive ? "phone-lookup-open" : ""}`}>
             <Search size={18} />
             <input
+              aria-label="Search properties or reverse lookup a phone number"
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search properties, owners, phone, email..."
+              placeholder="Search phone, owner, property, APN..."
               value={query}
             />
+            {phoneLookupActive ? (
+              <GlobalPhoneLookupResults
+                matches={phoneLookupMatches}
+                onOpenLead={(leadId) => {
+                  setQuery("");
+                  openLeadWorkspace(leadId);
+                }}
+                query={query}
+              />
+            ) : null}
           </div>
 
           <div className="actions compact-actions">
@@ -1451,6 +1491,7 @@ export function App() {
             onMarkReviewed={() => markReviewed(selectedLead.id)}
             onMarkReviewedAndNext={markReviewedAndNext}
             onNext={() => moveSelectedLead(1)}
+            onPhoneInteraction={(actionType, phone) => recordPhoneInteraction(selectedLead.id, actionType, phone)}
             onPrevious={() => moveSelectedLead(-1)}
             onStartAgreement={() => setAgreementLead(selectedLead)}
             onStatusChange={(status) => updateContactStatus(selectedLead.id, status)}
@@ -1465,6 +1506,47 @@ export function App() {
         ) : null}
       </section>
     </main>
+  );
+}
+
+function GlobalPhoneLookupResults({ matches, onOpenLead, query }) {
+  return (
+    <section className="phone-lookup-results" aria-label={`Phone lookup results for ${query}`}>
+      <header>
+        <div>
+          <p className="eyebrow">Reverse CRM Lookup</p>
+          <strong>{matches.length ? `${matches.length} matching lead${matches.length === 1 ? "" : "s"}` : "No matching leads"}</strong>
+        </div>
+        <small>Phone numbers stay tied to their seller and property.</small>
+      </header>
+      {matches.length ? (
+        <div className="phone-lookup-list">
+          {matches.map(({ lead, matchedPhones, phones }) => {
+            const latestNote = getLatestLeadNote(lead.notes);
+            return (
+              <article className="phone-lookup-card" key={lead.id}>
+                <div className="phone-lookup-identity">
+                  <strong>{getDisplayOwnerName(lead) || "Owner name needed"}</strong>
+                  <span>{lead.address || "Property address missing"}</span>
+                  <small>Matched {matchedPhones.map(formatPhone).join(", ")}</small>
+                </div>
+                <dl>
+                  <div><dt>APN</dt><dd>{lead.parcelNumber || "Missing"}</dd></div>
+                  <div><dt>County</dt><dd>{lead.county || "Missing"}</dd></div>
+                  <div><dt>Status</dt><dd>{getLeadContactStatus(lead).label}</dd></div>
+                  <div><dt>All Phones</dt><dd>{phones.map(formatPhone).join(", ") || "None"}</dd></div>
+                  <div><dt>Last Contact</dt><dd>{lead.lastContactedAt ? `${getActivityActionLabel(lead.lastActivityAction)} / ${formatActivityTime(lead.lastContactedAt)}` : "No contact attempt saved"}</dd></div>
+                  <div><dt>Latest Note</dt><dd>{latestNote || "No notes saved"}</dd></div>
+                </dl>
+                <button className="primary-button" onClick={() => onOpenLead(lead.id)} type="button">Open Lead</button>
+              </article>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="phone-lookup-empty">No seller or property is associated with that number yet.</div>
+      )}
+    </section>
   );
 }
 
@@ -3241,6 +3323,7 @@ function LeadWorkspacePage({
   onMarkReviewed,
   onMarkReviewedAndNext,
   onNext,
+  onPhoneInteraction,
   onPrevious,
   onStartAgreement,
   onStatusChange,
@@ -3300,7 +3383,13 @@ function LeadWorkspacePage({
           <b>Best Contact</b>
           {primaryPhone ? formatPhone(primaryPhone) : "Missing"}
         </span>
-        <GoogleVoiceActions contact={bestContact} primary />
+        <GoogleVoiceActions
+          contact={bestContact}
+          leadContext={{ ownerName, address: lead.address || "Missing Address" }}
+          onCall={(phone) => onPhoneInteraction?.("call_started", phone)}
+          onText={(phone) => onPhoneInteraction?.("text_started", phone)}
+          primary
+        />
         <a className={!emailHref ? "disabled" : ""} href={emailHref || undefined}>Email</a>
         <a className="tax-command" href={taxUrl} rel="noreferrer" target="_blank">{taxLabel}</a>
         {canCreateOffer ? <button onClick={onStartAgreement} type="button">Create Offer</button> : null}
@@ -3863,7 +3952,7 @@ function LeadDetail({
     try {
       const savedActivity = await recordLeadActivity(lead.id, activity, authToken);
       setActivities((current) => [savedActivity, ...current.filter((item) => item.id !== savedActivity.id)]);
-      if (["called", "call_started", "voicemail", "not_interested", "wrong_number", "status_changed", "follow_up_set", "hot_lead_marked"].includes(savedActivity.actionType)) {
+      if (["called", "call_started", "text_started", "voicemail", "not_interested", "wrong_number", "status_changed", "follow_up_set", "hot_lead_marked"].includes(savedActivity.actionType)) {
         onUpdate(applyActivityToLead(savedActivity));
       } else {
         onUpdate({ lastActivityAction: savedActivity.actionType });
@@ -3879,7 +3968,16 @@ function LeadDetail({
     addLeadActivity({
       actionType: "call_started",
       callOutcome: "Call started",
-      notes: phone ? `Clicked call for ${formatPhone(phone)}` : "Clicked call",
+      notes: phone ? `Opened Google Voice call for ${ownerLabel} / ${lead.address} / ${formatPhone(phone)}` : `Opened Google Voice call for ${ownerLabel} / ${lead.address}`,
+      phoneNumber: phone
+    });
+  }
+
+  function handleTextClick(phone = "") {
+    addLeadActivity({
+      actionType: "text_started",
+      callOutcome: "Text started",
+      notes: phone ? `Opened Google Voice text for ${ownerLabel} / ${lead.address} / ${formatPhone(phone)}` : `Opened Google Voice text for ${ownerLabel} / ${lead.address}`,
       phoneNumber: phone
     });
   }
@@ -3978,7 +4076,12 @@ function LeadDetail({
 
       {!workspaceMode ? (
         <div className="quick-actions">
-          <GoogleVoiceActions contact={bestCallingContact} onCall={handleCallClick} />
+          <GoogleVoiceActions
+            contact={bestCallingContact}
+            leadContext={{ ownerName: ownerLabel, address: lead.address || "Missing Address" }}
+            onCall={handleCallClick}
+            onText={handleTextClick}
+          />
           <ContactLink disabled={!emailHref} href={emailHref} label="Email" />
           <ContactLink href={streetViewUrl} label="Street View" />
           <ContactLink href={mapUrl} label="Map" />
@@ -4027,6 +4130,7 @@ function LeadDetail({
             message={contactIntelligenceMessage}
             onCall={handleCallClick}
             onFeedback={handleContactFeedback}
+            onText={handleTextClick}
             onRefresh={refreshContactIntelligence}
             snapshot={contactIntelligence}
           />
@@ -4363,7 +4467,7 @@ function LeadDetail({
   );
 }
 
-function ContactIntelligencePanel({ lead, canEnrichContacts = false, isRefreshing, message, onCall, onFeedback, onRefresh, snapshot }) {
+function ContactIntelligencePanel({ lead, canEnrichContacts = false, isRefreshing, message, onCall, onFeedback, onRefresh, onText, snapshot }) {
   const { best, contacts } = getCallingContacts(lead, snapshot);
   const additional = contacts.filter((contact) => contact !== best);
   const sourceLinks = Array.isArray(snapshot?.sourceUrls) ? snapshot.sourceUrls : [];
@@ -4377,7 +4481,12 @@ function ContactIntelligencePanel({ lead, canEnrichContacts = false, isRefreshin
         {contact.sourceConfidence != null ? <small>{contact.sourceConfidence}% source confidence</small> : null}
       </div>
       <div className="contact-intel-actions">
-        <GoogleVoiceActions contact={contact} onCall={onCall} />
+        <GoogleVoiceActions
+          contact={contact}
+          leadContext={{ ownerName: getDisplayOwnerName(lead) || "Owner name needed", address: lead.address || "Missing Address" }}
+          onCall={onCall}
+          onText={onText}
+        />
         {contact.id ? <>
           <button onClick={() => onFeedback(contact.id, "confirmed_owner")} type="button">Confirmed</button>
           <button onClick={() => onFeedback(contact.id, "wrong_number")} type="button">Wrong #</button>
@@ -6659,6 +6768,7 @@ function getActivityActionLabel(actionType = "") {
   const labels = {
     called: "called this lead",
     call_started: "started a call",
+    text_started: "started a text",
     note_added: "added a note",
     status_changed: "changed status",
     follow_up_set: "set a follow-up",

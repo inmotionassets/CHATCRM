@@ -10107,3 +10107,158 @@ html:not([data-theme="dark"]),
   display: grid;
   gap: 8px;
 }
+
+/* Global phone reverse lookup and Google Voice lead context */
+.topbar {
+  position: relative;
+  z-index: 50;
+}
+
+.global-lead-search {
+  overflow: visible;
+  position: relative;
+}
+
+.search-box.phone-lookup-open {
+  border-color: rgba(56, 189, 248, 0.52);
+  box-shadow: 0 18px 48px rgba(2, 6, 23, 0.38), 0 0 0 3px rgba(56, 189, 248, 0.1);
+}
+
+.phone-lookup-results {
+  background: linear-gradient(180deg, rgba(8, 15, 28, 0.99), rgba(2, 6, 23, 0.99));
+  border: 1px solid rgba(56, 189, 248, 0.34);
+  border-radius: 16px;
+  box-shadow: 0 28px 80px rgba(0, 0, 0, 0.55);
+  display: grid;
+  gap: 12px;
+  left: 0;
+  max-height: min(72vh, 720px);
+  overflow-y: auto;
+  padding: 14px;
+  position: absolute;
+  top: calc(100% + 9px);
+  width: min(820px, calc(100vw - 44px));
+  z-index: 100;
+}
+
+.phone-lookup-results > header {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.phone-lookup-results > header strong {
+  color: #f8fafc;
+  display: block;
+}
+
+.phone-lookup-results > header small,
+.phone-lookup-identity small {
+  color: #93c5fd;
+}
+
+.phone-lookup-list {
+  display: grid;
+  gap: 10px;
+}
+
+.phone-lookup-card {
+  align-items: start;
+  background: rgba(15, 23, 42, 0.9);
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 13px;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(190px, 0.72fr) minmax(360px, 1.28fr) auto;
+  padding: 12px;
+}
+
+.phone-lookup-identity {
+  display: grid;
+  gap: 4px;
+}
+
+.phone-lookup-identity strong {
+  color: #ffffff;
+  font-size: 1rem;
+}
+
+.phone-lookup-identity span {
+  color: #cbd5e1;
+}
+
+.phone-lookup-card dl {
+  display: grid;
+  gap: 7px 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 0;
+}
+
+.phone-lookup-card dl > div {
+  min-width: 0;
+}
+
+.phone-lookup-card dt {
+  color: #38bdf8;
+  font-size: 0.65rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.phone-lookup-card dd {
+  color: #e2e8f0;
+  font-size: 0.78rem;
+  margin: 2px 0 0;
+  overflow-wrap: anywhere;
+}
+
+.phone-lookup-empty {
+  border: 1px dashed rgba(148, 163, 184, 0.32);
+  border-radius: 12px;
+  color: #cbd5e1;
+  padding: 18px;
+}
+
+.google-voice-context {
+  background: rgba(56, 189, 248, 0.08);
+  border: 1px solid rgba(56, 189, 248, 0.18);
+  border-radius: 9px;
+  display: grid;
+  flex-basis: 100%;
+  gap: 2px;
+  max-width: 420px;
+  padding: 6px 9px;
+}
+
+.google-voice-context b {
+  color: #f8fafc;
+  font-size: 0.78rem;
+}
+
+.google-voice-context small {
+  color: #93c5fd;
+  font-size: 0.7rem;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 760px) {
+  .phone-lookup-results {
+    max-height: 76vh;
+    width: calc(100vw - 24px);
+  }
+
+  .phone-lookup-results > header,
+  .phone-lookup-card {
+    grid-template-columns: 1fr;
+  }
+
+  .phone-lookup-results > header {
+    align-items: start;
+    display: grid;
+  }
+
+  .phone-lookup-card dl {
+    grid-template-columns: 1fr;
+  }
+}
