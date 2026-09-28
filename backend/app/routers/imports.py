@@ -1,12 +1,14 @@
 import csv
 import io
 import re
+from uuid import NAMESPACE_URL, uuid5
 
-from fastapi import APIRouter, File, UploadFile
+from fastapi import APIRouter, File, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 from pypdf import PdfReader
 
 from ..auth import CurrentUser
+from . import leads as lead_store
 
 router = APIRouter(prefix="/imports", tags=["imports"])
 
@@ -37,6 +39,16 @@ class ParseResult(BaseModel):
     text_length: int
     leads: list[ParsedLead]
     warnings: list[str]
+
+
+class CsvMergeResult(BaseModel):
+    fileName: str
+    parsedCount: int
+    addedCount: int
+    updatedCount: int
+    duplicateCount: int
+    finalCount: int
+    warnings: list[str] = Field(default_factory=list)
 
 
 @router.post("/parse-pdf", response_model=ParseResult)
@@ -76,6 +88,35 @@ async def parse_csv(current_user: CurrentUser, file: UploadFile = File(...)):
         pages=1,
         text_length=len(text),
         leads=leads,
+        warnings=warnings,
+    )
+
+
+@router.post("/merge-csv", response_model=CsvMergeResult)
+async def merge_csv(current_user: CurrentUser, file: UploadFile = File(...)):
+    if current_user.role != "Admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    file_name = file.filename or "uploaded.csv"
+    text = decode_csv(await file.read())
+    parsed_leads, warnings = extract_csv_leads(text, file_name)
+    if not parsed_leads:
+        raise HTTPException(status_code=400, detail="No valid property leads were found in this CSV")
+
+    existing_leads = lead_store.list_saved_leads()
+    changed_leads, added_count, updated_count, duplicate_count = merge_csv_leads(
+        existing_leads,
+        parsed_leads,
+        file_name,
+    )
+    lead_store.save_leads(changed_leads, allow_fallback=False)
+    return CsvMergeResult(
+        fileName=file_name,
+        parsedCount=len(parsed_leads),
+        addedCount=added_count,
+        updatedCount=updated_count,
+        duplicateCount=duplicate_count,
+        finalCount=len(existing_leads) + added_count,
         warnings=warnings,
     )
 
@@ -552,3 +593,137 @@ def dedupe_leads(leads: list[ParsedLead], limit: int | None = None) -> list[Pars
         unique.append(lead)
 
     return unique[:limit] if limit else unique
+
+
+def normalize_import_apn(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "", clean_csv_value(value).lower())
+
+
+def normalize_import_address(value: str) -> str:
+    normalized = clean_csv_value(value).lower()
+    normalized = re.sub(r"\b(?:texas|tx)\b", " ", normalized)
+    normalized = re.sub(r"\b\d{5}(?:-\d{4})?\b", " ", normalized)
+    replacements = {
+        "street": "st", "avenue": "ave", "road": "rd", "drive": "dr",
+        "lane": "ln", "court": "ct", "circle": "cir", "boulevard": "blvd",
+        "parkway": "pkwy", "place": "pl", "trail": "trl",
+    }
+    words = re.sub(r"[^a-z0-9]+", " ", normalized).split()
+    return " ".join(replacements.get(word, word) for word in words)
+
+
+def normalized_phone_key(value: str) -> str:
+    digits = re.sub(r"\D", "", value or "")
+    return digits[1:] if len(digits) == 11 and digits.startswith("1") else digits
+
+
+def merge_import_phones(existing: list[str], incoming: list[str]) -> list[str]:
+    merged: list[str] = []
+    seen: set[str] = set()
+    for phone in [*existing, *incoming]:
+        key = normalized_phone_key(phone)
+        if len(key) != 10 or key in seen:
+            continue
+        seen.add(key)
+        merged.append(phone.strip())
+    return merged
+
+
+def generic_owner_name(value: str) -> bool:
+    return clean_csv_value(value).lower() in {"", "unknown owner", "owner needed", "import review", "review owner"}
+
+
+def merge_parsed_lead(existing: lead_store.Lead, incoming: ParsedLead) -> lead_store.Lead:
+    phones = merge_import_phones(existing.phones or ([existing.phone] if existing.phone else []), incoming.phones)
+    updates = {
+        "name": incoming.name if generic_owner_name(existing.name) and not generic_owner_name(incoming.name) else existing.name,
+        "parcelNumber": existing.parcelNumber or incoming.parcelNumber,
+        "county": existing.county or incoming.county,
+        "bedrooms": existing.bedrooms or incoming.bedrooms,
+        "bathrooms": existing.bathrooms or incoming.bathrooms,
+        "sqft": existing.sqft or incoming.sqft,
+        "yearBuilt": existing.yearBuilt or incoming.yearBuilt,
+        "lotSize": existing.lotSize or incoming.lotSize,
+        "phone": phones[0] if phones else existing.phone or incoming.phone,
+        "phones": phones,
+        "email": existing.email or incoming.email,
+        "estimatedArv": existing.estimatedArv or incoming.estimatedArv,
+        "assessedValue": existing.assessedValue or incoming.assessedValue,
+        "score": max(existing.score, incoming.confidence),
+    }
+    return existing.model_copy(update=updates)
+
+
+def lead_from_parsed_csv(incoming: ParsedLead, source: str) -> lead_store.Lead:
+    apn_key = normalize_import_apn(incoming.parcelNumber)
+    address_key = normalize_import_address(incoming.address)
+    stable_key = f"apn:{apn_key}" if apn_key else f"address:{address_key}"
+    return lead_store.Lead(
+        id=f"import-{uuid5(NAMESPACE_URL, stable_key).hex}",
+        name=incoming.name or "Unknown Owner",
+        address=incoming.address,
+        parcelNumber=incoming.parcelNumber,
+        county=incoming.county,
+        bedrooms=incoming.bedrooms,
+        bathrooms=incoming.bathrooms,
+        sqft=incoming.sqft,
+        yearBuilt=incoming.yearBuilt,
+        lotSize=incoming.lotSize,
+        stage="New Lead",
+        score=incoming.confidence,
+        owner="Import Review",
+        source=source,
+        phone=incoming.phone,
+        phones=incoming.phones,
+        email=incoming.email,
+        notes=incoming.notes,
+        estimatedArv=incoming.estimatedArv,
+        assessedValue=incoming.assessedValue,
+        needsReview=True,
+        contactStatus="needs-review",
+    )
+
+
+def merge_csv_leads(
+    existing_leads: list[lead_store.Lead],
+    incoming_leads: list[ParsedLead],
+    source: str,
+) -> tuple[list[lead_store.Lead], int, int, int]:
+    by_apn: dict[str, lead_store.Lead] = {}
+    by_address: dict[str, lead_store.Lead] = {}
+    for lead in existing_leads:
+        apn_key = normalize_import_apn(lead.parcelNumber)
+        address_key = normalize_import_address(lead.address)
+        if apn_key:
+            by_apn[apn_key] = lead
+        if address_key:
+            by_address[address_key] = lead
+
+    changed: dict[str, lead_store.Lead] = {}
+    added_ids: set[str] = set()
+    updated_ids: set[str] = set()
+    duplicate_count = 0
+
+    for incoming in incoming_leads:
+        apn_key = normalize_import_apn(incoming.parcelNumber)
+        address_key = normalize_import_address(incoming.address)
+        current = (by_apn.get(apn_key) if apn_key else None) or (by_address.get(address_key) if address_key else None)
+        if current:
+            duplicate_count += 1
+            merged = merge_parsed_lead(current, incoming)
+            if merged.model_dump() != current.model_dump():
+                changed[merged.id] = merged
+                if merged.id not in added_ids:
+                    updated_ids.add(merged.id)
+            current = merged
+        else:
+            current = lead_from_parsed_csv(incoming, source)
+            changed[current.id] = current
+            added_ids.add(current.id)
+
+        if apn_key:
+            by_apn[apn_key] = current
+        if address_key:
+            by_address[address_key] = current
+
+    return list(changed.values()), len(added_ids), len(updated_ids), duplicate_count

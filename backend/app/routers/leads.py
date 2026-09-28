@@ -501,6 +501,36 @@ def save_lead(lead: Lead) -> None:
     save_sqlite_lead(lead)
 
 
+def save_leads(leads: list[Lead], allow_fallback: bool = True) -> None:
+    if not leads:
+        return
+
+    if USE_POSTGRES:
+        try:
+            with get_postgres_connection() as connection:
+                with connection.cursor() as cursor:
+                    cursor.executemany(
+                        """
+                        INSERT INTO leads (id, payload)
+                        VALUES (%s, %s)
+                        ON CONFLICT (id) DO UPDATE SET payload = EXCLUDED.payload
+                        """,
+                        [(lead.id, lead.model_dump_json()) for lead in leads],
+                    )
+            return
+        except Exception:
+            logger.exception("Postgres lead batch save failed")
+            if not allow_fallback:
+                raise HTTPException(status_code=503, detail="Production lead database import failed")
+            logger.warning("Writing lead batch to local SQLite fallback")
+
+    with get_sqlite_connection() as connection:
+        connection.executemany(
+            "INSERT OR REPLACE INTO leads (id, payload) VALUES (?, ?)",
+            [(lead.id, lead.model_dump_json()) for lead in leads],
+        )
+
+
 def remove_sqlite_lead(lead_id: str) -> None:
     with get_sqlite_connection() as connection:
         connection.execute("DELETE FROM lead_activities WHERE lead_id = ?", (lead_id,))

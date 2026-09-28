@@ -1026,9 +1026,13 @@ export function App() {
     if (files.length === 0) return;
 
     const uploadedAt = new Date().toISOString();
-    setImportMessage(`Parsing ${files.length} file${files.length === 1 ? "" : "s"}...`);
+    setImportMessage(`Importing ${files.length} file${files.length === 1 ? "" : "s"}...`);
     const parsedImports = [];
     const parsedLeads = [];
+    let mergedCsv = false;
+    let addedCount = 0;
+    let updatedCount = 0;
+    let duplicateCount = 0;
 
     for (const file of files) {
       const importRecord = {
@@ -1036,37 +1040,54 @@ export function App() {
         fileName: file.name,
         size: file.size,
         uploadedAt,
-        status: "Parsing",
+        status: "Importing",
         type: guessImportType(file.name),
         warnings: []
       };
 
       try {
-        const result = await parseImportFile(file, authToken);
-        importRecord.status = result.leads.length > 0 ? "Parsed" : "Needs Review";
-        importRecord.warnings = result.warnings || [];
-
-        if (result.leads.length > 0) {
-          parsedLeads.push(...result.leads.map((lead, index) => createLeadFromParsedPdf(lead, file.name, index)));
+        if (/\.csv$/i.test(file.name)) {
+          const result = await mergeLeadCsv(file, authToken);
+          mergedCsv = true;
+          addedCount += result.addedCount || 0;
+          updatedCount += result.updatedCount || 0;
+          duplicateCount += result.duplicateCount || 0;
+          importRecord.status = "Imported";
+          importRecord.warnings = result.warnings || [];
+          importRecord.leadCount = result.parsedCount || 0;
         } else {
-          parsedLeads.push(createDraftLeadFromImport(importRecord));
+          const result = await parseImportFile(file, authToken);
+          importRecord.status = result.leads.length > 0 ? "Parsed" : "Needs Review";
+          importRecord.warnings = result.warnings || [];
+          if (result.leads.length > 0) {
+            parsedLeads.push(...result.leads.map((lead, index) => createLeadFromParsedPdf(lead, file.name, index)));
+          } else {
+            parsedLeads.push(createDraftLeadFromImport(importRecord));
+          }
         }
-      } catch {
+      } catch (error) {
         importRecord.status = "Needs Review";
-        importRecord.warnings = ["The parser could not read this file. A manual property draft was created."];
-        parsedLeads.push(createDraftLeadFromImport(importRecord));
+        importRecord.warnings = [error?.message || "The importer could not read this file."];
+        if (!/\.csv$/i.test(file.name)) parsedLeads.push(createDraftLeadFromImport(importRecord));
       }
 
       parsedImports.push(importRecord);
     }
 
     setImports((current) => [...parsedImports, ...current]);
-    setLeads((current) => mergeImportedLeads(current, parsedLeads));
+    if (mergedCsv) {
+      const refreshedLeads = await fetchBackendLeads(authToken);
+      setLeads(parsedLeads.length > 0 ? mergeImportedLeads(refreshedLeads, parsedLeads) : refreshedLeads);
+    } else {
+      setLeads((current) => mergeImportedLeads(current, parsedLeads));
+    }
     setQuery("");
     setStageFilter("All");
     setReviewFilter("All");
     setHotOnly(false);
-    setImportMessage(`${parsedLeads.length} property draft${parsedLeads.length === 1 ? "" : "s"} parsed. Matching addresses were updated with any new phone numbers.`);
+    setImportMessage(mergedCsv
+      ? `${addedCount} new properties added, ${updatedCount} existing leads updated, and ${duplicateCount} duplicates merged.`
+      : `${parsedLeads.length} property draft${parsedLeads.length === 1 ? "" : "s"} parsed.`);
     event.target.value = "";
   }
 
@@ -5777,6 +5798,25 @@ async function parseCsv(file, token) {
   return response.json();
 }
 
+
+async function mergeLeadCsv(file, token) {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const response = await fetch(`${apiBaseUrl}/imports/merge-csv`, {
+    method: "POST",
+    headers: authHeaders(token),
+    body: formData
+  });
+
+  if (!response.ok) {
+    const detail = await response.json().catch(() => ({}));
+    throw new Error(detail.detail || "CSV import failed");
+  }
+
+  return response.json();
+}
+
 async function parseImportFile(file, token) {
   const lowerName = file.name.toLowerCase();
   if (lowerName.endsWith(".csv") || file.type === "text/csv") {
@@ -7775,13 +7815,13 @@ function createLeadFromParsedPdf(parsedLead, fileName, index) {
     id: `parsed-${normalizeText(parsedLead.address)}-${index}`,
     name: parsedLead.name || "Unknown Owner",
     address: parsedLead.address || "Review parsed address",
-    parcelNumber: "",
-    county: "",
-    bedrooms: "",
-    bathrooms: "",
-    sqft: "",
-    yearBuilt: "",
-    lotSize: "",
+    parcelNumber: parsedLead.parcelNumber || "",
+    county: parsedLead.county || "",
+    bedrooms: parsedLead.bedrooms || "",
+    bathrooms: parsedLead.bathrooms || "",
+    sqft: parsedLead.sqft || "",
+    yearBuilt: parsedLead.yearBuilt || "",
+    lotSize: parsedLead.lotSize || "",
     stage: "New Lead",
     score: parsedLead.confidence || 60,
     owner: "Import Review",
@@ -7790,7 +7830,8 @@ function createLeadFromParsedPdf(parsedLead, fileName, index) {
     phones: parsedLead.phones?.length ? parsedLead.phones : parsedLead.phone ? [parsedLead.phone] : [],
     email: parsedLead.email || "",
     notes: "",
-    estimatedArv: "",
+    estimatedArv: parsedLead.estimatedArv || "",
+    assessedValue: parsedLead.assessedValue || "",
     repairBudget: "",
     maxOfferPercent: "70",
     assignmentFee: "",
