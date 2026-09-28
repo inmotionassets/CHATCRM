@@ -358,7 +358,7 @@ export function App() {
   const hasFullAccess = hasLegacyOwnerAccess(auth?.user);
   const isAdmin = auth?.user?.role === "Admin";
   const isDisposition = auth?.user?.role === "Disposition";
-  const visibleMainViews = isAdmin ? [...mainViews, "Team"] : isDisposition ? dispositionViews : callerViews;
+  const visibleMainViews = isAdmin ? [...mainViews, "Leaderboard", "Team"] : isDisposition ? dispositionViews : callerViews;
   function captureLeadReturnContext() {
     const context = {
       view: activeView || "Properties",
