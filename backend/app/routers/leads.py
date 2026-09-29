@@ -124,6 +124,7 @@ class LeadResultRequest(BaseModel):
     contactStatus: str
     notes: str = ""
     followUpDate: str = ""
+    phoneNumber: str = ""
 
 
 class LeadLock(BaseModel):
@@ -158,10 +159,28 @@ CONTACT_ACTIVITY_TYPES = {
     "wrong_number",
     "interested_marked",
     "disconnected",
+    "call_result",
 }
 
-CALL_COUNT_ACTIVITY_TYPES = {"called", "call_started", "voicemail", "not_interested", "wrong_number"}
+# A call attempt is only counted after the caller explicitly saves a result.
+# Opening Google Voice is navigation, not evidence that a call occurred.
+CALL_COUNT_ACTIVITY_TYPES = {
+    "call_result",
+    "called",
+    "voicemail",
+    "not_interested",
+    "wrong_number",
+    "disconnected",
+    "interested_marked",
+}
 ASSIGNMENT_FIELDS = ("assignedToUserId", "assignedToName", "assignedAt", "claimedAt")
+ASSIGNMENT_REQUIRED_ACTIVITY_TYPES = {
+    "voice_opened",
+    "voice_text_opened",
+    "call_started",
+    "text_started",
+    "call_result",
+}
 
 
 def get_sqlite_connection() -> sqlite3.Connection:
@@ -719,10 +738,14 @@ def save_lead_result(lead_id: str, request: LeadResultRequest, current_user: Cur
     status = request.contactStatus.strip().lower()
     allowed = {
         "interested", "follow-up", "left-voicemail", "did-not-answer", "not-interested",
-        "wrong-number", "disconnected", "confirmed-owner", "needs-review", "contact-review",
+        "wrong-number", "disconnected", "do-not-call", "confirmed-owner", "needs-review", "contact-review",
     }
     if status not in allowed:
         raise HTTPException(status_code=422, detail="Unsupported call result")
+    if status == "follow-up" and not request.followUpDate.strip():
+        raise HTTPException(status_code=422, detail="Follow-up date is required")
+    if status == "follow-up" and not request.notes.strip():
+        raise HTTPException(status_code=422, detail="Follow-up notes are required")
 
     stage = lead.stage
     if status == "interested":
@@ -742,22 +765,15 @@ def save_lead_result(lead_id: str, request: LeadResultRequest, current_user: Cur
     if not saved:
         raise HTTPException(status_code=404, detail="Lead not found")
 
-    action_types = {
-        "interested": "interested_marked",
-        "follow-up": "follow_up_set",
-        "left-voicemail": "voicemail",
-        "not-interested": "not_interested",
-        "wrong-number": "wrong_number",
-        "disconnected": "disconnected",
-    }
-    label = status.replace("-", " ").title()
+    label = "DNC" if status == "do-not-call" else status.replace("-", " ").title()
     create_lead_activity(
         lead_id,
         LeadActivityCreate(
-            actionType=action_types.get(status, "called"),
+            actionType="call_result",
             callOutcome=label,
             notes=f"Call result saved: {label}",
             followUpDate=request.followUpDate.strip(),
+            phoneNumber=request.phoneNumber.strip(),
         ),
         current_user,
     )
@@ -815,6 +831,13 @@ def create_lead_activity(lead_id: str, activity: LeadActivityCreate, current_use
 
     created_at = iso_timestamp()
     clean_action = activity.actionType.strip() or "note_added"
+    if (
+        current_user.role != "Admin"
+        and clean_action in ASSIGNMENT_REQUIRED_ACTIVITY_TYPES
+        and lead.assignedToUserId != current_user.username
+    ):
+        detail = f"Lead belongs to {lead.assignedToName or lead.assignedToUserId}" if lead.assignedToUserId else "Claim this lead before starting contact"
+        raise HTTPException(status_code=409, detail=detail)
     clean_notes = activity.notes.strip()
     if activity.phoneNumber.strip() and activity.phoneNumber.strip() not in clean_notes:
         clean_notes = f"{clean_notes} Phone: {activity.phoneNumber.strip()}".strip()

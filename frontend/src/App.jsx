@@ -1,6 +1,8 @@
 import React from "react";
 import GoogleVoiceActions from "./GoogleVoiceActions.jsx";
+import PowerDialerView from "./PowerDialerView.jsx";
 import { getCallingContacts } from "./contactCalling.js";
+import { getNextPowerDialerLead, getPowerDialerQueue, leadHasStoredPhone, normalizeDialerQueue } from "./powerDialer.js";
 import { findPhoneLeadMatches, getLatestLeadNote, isPhoneSearchQuery } from "./phoneLookup.js";
 import { isAuthTokenExpired } from "./authSession.js";
 import { DispositionIntelligenceView, LeadLegacyMarketMap } from "./DispositionIntelligence.jsx";
@@ -97,6 +99,7 @@ const contactStatuses = [
   { value: "follow-up", label: "Follow Up", color: "yellow" },
   { value: "wrong-number", label: "Wrong Number", color: "red" },
   { value: "disconnected", label: "Disconnected", color: "red" },
+  { value: "do-not-call", label: "DNC", color: "red" },
   { value: "contact-review", label: "Contact Review", color: "yellow" }
 ];
 const contactStatusAliases = {
@@ -111,6 +114,8 @@ const contactStatusAliases = {
   interested: "interested",
   "wrong-number": "wrong-number",
   disconnected: "disconnected",
+  dnc: "do-not-call",
+  "do-not-call": "do-not-call",
   "contact-review": "contact-review"
 };
 const mainViews = ["Properties", "Pipeline", "Disposition", "Markets", "Buyers", "Data Hub", "Insights", "Academy"];
@@ -352,6 +357,8 @@ export function App() {
   const [isFormOpen, setIsFormOpen] = React.useState(false);
   const [importMessage, setImportMessage] = React.useState("");
   const [selectedLeadId, setSelectedLeadId] = React.useState(() => getLeadIdFromPath() || null);
+  const [dialerLeadId, setDialerLeadId] = React.useState(null);
+  const [dialerQueue, setDialerQueue] = React.useState("My Queue");
   const [activeView, setActiveView] = React.useState("Properties");
   const [backendReady, setBackendReady] = React.useState(false);
   const [saveStatus, setSaveStatus] = React.useState("Connecting...");
@@ -797,13 +804,60 @@ export function App() {
     }
   }
 
-  async function claimNextAvailable() {
-    const available = sortLeads(leads.filter((lead) => !lead.assignedToUserId), sortMode)[0];
-    if (!available) {
-      setQueueMessage("No unassigned leads are available right now.");
-      return;
+  async function claimAvailableForDialer(candidates) {
+    for (const candidate of candidates.filter(leadHasStoredPhone)) {
+      try {
+        const claimed = await claimLeadForCaller(candidate.id, authToken);
+        setLeads((current) => current.map((lead) => (lead.id === claimed.id ? claimed : lead)));
+        return claimed;
+      } catch (error) {
+        if (!String(error?.message || "").toLowerCase().includes("claimed")) throw error;
+      }
     }
-    await claimLead(available.id);
+    return null;
+  }
+
+  async function startPowerDialer() {
+    const activeQueue = normalizeDialerQueue(queueFilter);
+    setQueueMessage(`Starting ${activeQueue}...`);
+    try {
+      const queue = getPowerDialerQueue(leads, activeQueue, auth.user);
+      const lead = activeQueue === "Available Leads"
+        ? await claimAvailableForDialer(queue)
+        : queue.find(leadHasStoredPhone) || null;
+      if (!lead) {
+        setQueueMessage(`No callable leads are ready in ${activeQueue}. No-phone records remain in Contact Review.`);
+        return;
+      }
+      setQueueFilter(activeQueue);
+      setDialerQueue(activeQueue);
+      setDialerLeadId(lead.id);
+      setQueueMessage("");
+      closeLeadWorkspace({ restore: false });
+    } catch (error) {
+      setQueueMessage(error?.message || "Calling mode could not start. The queue was not changed.");
+    }
+  }
+
+  async function advancePowerDialer(savedLead) {
+    const currentLeads = leads.map((lead) => (lead.id === savedLead.id ? savedLead : lead));
+    if (dialerQueue === "Available Leads") {
+      const available = getPowerDialerQueue(currentLeads, dialerQueue, auth.user)
+        .filter((lead) => lead.id !== savedLead.id);
+      const claimed = await claimAvailableForDialer(available);
+      if (claimed) {
+        setDialerLeadId(claimed.id);
+        return;
+      }
+    } else {
+      const next = getNextPowerDialerLead(currentLeads, savedLead.id, dialerQueue, auth.user);
+      if (next) {
+        setDialerLeadId(next.id);
+        return;
+      }
+    }
+    setDialerLeadId(null);
+    setQueueMessage(`${dialerQueue} is complete. No additional callable leads are ready.`);
   }
 
   async function applyBulkAssignment(value) {
@@ -830,7 +884,8 @@ export function App() {
       const saved = await saveLeadCallResult(selectedLead.id, {
         contactStatus: normalizeContactStatus(selectedLead.contactStatus),
         notes: selectedLead.notes || "",
-        followUpDate: selectedLead.followUpDate || ""
+        followUpDate: selectedLead.followUpDate || "",
+        phoneNumber: getLeadPhones(selectedLead)[0] || ""
       }, authToken);
       setLeads((current) => current.map((lead) => (lead.id === saved.id ? saved : lead)));
       setQueueMessage("Result saved. Loading next lead...");
@@ -847,7 +902,7 @@ export function App() {
   async function recordPhoneInteraction(id, actionType, phone) {
     const lead = leads.find((item) => item.id === id);
     if (!lead || !authToken) return null;
-    const isText = actionType === "text_started";
+    const isText = actionType === "voice_text_opened";
     const ownerName = getDisplayOwnerName(lead) || "Owner name needed";
     const phoneLabel = formatPhone(phone) || phone || "Unknown number";
     try {
@@ -855,13 +910,14 @@ export function App() {
         id,
         {
           actionType,
-          callOutcome: isText ? "Text started" : "Call started",
+          callOutcome: isText ? "Google Voice Messages opened" : "Google Voice opened",
           notes: `${isText ? "Opened Google Voice text" : "Opened Google Voice call"} for ${ownerName} / ${lead.address || "Missing address"} / ${phoneLabel}`,
           phoneNumber: phone
         },
         authToken
       );
-      updateLead(id, applyActivityToLead(activity));
+      const isNavigationOnly = ["voice_opened", "voice_text_opened"].includes(activity.actionType);
+      updateLead(id, isNavigationOnly ? { lastActivityAction: activity.actionType } : applyActivityToLead(activity));
       return activity;
     } catch {
       setSaveStatus("Contact Log Pending");
@@ -1209,6 +1265,30 @@ export function App() {
     setBuyerMessage("Buyer removed.");
   }
 
+  const dialerLead = leads.find((lead) => lead.id === dialerLeadId);
+  if (dialerLead) {
+    return (
+      <main className="power-dialer-app">
+        <PowerDialerView
+          currentUser={auth.user}
+          lead={dialerLead}
+          loadActivities={(leadId) => fetchLeadActivity(leadId, authToken)}
+          loadContacts={(leadId) => fetchContactIntelligence(leadId, authToken)}
+          onAdvance={advancePowerDialer}
+          onClose={() => {
+            setDialerLeadId(null);
+            setQueueMessage("Calling mode paused. Queue position is preserved.");
+          }}
+          onContactFeedback={(contactId, feedbackType) => sendContactFeedback(dialerLead.id, contactId, feedbackType, authToken)}
+          onLeadSaved={(saved) => setLeads((current) => current.map((lead) => (lead.id === saved.id ? saved : lead)))}
+          onSaveResult={(leadId, result) => saveLeadCallResult(leadId, result, authToken)}
+          onVoiceAction={(actionType, phone) => recordPhoneInteraction(dialerLead.id, actionType, phone)}
+          queueLabel={dialerQueue}
+        />
+      </main>
+    );
+  }
+
   return (
     <main className="app-shell">
       <aside className="sidebar">
@@ -1391,10 +1471,11 @@ export function App() {
                   <option>My Queue</option>
                   <option>Available Leads</option>
                   <option>Interested</option>
+                  <option>Follow Up</option>
                   <option>Due Today</option>
                   <option>Overdue</option>
                 </select>
-                {!isAdmin ? <button className="primary-button" onClick={claimNextAvailable}>Start Calling</button> : null}
+                {!isAdmin && queueFilter !== "Interested" ? <button className="primary-button" onClick={startPowerDialer}>Start Calling</button> : null}
                 <select
                   aria-label="Filter by pipeline stage"
                   className="stage-filter"
@@ -3556,8 +3637,8 @@ function LeadWorkspacePage({
           <GoogleVoiceActions
             contact={bestContact}
             leadContext={{ ownerName, address: lead.address || "Missing Address" }}
-            onCall={(phone) => onPhoneInteraction?.("call_started", phone)}
-            onText={(phone) => onPhoneInteraction?.("text_started", phone)}
+            onCall={(phone) => onPhoneInteraction?.("voice_opened", phone)}
+            onText={(phone) => onPhoneInteraction?.("voice_text_opened", phone)}
             primary
           />
         ) : (
@@ -4147,8 +4228,8 @@ function LeadDetail({
 
   function handleCallClick(phone = "") {
     addLeadActivity({
-      actionType: "call_started",
-      callOutcome: "Call started",
+      actionType: "voice_opened",
+      callOutcome: "Google Voice opened",
       notes: phone ? `Opened Google Voice call for ${ownerLabel} / ${lead.address} / ${formatPhone(phone)}` : `Opened Google Voice call for ${ownerLabel} / ${lead.address}`,
       phoneNumber: phone
     });
@@ -4156,8 +4237,8 @@ function LeadDetail({
 
   function handleTextClick(phone = "") {
     addLeadActivity({
-      actionType: "text_started",
-      callOutcome: "Text started",
+      actionType: "voice_text_opened",
+      callOutcome: "Google Voice Messages opened",
       notes: phone ? `Opened Google Voice text for ${ownerLabel} / ${lead.address} / ${formatPhone(phone)}` : `Opened Google Voice text for ${ownerLabel} / ${lead.address}`,
       phoneNumber: phone
     });
@@ -6926,6 +7007,7 @@ function leadMatchesQueueFilter(lead = {}, filter = "All Leads", currentUser = {
   if (filter === "My Queue") return Boolean(userId && lead.assignedToUserId === userId);
   if (filter === "Available Leads") return !safeText(lead.assignedToUserId);
   if (filter === "Interested") return normalizeContactStatus(lead.contactStatus) === "interested";
+  if (filter === "Follow Up") return lead.stage === "Follow Up" || normalizeContactStatus(lead.contactStatus) === "follow-up" || Boolean(lead.followUpDate);
   if (filter === "Due Today") return safeText(lead.followUpDate) === today;
   if (filter === "Overdue") return Boolean(lead.followUpDate && lead.followUpDate < today);
   return true;
@@ -6944,6 +7026,7 @@ function getLeadNextAction(lead = {}) {
   if (getLeadPhones(lead).length === 0) return "Research Contact";
   if (status === "interested") return "Escalate to Manager";
   if (status === "not-interested") return "Do Not Chase";
+  if (status === "do-not-call") return "Do Not Call";
   if (status === "wrong-number" || status === "disconnected") return "Research Contact";
   if (status === "follow-up" || lead.followUpDate) return "Work Follow-Up";
   if (status === "left-voicemail") return "Call Again";
@@ -7099,6 +7182,9 @@ function getActivityActionLabel(actionType = "") {
     called: "called this lead",
     call_started: "started a call",
     text_started: "started a text",
+    voice_opened: "opened Google Voice",
+    voice_text_opened: "opened Google Voice Messages",
+    call_result: "saved a call result",
     note_added: "added a note",
     status_changed: "changed status",
     follow_up_set: "set a follow-up",

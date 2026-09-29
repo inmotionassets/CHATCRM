@@ -10442,3 +10442,223 @@ html:not([data-theme="dark"]),
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+
+
+.power-dialer-app {
+  background: var(--bg);
+  min-height: 100vh;
+  padding: 20px;
+}
+
+.power-dialer-shell {
+  display: grid;
+  gap: 14px;
+  margin: 0 auto;
+  max-width: 1500px;
+}
+
+.power-dialer-header {
+  align-items: center;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+  padding: 18px 20px;
+}
+
+.power-dialer-header h2,
+.power-dialer-header p {
+  margin: 0;
+}
+
+.power-dialer-context {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+
+.power-dialer-context span {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  padding: 12px;
+}
+
+.power-dialer-context b,
+.power-notes span,
+.power-follow-up span {
+  color: var(--accent-dark);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+}
+
+.power-dialer-grid {
+  align-items: start;
+  display: grid;
+  gap: 14px;
+  grid-template-columns: minmax(0, 1.25fr) minmax(380px, 0.75fr);
+}
+
+.power-dialer-call-card,
+.power-dialer-result-card,
+.power-dialer-empty {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  display: grid;
+  gap: 16px;
+  padding: 18px;
+}
+
+.power-dialer-primary-action .google-voice-actions {
+  align-items: stretch;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+}
+
+.power-dialer-primary-action .google-voice-context {
+  grid-column: 1 / -1;
+}
+
+.power-dialer-primary-action .primary-command {
+  align-items: center;
+  display: flex;
+  font-size: 1.05rem;
+  font-weight: 900;
+  justify-content: center;
+  min-height: 58px;
+}
+
+.power-contact-list {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.power-contact-list button {
+  background: var(--panel-soft);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  color: var(--text);
+  display: grid;
+  gap: 4px;
+  padding: 11px;
+  text-align: left;
+}
+
+.power-contact-list button.active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.power-contact-list small {
+  color: var(--muted);
+}
+
+.power-call-script,
+.power-text-template {
+  background: color-mix(in srgb, var(--accent-soft) 65%, var(--panel));
+  border: 1px solid color-mix(in srgb, var(--accent) 20%, var(--border));
+  border-radius: 10px;
+  padding: 14px;
+}
+
+.power-call-script p,
+.power-text-template p {
+  line-height: 1.55;
+  margin-bottom: 0;
+}
+
+.power-text-template > div {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+}
+
+.power-text-template small {
+  color: var(--muted);
+  display: block;
+  margin-top: 9px;
+}
+
+.power-result-buttons {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.power-result-buttons button {
+  background: var(--panel-soft);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  color: var(--text);
+  font-weight: 850;
+  min-height: 46px;
+  padding: 9px;
+}
+
+.power-result-buttons button.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: white;
+}
+
+.power-notes,
+.power-follow-up {
+  display: grid;
+  gap: 7px;
+}
+
+.power-notes textarea,
+.power-follow-up input {
+  background: var(--panel-soft);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  color: var(--text);
+  font: inherit;
+  padding: 11px;
+  resize: vertical;
+}
+
+.power-save-next {
+  font-size: 1rem;
+  min-height: 52px;
+}
+
+.power-dialer-result-card > small {
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+@media (max-width: 1080px) {
+  .power-dialer-context {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .power-dialer-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 700px) {
+  .power-dialer-app {
+    padding: 10px;
+  }
+
+  .power-dialer-context,
+  .power-contact-list,
+  .power-result-buttons {
+    grid-template-columns: 1fr;
+  }
+
+  .power-dialer-primary-action .google-voice-actions {
+    grid-template-columns: 1fr;
+  }
+}

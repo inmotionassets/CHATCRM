@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { normalizeCallablePhone, buildGoogleVoiceUrl, buildGoogleVoiceTextUrl, getCallingContacts, canCallContact, canTextContact } from './contactCalling.js';
+import { normalizeCallablePhone, buildGoogleVoiceUrl, buildGoogleVoiceTextUrl, getCallingContacts, canCallContact, canTextContact, noAnswerTextTemplate, openGoogleVoiceWindow } from './contactCalling.js';
 const lead = { id: 'dallas-test', phones: ['4696288298', '2145551234', '9725554567', '4695557890', '2145559999'], phone: '+1 469 628 8298' };
 test('normalizes supported US formats and rejects broken actions', () => {
   for (const value of ['4696288298', '(469) 628-8298', '469-628-8298', '+1 469 628 8298']) assert.equal(normalizeCallablePhone(value), '+14696288298');
@@ -38,4 +38,21 @@ test('missing phone and another lead snapshot never create calling actions', () 
     const result=getCallingContacts({id:name, name}, {leadId:lead.id,contacts:[{contactType:'phone',value:lead.phones[0]}]});
     assert.equal(result.best,null); assert.equal(result.contacts.length,0);
   }
+});
+
+test('Google Voice launcher reuses one named window without controlling its contents', () => {
+  const calls = [];
+  const fakeWindow = { focus() {}, opener: {} };
+  assert.equal(openGoogleVoiceWindow('https://voice.google.com/u/0/calls?a=nc,%2B14696288298', (url, name) => {
+    calls.push({ url, name });
+    return fakeWindow;
+  }), true);
+  assert.equal(calls[0].name, 'legacy-google-voice');
+  assert.equal(fakeWindow.opener, null);
+  assert.equal(openGoogleVoiceWindow('', () => fakeWindow), false);
+});
+
+test('manual no-answer text remains a reusable template', () => {
+  assert.match(noAnswerTextTemplate, /LEGACY Land Acquisitions/);
+  assert.match(noAnswerTextTemplate, /text or call me back/);
 });

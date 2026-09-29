@@ -53,3 +53,19 @@ export function getCallingContacts(lead = {}, snapshot = null) {
     || null;
   return { best, contacts: best ? [best, ...contacts.filter((contact) => contact !== best)] : contacts };
 }
+
+
+export const noAnswerTextTemplate = "Hey, this is Virgo with LEGACY Land Acquisitions. I just tried reaching you about a property I believe you own. We’re looking to purchase in the area and wanted to see if you’d be open to an offer. If so, feel free to text or call me back when you get a chance. Thanks!";
+
+export function openGoogleVoiceWindow(url, openWindow = globalThis.window?.open?.bind(globalThis.window)) {
+  if (!url || typeof openWindow !== "function") return false;
+  const opened = openWindow(url, "legacy-google-voice");
+  if (!opened) return false;
+  try {
+    opened.opener = null;
+    opened.focus?.();
+  } catch {
+    // Cross-origin access is intentionally not attempted.
+  }
+  return true;
+}
