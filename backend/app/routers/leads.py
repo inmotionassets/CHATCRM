@@ -79,6 +79,11 @@ class Lead(BaseModel):
     lockedByUserId: str = ""
     lockedByUserName: str = ""
     lockedUntil: str = ""
+    assignedToUserId: str = ""
+    assignedToName: str = ""
+    assignedAt: str = ""
+    claimedAt: str = ""
+    interestedAt: str = ""
 
 
 class LeadActivity(BaseModel):
@@ -104,6 +109,21 @@ class LeadActivityCreate(BaseModel):
 
 class LeadNotesUpdate(BaseModel):
     notes: str = ""
+
+
+class LeadAssignmentRequest(BaseModel):
+    userId: str = ""
+    userName: str = ""
+
+
+class BulkLeadAssignmentRequest(LeadAssignmentRequest):
+    leadIds: list[str] = Field(default_factory=list)
+
+
+class LeadResultRequest(BaseModel):
+    contactStatus: str
+    notes: str = ""
+    followUpDate: str = ""
 
 
 class LeadLock(BaseModel):
@@ -136,9 +156,12 @@ CONTACT_ACTIVITY_TYPES = {
     "not_interested",
     "voicemail",
     "wrong_number",
+    "interested_marked",
+    "disconnected",
 }
 
 CALL_COUNT_ACTIVITY_TYPES = {"called", "call_started", "voicemail", "not_interested", "wrong_number"}
+ASSIGNMENT_FIELDS = ("assignedToUserId", "assignedToName", "assignedAt", "claimedAt")
 
 
 def get_sqlite_connection() -> sqlite3.Connection:
@@ -609,6 +632,182 @@ def reset_notes_and_followups() -> LeadResetResult:
     )
 
 
+def assignment_payload(lead: Lead, user_id: str, user_name: str, claimed: bool) -> Lead:
+    now = iso_timestamp()
+    return lead.model_copy(update={
+        "assignedToUserId": user_id,
+        "assignedToName": user_name,
+        "assignedAt": now if user_id else "",
+        "claimedAt": now if user_id and claimed else "",
+    })
+
+
+def claim_lead_for_user(lead_id: str, current_user: CurrentUser) -> Lead:
+    if current_user.role not in {"Admin", "Acquisition"}:
+        raise HTTPException(status_code=403, detail="Acquisition access required")
+    user_id = current_user.username.strip()
+    user_name = user_display_name(current_user)
+    if not user_id:
+        raise HTTPException(status_code=400, detail="Caller account is missing")
+
+    if USE_POSTGRES:
+        with get_postgres_connection() as connection:
+            row = connection.execute("SELECT payload FROM leads WHERE id = %s FOR UPDATE", (lead_id,)).fetchone()
+            if not row:
+                raise HTTPException(status_code=404, detail="Lead not found")
+            lead = lead_from_saved_payload(row[0], lead_id)
+            if not lead:
+                raise HTTPException(status_code=422, detail="Lead record is invalid")
+            if lead.assignedToUserId and lead.assignedToUserId != user_id:
+                raise HTTPException(status_code=409, detail=f"Already claimed by {lead.assignedToName or lead.assignedToUserId}")
+            if lead.assignedToUserId == user_id:
+                return lead
+            saved = assignment_payload(lead, user_id, user_name, claimed=True)
+            connection.execute("UPDATE leads SET payload = %s WHERE id = %s", (saved.model_dump_json(), lead_id))
+    else:
+        with get_sqlite_connection() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute("SELECT payload FROM leads WHERE id = ?", (lead_id,)).fetchone()
+            if not row:
+                raise HTTPException(status_code=404, detail="Lead not found")
+            lead = lead_from_saved_payload(row["payload"], lead_id)
+            if not lead:
+                raise HTTPException(status_code=422, detail="Lead record is invalid")
+            if lead.assignedToUserId and lead.assignedToUserId != user_id:
+                raise HTTPException(status_code=409, detail=f"Already claimed by {lead.assignedToName or lead.assignedToUserId}")
+            if lead.assignedToUserId == user_id:
+                return lead
+            saved = assignment_payload(lead, user_id, user_name, claimed=True)
+            connection.execute("UPDATE leads SET payload = ? WHERE id = ?", (saved.model_dump_json(), lead_id))
+
+    create_lead_activity(
+        lead_id,
+        LeadActivityCreate(actionType="lead_claimed", callOutcome="Lead Claimed", notes=f"{user_name} claimed this lead."),
+        current_user,
+    )
+    return get_saved_lead(lead_id) or saved
+
+
+def assign_lead_as_admin(lead_id: str, request: LeadAssignmentRequest, current_user: CurrentUser) -> Lead:
+    if current_user.role != "Admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    lead = get_saved_lead(lead_id)
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    user_id = request.userId.strip()
+    user_name = request.userName.strip() or user_id
+    saved = assignment_payload(lead, user_id, user_name, claimed=False)
+    save_lead(saved)
+    action = "lead_assigned" if user_id else "lead_unassigned"
+    outcome = f"Assigned to {user_name}" if user_id else "Unassigned"
+    create_lead_activity(
+        lead_id,
+        LeadActivityCreate(actionType=action, callOutcome=outcome, notes=outcome),
+        current_user,
+    )
+    return get_saved_lead(lead_id) or saved
+
+
+def save_lead_result(lead_id: str, request: LeadResultRequest, current_user: CurrentUser) -> Lead:
+    lead = get_saved_lead(lead_id)
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    if current_user.role != "Admin" and lead.assignedToUserId != current_user.username:
+        detail = f"Lead belongs to {lead.assignedToName or lead.assignedToUserId}" if lead.assignedToUserId else "Claim this lead before saving a result"
+        raise HTTPException(status_code=409, detail=detail)
+
+    status = request.contactStatus.strip().lower()
+    allowed = {
+        "interested", "follow-up", "left-voicemail", "did-not-answer", "not-interested",
+        "wrong-number", "disconnected", "confirmed-owner", "needs-review", "contact-review",
+    }
+    if status not in allowed:
+        raise HTTPException(status_code=422, detail="Unsupported call result")
+
+    stage = lead.stage
+    if status == "interested":
+        stage = "Contacted"
+    elif status in {"follow-up", "left-voicemail", "did-not-answer"}:
+        stage = "Follow Up"
+    updates = {
+        "contactStatus": status,
+        "notes": request.notes,
+        "followUpDate": request.followUpDate.strip(),
+        "stage": stage,
+        "needsReview": status in {"needs-review", "contact-review"},
+    }
+    if status == "interested":
+        updates["interestedAt"] = iso_timestamp()
+    saved = update_lead_payload(lead_id, updates)
+    if not saved:
+        raise HTTPException(status_code=404, detail="Lead not found")
+
+    action_types = {
+        "interested": "interested_marked",
+        "follow-up": "follow_up_set",
+        "left-voicemail": "voicemail",
+        "not-interested": "not_interested",
+        "wrong-number": "wrong_number",
+        "disconnected": "disconnected",
+    }
+    label = status.replace("-", " ").title()
+    create_lead_activity(
+        lead_id,
+        LeadActivityCreate(
+            actionType=action_types.get(status, "called"),
+            callOutcome=label,
+            notes=f"Call result saved: {label}",
+            followUpDate=request.followUpDate.strip(),
+        ),
+        current_user,
+    )
+    return get_saved_lead(lead_id) or saved
+
+
+def sync_saved_leads_preserving_assignments(leads: list[Lead]) -> list[Lead]:
+    if USE_POSTGRES:
+        with get_postgres_connection() as connection:
+            connection.execute("LOCK TABLE leads IN SHARE ROW EXCLUSIVE MODE")
+            rows = connection.execute("SELECT id, payload FROM leads").fetchall()
+            existing = {
+                str(row[0]): lead for row in rows
+                if (lead := lead_from_saved_payload(row[1], str(row[0])))
+            }
+            merged = []
+            for incoming in leads:
+                current = existing.get(incoming.id)
+                if current:
+                    incoming = incoming.model_copy(update={field: getattr(current, field) for field in ASSIGNMENT_FIELDS})
+                merged.append(incoming)
+            connection.execute("DELETE FROM leads")
+            with connection.cursor() as cursor:
+                cursor.executemany(
+                    "INSERT INTO leads (id, payload) VALUES (%s, %s)",
+                    [(lead.id, lead.model_dump_json()) for lead in merged],
+                )
+        return list_saved_leads()
+
+    with get_sqlite_connection() as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        rows = connection.execute("SELECT id, payload FROM leads").fetchall()
+        existing = {
+            str(row["id"]): lead for row in rows
+            if (lead := lead_from_saved_payload(row["payload"], str(row["id"])))
+        }
+        merged = []
+        for incoming in leads:
+            current = existing.get(incoming.id)
+            if current:
+                incoming = incoming.model_copy(update={field: getattr(current, field) for field in ASSIGNMENT_FIELDS})
+            merged.append(incoming)
+        connection.execute("DELETE FROM leads")
+        connection.executemany(
+            "INSERT INTO leads (id, payload) VALUES (?, ?)",
+            [(lead.id, lead.model_dump_json()) for lead in merged],
+        )
+    return list_saved_leads()
+
+
 def create_lead_activity(lead_id: str, activity: LeadActivityCreate, current_user: CurrentUser) -> LeadActivity:
     lead = get_saved_lead(lead_id)
     if not lead:
@@ -931,6 +1130,42 @@ def daily_call_counts(current_user: CurrentUser):
     return list_daily_call_counts(current_user)
 
 
+@router.post("/bulk-assign", response_model=list[Lead])
+def bulk_assign_leads(request: BulkLeadAssignmentRequest, current_user: CurrentUser):
+    require_owner_access(current_user)
+    if current_user.role != "Admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    lead_ids = list(dict.fromkeys(lead_id.strip() for lead_id in request.leadIds if lead_id.strip()))
+    if not lead_ids:
+        raise HTTPException(status_code=400, detail="Select at least one lead")
+    return [
+        assign_lead_as_admin(
+            lead_id,
+            LeadAssignmentRequest(userId=request.userId, userName=request.userName),
+            current_user,
+        )
+        for lead_id in lead_ids
+    ]
+
+
+@router.post("/{lead_id}/claim", response_model=Lead)
+def claim_lead(lead_id: str, current_user: CurrentUser):
+    require_owner_access(current_user)
+    return claim_lead_for_user(lead_id, current_user)
+
+
+@router.put("/{lead_id}/assignment", response_model=Lead)
+def assign_lead(lead_id: str, request: LeadAssignmentRequest, current_user: CurrentUser):
+    require_owner_access(current_user)
+    return assign_lead_as_admin(lead_id, request, current_user)
+
+
+@router.post("/{lead_id}/result", response_model=Lead)
+def record_lead_result(lead_id: str, request: LeadResultRequest, current_user: CurrentUser):
+    require_owner_access(current_user)
+    return save_lead_result(lead_id, request, current_user)
+
+
 @router.get("/{lead_id}/activity", response_model=list[LeadActivity])
 def lead_activity(lead_id: str, current_user: CurrentUser):
     require_owner_access(current_user)
@@ -962,8 +1197,7 @@ def sync_leads(leads: list[Lead], current_user: CurrentUser):
     if not leads:
         raise HTTPException(status_code=400, detail="Refusing to sync an empty lead list")
 
-    replace_saved_leads(leads)
-    return list_saved_leads()
+    return sync_saved_leads_preserving_assignments(leads)
 
 
 @router.post("", response_model=Lead)
@@ -976,7 +1210,9 @@ def create_lead(lead: Lead, current_user: CurrentUser):
 @router.put("/{lead_id}", response_model=Lead)
 def update_lead(lead_id: str, lead: Lead, current_user: CurrentUser):
     require_owner_access(current_user)
-    saved_lead = lead.model_copy(update={"id": lead_id})
+    existing = get_saved_lead(lead_id)
+    protected = {field: getattr(existing, field) for field in ASSIGNMENT_FIELDS} if existing else {}
+    saved_lead = lead.model_copy(update={"id": lead_id, **protected})
     save_lead(saved_lead)
     return saved_lead
 

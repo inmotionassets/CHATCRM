@@ -90,10 +90,13 @@ const stages = ["New Lead", "Contacted", "Follow Up", "Offer", "Closed"];
 const contactStatuses = [
   { value: "needs-review", label: "Needs Review", color: "orange" },
   { value: "confirmed-owner", label: "Confirmed Owner", color: "green" },
+  { value: "interested", label: "Interested", color: "green" },
   { value: "not-interested", label: "Not Interested", color: "red" },
   { value: "did-not-answer", label: "Did Not Answer", color: "gray" },
   { value: "left-voicemail", label: "Left Voicemail", color: "blue" },
   { value: "follow-up", label: "Follow Up", color: "yellow" },
+  { value: "wrong-number", label: "Wrong Number", color: "red" },
+  { value: "disconnected", label: "Disconnected", color: "red" },
   { value: "contact-review", label: "Contact Review", color: "yellow" }
 ];
 const contactStatusAliases = {
@@ -105,6 +108,9 @@ const contactStatusAliases = {
   "not-interested": "not-interested",
   "left-voicemail": "left-voicemail",
   "follow-up": "follow-up",
+  interested: "interested",
+  "wrong-number": "wrong-number",
+  disconnected: "disconnected",
   "contact-review": "contact-review"
 };
 const mainViews = ["Properties", "Pipeline", "Disposition", "Markets", "Buyers", "Data Hub", "Insights", "Academy"];
@@ -285,7 +291,12 @@ const emptyLead = {
   lastActivityAction: "",
   lockedByUserId: "",
   lockedByUserName: "",
-  lockedUntil: ""
+  lockedUntil: "",
+  assignedToUserId: "",
+  assignedToName: "",
+  assignedAt: "",
+  claimedAt: "",
+  interestedAt: ""
 };
 
 const emptyBuyer = {
@@ -332,6 +343,8 @@ export function App() {
   const [query, setQuery] = React.useState("");
   const [stageFilter, setStageFilter] = React.useState("All");
   const [reviewFilter, setReviewFilter] = React.useState("All");
+  const [queueFilter, setQueueFilter] = React.useState("All Leads");
+  const [queueMessage, setQueueMessage] = React.useState("");
   const [sortMode, setSortMode] = React.useState("zip");
   const [hotOnly, setHotOnly] = React.useState(false);
   const [formLead, setFormLead] = React.useState(emptyLead);
@@ -681,7 +694,8 @@ export function App() {
       (reviewFilter === "Needs Review" && lead.needsReview) ||
       (reviewFilter === "Reviewed" && !lead.needsReview);
     const matchesHot = !hotOnly || isSellerHotLead(lead);
-    return matchesQuery && matchesStage && matchesReview && matchesHot;
+    const matchesQueue = leadMatchesQueueFilter(lead, queueFilter, auth?.user);
+    return matchesQuery && matchesStage && matchesReview && matchesHot && matchesQueue;
   });
   const sortedLeads = sortLeads(filteredLeads, sortMode);
 
@@ -765,6 +779,71 @@ export function App() {
     setLeads((current) => current.map((lead) => (lead.id === id ? { ...lead, ...updates } : lead)));
   }
 
+  async function claimLead(id, options = {}) {
+    if (!authToken) return null;
+    setQueueMessage("Claiming lead...");
+    try {
+      const claimed = await claimLeadForCaller(id, authToken);
+      setLeads((current) => current.map((lead) => (lead.id === id ? claimed : lead)));
+      setQueueMessage(`Claimed for ${claimed.assignedToName || auth.user?.name || auth.user?.username}.`);
+      if (options.open !== false) openLeadWorkspace(id);
+      if (!isAdmin) setQueueFilter("My Queue");
+      return claimed;
+    } catch (error) {
+      setQueueMessage(error?.message || "Another caller claimed this lead first.");
+      const refreshed = await fetchBackendLeads(authToken).catch(() => null);
+      if (refreshed) setLeads(refreshed);
+      return null;
+    }
+  }
+
+  async function claimNextAvailable() {
+    const available = sortLeads(leads.filter((lead) => !lead.assignedToUserId), sortMode)[0];
+    if (!available) {
+      setQueueMessage("No unassigned leads are available right now.");
+      return;
+    }
+    await claimLead(available.id);
+  }
+
+  async function applyBulkAssignment(value) {
+    if (!isAdmin || !authToken || selectedLeadIds.length === 0) return;
+    const userId = value === "__unassign" ? "" : value;
+    const row = teamOnboardingRows.find((item) => item.username === userId);
+    const request = userId ? { userId, userName: row?.name || row?.displayName || userId } : { userId: "", userName: "" };
+    setQueueMessage(userId ? `Assigning ${selectedLeadIds.length} leads...` : `Unassigning ${selectedLeadIds.length} leads...`);
+    try {
+      const saved = await bulkAssignLeadQueue(selectedLeadIds, request, authToken);
+      const savedById = new Map(saved.map((lead) => [lead.id, lead]));
+      setLeads((current) => current.map((lead) => savedById.get(lead.id) || lead));
+      setQueueMessage(`${saved.length} lead${saved.length === 1 ? "" : "s"} ${userId ? "assigned" : "unassigned"}.`);
+      setSelectedLeadIds([]);
+    } catch (error) {
+      setQueueMessage(error?.message || "Assignment could not be saved.");
+    }
+  }
+
+  async function saveResultAndNext() {
+    if (!selectedLead || !authToken) return;
+    setQueueMessage("Saving result...");
+    try {
+      const saved = await saveLeadCallResult(selectedLead.id, {
+        contactStatus: normalizeContactStatus(selectedLead.contactStatus),
+        notes: selectedLead.notes || "",
+        followUpDate: selectedLead.followUpDate || ""
+      }, authToken);
+      setLeads((current) => current.map((lead) => (lead.id === saved.id ? saved : lead)));
+      setQueueMessage("Result saved. Loading next lead...");
+      const currentIndex = sortedLeads.findIndex((lead) => lead.id === selectedLead.id);
+      const nextLead = sortedLeads.slice(currentIndex + 1).find((lead) => lead.id !== selectedLead.id)
+        || sortedLeads.find((lead) => lead.id !== selectedLead.id);
+      if (nextLead) openLeadWorkspace(nextLead.id, { replace: true });
+      else closeLeadWorkspace();
+    } catch (error) {
+      setQueueMessage(error?.message || "Result was not saved. Stay on this lead and try again.");
+    }
+  }
+
   async function recordPhoneInteraction(id, actionType, phone) {
     const lead = leads.find((item) => item.id === id);
     if (!lead || !authToken) return null;
@@ -831,10 +910,10 @@ export function App() {
 
   function moveSelectedLead(direction) {
     if (!selectedLead) return;
-    const currentIndex = filteredLeads.findIndex((lead) => lead.id === selectedLead.id);
-    if (currentIndex === -1) return;
-    const nextIndex = (currentIndex + direction + filteredLeads.length) % filteredLeads.length;
-    if (filteredLeads[nextIndex]?.id) openLeadWorkspace(filteredLeads[nextIndex].id, { replace: true });
+    const currentIndex = sortedLeads.findIndex((lead) => lead.id === selectedLead.id);
+    if (currentIndex === -1 || sortedLeads.length === 0) return;
+    const nextIndex = (currentIndex + direction + sortedLeads.length) % sortedLeads.length;
+    if (sortedLeads[nextIndex]?.id) openLeadWorkspace(sortedLeads[nextIndex].id, { replace: true });
   }
 
   function markReviewedAndNext() {
@@ -853,6 +932,7 @@ export function App() {
     setQuery("");
     setStageFilter("All");
     setReviewFilter("All");
+    setQueueFilter("All Leads");
     setSortMode("zip");
     setHotOnly(false);
   }
@@ -1302,6 +1382,20 @@ export function App() {
               </div>
               <div className="lead-filters">
                 <select
+                  aria-label="Filter call queue"
+                  className="stage-filter"
+                  onChange={(event) => setQueueFilter(event.target.value)}
+                  value={queueFilter}
+                >
+                  <option>All Leads</option>
+                  <option>My Queue</option>
+                  <option>Available Leads</option>
+                  <option>Interested</option>
+                  <option>Due Today</option>
+                  <option>Overdue</option>
+                </select>
+                {!isAdmin ? <button className="primary-button" onClick={claimNextAvailable}>Start Calling</button> : null}
+                <select
                   aria-label="Filter by pipeline stage"
                   className="stage-filter"
                   onChange={(event) => setStageFilter(event.target.value)}
@@ -1340,10 +1434,13 @@ export function App() {
             <p className="results-count">
               Showing {displayedLeads.length} of {filteredLeads.length} matching properties / {leads.length} total
             </p>
+            {queueMessage ? <p className="queue-message" role="status">{queueMessage}</p> : null}
             <StatusLegend />
             {isAdmin ? (
               <BulkToolbar
                 allVisibleSelected={allVisibleSelected}
+                assignmentOptions={teamOnboardingRows.filter((row) => row.role === "Acquisition")}
+                onApplyAssignment={applyBulkAssignment}
                 onApplyStage={applyBulkStage}
                 onApplyStatus={applyBulkStatus}
                 onClear={() => setSelectedLeadIds([])}
@@ -1387,11 +1484,15 @@ export function App() {
                       <span className="lead-meta"><b>Property</b>{lead.parcelNumber || getLeadZip(lead) || "Address saved"}</span>
                       <span className="lead-meta"><b>Best Contact</b>{getBestContactLabel(lead)}</span>
                       <span className="lead-meta"><b>Status</b>{getLeadQueueStatus(lead).label}</span>
+                      <span className="lead-meta"><b>Assigned</b>{lead.assignedToName || "Available"}</span>
                       <span className="lead-meta"><b>Last Contact</b>{lead.lastContactedAt ? `${lead.lastContactedBy || "Unknown"} / ${formatActivityTime(lead.lastContactedAt)}` : "None"}</span>
                       <span className="lead-meta"><b>Next Action</b>{getLeadNextAction(lead)}</span>
                     </div>
                     <div className="row-actions">
                       <button onClick={() => openLeadWorkspace(lead.id)}>View</button>
+                      {!lead.assignedToUserId && !isAdmin ? (
+                        <button className="primary-button" onClick={() => claimLead(lead.id)}>Claim</button>
+                      ) : null}
                       <a href={buildGoogleMapsUrl(lead.address)} rel="noreferrer" target="_blank">Map</a>
                       <a href={buildStreetViewUrl(lead.address)} rel="noreferrer" target="_blank">Street</a>
                       <button onClick={() => openEditForm(lead)}>Edit</button>
@@ -1466,6 +1567,7 @@ export function App() {
               authToken={authToken}
               message={teamOnboardingMessage}
               onRefresh={refreshTeamOnboarding}
+              leads={leads}
               rows={teamOnboardingRows}
             />
           ) : null}
@@ -1511,9 +1613,11 @@ export function App() {
             onEdit={() => openEditForm(selectedLead)}
             onMarkReviewed={() => markReviewed(selectedLead.id)}
             onMarkReviewedAndNext={markReviewedAndNext}
+            onClaim={() => claimLead(selectedLead.id, { open: false })}
             onNext={() => moveSelectedLead(1)}
             onPhoneInteraction={(actionType, phone) => recordPhoneInteraction(selectedLead.id, actionType, phone)}
             onPrevious={() => moveSelectedLead(-1)}
+            onSaveAndNext={saveResultAndNext}
             onStartAgreement={() => setAgreementLead(selectedLead)}
             onStatusChange={(status) => updateContactStatus(selectedLead.id, status)}
             onUpdate={(updates) => updateLead(selectedLead.id, updates)}
@@ -3030,7 +3134,11 @@ function TrainingView() {
   );
 }
 
-function TeamOnboardingView({ authToken, message, onRefresh, rows }) {
+function TeamOnboardingView({ authToken, leads, message, onRefresh, rows }) {
+  const [dailyCalls, setDailyCalls] = React.useState([]);
+  React.useEffect(() => {
+    fetchDailyCallCounts(authToken).then(setDailyCalls).catch(() => setDailyCalls([]));
+  }, [authToken]);
   const signedCount = rows.filter((row) => row.agreementSigned).length;
   const profileCount = rows.filter((row) => row.profileComplete).length;
   const missingNames = rows.filter((row) => !row.name).length;
@@ -3054,8 +3162,40 @@ function TeamOnboardingView({ authToken, message, onRefresh, rows }) {
       </div>
 
       <p className="team-onboarding-note">
-        Watch each caller finish their first login, add their name and email, sign the agreement, and download the signed PDF.
+        Watch each caller finish onboarding and manage the live call floor from the same team accounts.
       </p>
+
+      <section className="call-floor-manager">
+        <div className="section-heading">
+          <p className="eyebrow">Call Floor</p>
+          <h3>Acquisition Queue</h3>
+        </div>
+        <div className="onboarding-table-wrap">
+          <table className="onboarding-table">
+            <thead><tr><th>Caller</th><th>Assigned</th><th>Remaining</th><th>Attempts Today</th><th>Interested</th><th>Follow-ups Due</th><th>Last Activity</th></tr></thead>
+            <tbody>
+              {rows.filter((row) => row.role === "Acquisition").map((row) => {
+                const assigned = leads.filter((lead) => lead.assignedToUserId === row.username);
+                const attempts = dailyCalls.find((item) => item.userId === row.username)?.count || 0;
+                const due = assigned.filter((lead) => lead.followUpDate && lead.followUpDate <= new Date().toISOString().slice(0, 10)).length;
+                const interested = assigned.filter((lead) => normalizeContactStatus(lead.contactStatus) === "interested").length;
+                const last = assigned.map((lead) => lead.lastContactedAt).filter(Boolean).sort().at(-1);
+                return (
+                  <tr key={`floor-${row.username}`}>
+                    <td><strong>{row.name || row.displayName || row.username}</strong><span>{row.username}</span></td>
+                    <td>{assigned.length}</td>
+                    <td>{assigned.filter((lead) => !lead.lastContactedAt).length}</td>
+                    <td>{attempts}</td>
+                    <td>{interested}</td>
+                    <td>{due}</td>
+                    <td>{last ? formatActivityTime(last) : "None"}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </section>
 
       <div className="team-summary-grid">
         <Stat label="Total Accounts" value={rows.length} />
@@ -3343,9 +3483,11 @@ function LeadWorkspacePage({
   onEdit,
   onMarkReviewed,
   onMarkReviewedAndNext,
+  onClaim,
   onNext,
   onPhoneInteraction,
   onPrevious,
+  onSaveAndNext,
   onStartAgreement,
   onStatusChange,
   onUpdate
@@ -3368,6 +3510,7 @@ function LeadWorkspacePage({
   const analyzedAt = lead.lastContactedAt || lead.updatedAt || lead.createdAt || "";
   const canCreateOffer = currentUser?.role === "Admin";
   const taxLabel = `${lead.county || ""} ${lead.source || ""} ${lead.address || ""}`.toLowerCase().includes("dallas") ? "Dallas Tax" : "County Tax";
+  const canWorkLead = currentUser?.role === "Admin" || lead.assignedToUserId === currentUser?.username;
 
   return (
     <section className="lead-workspace-page" aria-label="Lead workspace">
@@ -3377,9 +3520,14 @@ function LeadWorkspacePage({
           <p className="eyebrow">Acquisition Desk</p>
           <h2>{lead.address || "Missing Address"}</h2>
           <p>{ownerName} / {lead.county || "County needed"} / {status.label}</p>
+          <p className="lead-assignment-line">
+            {lead.assignedToName ? `Assigned to ${lead.assignedToName}` : "Available to claim"}
+          </p>
           <div className="lead-workspace-nav-inline">
+            {!lead.assignedToUserId && currentUser?.role === "Acquisition" ? <button className="primary-button" onClick={onClaim} type="button">Claim Lead</button> : null}
             <button className="secondary-button" onClick={onPrevious} type="button">Previous</button>
             <button className="secondary-button" onClick={onNext} type="button">Next</button>
+            <button className="primary-button" disabled={!canWorkLead} onClick={onSaveAndNext} type="button">Save &amp; Next</button>
           </div>
         </div>
         <div className="lead-workspace-score compact-score">
@@ -3404,14 +3552,18 @@ function LeadWorkspacePage({
           <b>Best Contact</b>
           {primaryPhone ? formatPhone(primaryPhone) : "Missing"}
         </span>
-        <GoogleVoiceActions
-          contact={bestContact}
-          leadContext={{ ownerName, address: lead.address || "Missing Address" }}
-          onCall={(phone) => onPhoneInteraction?.("call_started", phone)}
-          onText={(phone) => onPhoneInteraction?.("text_started", phone)}
-          primary
-        />
-        <a className={!emailHref ? "disabled" : ""} href={emailHref || undefined}>Email</a>
+        {canWorkLead ? (
+          <GoogleVoiceActions
+            contact={bestContact}
+            leadContext={{ ownerName, address: lead.address || "Missing Address" }}
+            onCall={(phone) => onPhoneInteraction?.("call_started", phone)}
+            onText={(phone) => onPhoneInteraction?.("text_started", phone)}
+            primary
+          />
+        ) : (
+          <span className="assigned-lead-warning">Assigned to {lead.assignedToName || lead.assignedToUserId}. Open your queue to make calls.</span>
+        )}
+        <a className={!emailHref || !canWorkLead ? "disabled" : ""} href={emailHref && canWorkLead ? emailHref : undefined}>Email</a>
         <a className="tax-command" href={taxUrl} rel="noreferrer" target="_blank">{taxLabel}</a>
         {canCreateOffer ? <button onClick={onStartAgreement} type="button">Create Offer</button> : null}
         <details className="property-tools-menu">
@@ -5408,6 +5560,8 @@ function StatusLegend() {
 
 function BulkToolbar({
   allVisibleSelected,
+  assignmentOptions,
+  onApplyAssignment,
   onApplyStage,
   onApplyStatus,
   onClear,
@@ -5426,6 +5580,14 @@ function BulkToolbar({
         Select visible
       </label>
       <strong>{selectedCount} selected</strong>
+
+      <select aria-label="Assign selected leads" defaultValue="" onChange={(event) => onApplyAssignment(event.target.value)}>
+        <option disabled value="">Assign caller</option>
+        <option value="__unassign">Unassign selected</option>
+        {assignmentOptions.map((row) => (
+          <option key={row.username} value={row.username}>{row.name || row.displayName || row.username}</option>
+        ))}
+      </select>
 
       <select aria-label="Bulk update contact status" defaultValue="" onChange={(event) => onApplyStatus(event.target.value)}>
         <option disabled value="">Set status</option>
@@ -5553,7 +5715,12 @@ function sanitizeLeads(value) {
       lastActivityAction: safeText(lead.lastActivityAction),
       lockedByUserId: safeText(lead.lockedByUserId),
       lockedByUserName: safeText(lead.lockedByUserName),
-      lockedUntil: safeText(lead.lockedUntil)
+      lockedUntil: safeText(lead.lockedUntil),
+      assignedToUserId: safeText(lead.assignedToUserId),
+      assignedToName: safeText(lead.assignedToName),
+      assignedAt: safeText(lead.assignedAt),
+      claimedAt: safeText(lead.claimedAt),
+      interestedAt: safeText(lead.interestedAt)
     }));
 }
 
@@ -6079,6 +6246,44 @@ async function fetchDailyCallCounts(token) {
         count: Number(item.count) || 0
       }))
     : [];
+}
+
+async function claimLeadForCaller(leadId, token) {
+  const response = await fetch(`${apiBaseUrl}/leads/${encodeURIComponent(leadId)}/claim`, {
+    method: "POST",
+    headers: authHeaders(token)
+  });
+  if (!response.ok) {
+    const detail = await response.json().catch(() => ({}));
+    throw new Error(detail.detail || "Lead claim failed");
+  }
+  return sanitizeLeads([await response.json()])[0];
+}
+
+async function bulkAssignLeadQueue(leadIds, assignment, token) {
+  const response = await fetch(`${apiBaseUrl}/leads/bulk-assign`, {
+    method: "POST",
+    headers: { ...authHeaders(token), "Content-Type": "application/json" },
+    body: JSON.stringify({ leadIds, ...assignment })
+  });
+  if (!response.ok) {
+    const detail = await response.json().catch(() => ({}));
+    throw new Error(detail.detail || "Bulk assignment failed");
+  }
+  return sanitizeLeads(await response.json());
+}
+
+async function saveLeadCallResult(leadId, result, token) {
+  const response = await fetch(`${apiBaseUrl}/leads/${encodeURIComponent(leadId)}/result`, {
+    method: "POST",
+    headers: { ...authHeaders(token), "Content-Type": "application/json" },
+    body: JSON.stringify(result)
+  });
+  if (!response.ok) {
+    const detail = await response.json().catch(() => ({}));
+    throw new Error(detail.detail || "Call result save failed");
+  }
+  return sanitizeLeads([await response.json()])[0];
 }
 
 async function fetchBackendLeads(token) {
@@ -6670,7 +6875,7 @@ function isPlaceholderOwnerValue(value = "") {
 }
 
 function getAssignedOwnerName(lead = {}) {
-  const assigned = safeText(lead.owner).trim();
+  const assigned = safeText(lead.assignedToName || lead.owner).trim();
   return assigned && !isPlaceholderOwnerValue(assigned) ? assigned : "Unassigned";
 }
 
@@ -6715,6 +6920,17 @@ function isContactReviewLead(lead = {}) {
   return Boolean(safeText(lead.address) && getDisplayOwnerName(lead) && !hasCallableLeadPhone(lead));
 }
 
+function leadMatchesQueueFilter(lead = {}, filter = "All Leads", currentUser = {}) {
+  const today = new Date().toISOString().slice(0, 10);
+  const userId = safeText(currentUser?.username);
+  if (filter === "My Queue") return Boolean(userId && lead.assignedToUserId === userId);
+  if (filter === "Available Leads") return !safeText(lead.assignedToUserId);
+  if (filter === "Interested") return normalizeContactStatus(lead.contactStatus) === "interested";
+  if (filter === "Due Today") return safeText(lead.followUpDate) === today;
+  if (filter === "Overdue") return Boolean(lead.followUpDate && lead.followUpDate < today);
+  return true;
+}
+
 function getLeadQueueStatus(lead = {}) {
   if (getLeadPhones(lead).length === 0) return { label: "Contact Review", value: "contact-review" };
 
@@ -6726,7 +6942,9 @@ function getLeadQueueStatus(lead = {}) {
 function getLeadNextAction(lead = {}) {
   const status = getLeadContactStatus(lead).value;
   if (getLeadPhones(lead).length === 0) return "Research Contact";
+  if (status === "interested") return "Escalate to Manager";
   if (status === "not-interested") return "Do Not Chase";
+  if (status === "wrong-number" || status === "disconnected") return "Research Contact";
   if (status === "follow-up" || lead.followUpDate) return "Work Follow-Up";
   if (status === "left-voicemail") return "Call Again";
   if (status === "did-not-answer") return "Retry Call";
@@ -6800,6 +7018,9 @@ function getSellerHeat(lead = {}) {
   const stage = safeText(lead.stage);
   const notes = safeText(lead.notes).toLowerCase();
 
+  if (status === "interested") {
+    return { score: 90, label: "Interested", level: "hot", reason: "Seller interest was confirmed and is ready for manager review." };
+  }
   if (status === "not-interested") {
     return { score: 0, label: "Not Interested", level: "cold", reason: "Seller or contact indicated no interest." };
   }
@@ -6896,6 +7117,9 @@ function getActivityTypeForStatus(status = "") {
   if (normalizedStatus === "follow-up") return "follow_up_set";
   if (normalizedStatus === "confirmed-owner") return "called";
   if (normalizedStatus === "did-not-answer") return "called";
+  if (normalizedStatus === "wrong-number") return "wrong_number";
+  if (normalizedStatus === "disconnected") return "disconnected";
+  if (normalizedStatus === "interested") return "interested_marked";
   return "status_changed";
 }
 
@@ -7330,7 +7554,7 @@ function exportLeadsCsv(leads) {
       offer.spread ? formatMoney(offer.spread) : "",
       lead.stage,
       lead.score,
-      lead.owner,
+      lead.assignedToName || lead.owner,
       cleanSourceName(lead.source),
       lead.followUpDate,
       lead.lastContactedBy,
