@@ -1475,7 +1475,7 @@ export function App() {
                   <option>Due Today</option>
                   <option>Overdue</option>
                 </select>
-                {!isAdmin && queueFilter !== "Interested" ? <button className="primary-button" onClick={startPowerDialer}>Start Calling</button> : null}
+                {queueFilter !== "Interested" ? <button className="primary-button" onClick={startPowerDialer}>Start Calling</button> : null}
                 <select
                   aria-label="Filter by pipeline stage"
                   className="stage-filter"
