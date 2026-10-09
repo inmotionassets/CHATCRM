@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+import sqlite3
+from contextlib import contextmanager
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
@@ -16,6 +18,12 @@ from ..contact_intelligence import (
     normalize_phone,
 )
 from . import leads as lead_store
+from ..propstream_import import (
+    APPROVAL_PHRASE,
+    apply_propstream_import,
+    preview_propstream_import,
+    restore_propstream_before_images,
+)
 
 
 router = APIRouter(prefix="/contact-intelligence", tags=["contact-intelligence"])
@@ -407,6 +415,156 @@ def eligible_missing_leads() -> list[str]:
             upsert_queue(lead.id, "pending", reason)
             eligible.append(lead.id)
     return eligible
+
+
+class PropStreamPhoneCandidate(BaseModel):
+    value: str
+    phoneType: str = "unknown"
+    publicDnc: bool = False
+    alreadyOnLead: bool = False
+
+
+class PropStreamLeadImport(BaseModel):
+    leadId: str
+    ownerName: str = ""
+    propertyAddress: str = ""
+    matchConfidence: str
+    matchEvidence: list[str] = Field(default_factory=list)
+    contacts: list[PropStreamPhoneCandidate] = Field(default_factory=list)
+
+
+class PropStreamImportRequest(BaseModel):
+    approved: bool = False
+    approvalPhrase: str = ""
+    previewHash: str = ""
+    imports: list[PropStreamLeadImport] = Field(default_factory=list)
+
+
+class PropStreamRollbackRequest(BaseModel):
+    approved: bool = False
+    approvalPhrase: str = ""
+    backupHash: str
+    beforeImages: list[dict[str, Any]] = Field(default_factory=list)
+
+
+@contextmanager
+def contact_import_connection(*, read_only: bool = False):
+    """Use the existing database without the general helper's table initializers."""
+    if lead_store.USE_POSTGRES:
+        import psycopg
+        with psycopg.connect(lead_store.postgres_connection_url(), prepare_threshold=None) as connection:
+            if read_only:
+                connection.execute("SET TRANSACTION READ ONLY")
+            yield connection
+        return
+    if read_only:
+        path = lead_store.DATABASE_PATH.resolve().as_posix()
+        connection = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    else:
+        connection = sqlite3.connect(lead_store.DATABASE_PATH)
+    connection.row_factory = sqlite3.Row
+    try:
+        yield connection
+        if not read_only:
+            connection.commit()
+    except Exception:
+        if not read_only:
+            connection.rollback()
+        raise
+    finally:
+        connection.close()
+
+
+def validate_propstream_request(request: PropStreamImportRequest) -> list[dict[str, Any]]:
+    if len(request.imports) > 2515:
+        raise HTTPException(status_code=400, detail="Import exceeds the verified lead inventory")
+    lead_ids = [item.leadId for item in request.imports]
+    if len(lead_ids) != len(set(lead_ids)):
+        raise HTTPException(status_code=400, detail="Each existing lead may appear only once per import")
+    for item in request.imports:
+        if item.matchConfidence not in {"exact", "high_confidence"}:
+            raise HTTPException(status_code=400, detail="Only exact and high-confidence property matches may be imported")
+    return [item.model_dump() for item in request.imports]
+
+
+def validate_existing_lead_ids(connection, use_postgres: bool, imports: list[dict[str, Any]]) -> None:
+    lead_ids = [item["leadId"] for item in imports]
+    if not lead_ids:
+        return
+    placeholder = "%s" if use_postgres else "?"
+    marks = ", ".join([placeholder] * len(lead_ids))
+    rows = connection.execute(f"SELECT id FROM leads WHERE id IN ({marks})", tuple(lead_ids)).fetchall()
+    found = {str(row[0]) for row in rows}
+    if found != set(lead_ids):
+        raise HTTPException(status_code=404, detail="Import row references a lead that does not exist")
+
+
+@router.post("/import/propstream/dry-run")
+def dry_run_propstream_contacts(request: PropStreamImportRequest, current_user: CurrentUser):
+    """Admin-only production-targeted dry run. Opens a read-only database transaction."""
+    require_admin(current_user)
+    if request.approved or request.approvalPhrase:
+        raise HTTPException(status_code=400, detail="Dry-run requests cannot approve an import")
+    imports = validate_propstream_request(request)
+    try:
+        with contact_import_connection(read_only=True) as connection:
+            validate_existing_lead_ids(connection, lead_store.USE_POSTGRES, imports)
+            result = preview_propstream_import(connection, lead_store.USE_POSTGRES, imports)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Read-only production dry run failed; no data was changed") from exc
+    return result
+
+
+@router.post("/import/propstream")
+def import_propstream_contacts(request: PropStreamImportRequest, current_user: CurrentUser):
+    """Apply only the exact plan previously dry-run and explicitly approved."""
+    require_admin(current_user)
+    if not request.approved or request.approvalPhrase != APPROVAL_PHRASE or not request.previewHash:
+        raise HTTPException(status_code=400, detail="Explicit PropStream import approval and dry-run hash are required")
+    imports = validate_propstream_request(request)
+    try:
+        with contact_import_connection() as connection:
+            validate_existing_lead_ids(connection, lead_store.USE_POSTGRES, imports)
+            current_plan = preview_propstream_import(connection, lead_store.USE_POSTGRES, imports, lock_rows=True)
+            if current_plan["planHash"] != request.previewHash:
+                raise HTTPException(status_code=409, detail="Production contacts changed since the dry run; refresh the preview")
+            result = apply_propstream_import(
+                connection,
+                lead_store.USE_POSTGRES,
+                imports,
+                approved=request.approved,
+                approval_phrase=request.approvalPhrase,
+            )
+    except HTTPException:
+        raise
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Contact import rolled back; no lead or activity fields were changed") from exc
+    return {**result, "planHash": request.previewHash, "productionWrites": True}
+
+
+@router.post("/import/propstream/rollback")
+def rollback_propstream_contacts(request: PropStreamRollbackRequest, current_user: CurrentUser):
+    """Restore only contact snapshots captured by a production dry-run."""
+    require_admin(current_user)
+    try:
+        with contact_import_connection() as connection:
+            result = restore_propstream_before_images(
+                connection,
+                lead_store.USE_POSTGRES,
+                request.beforeImages,
+                approved=request.approved,
+                approval_phrase=request.approvalPhrase,
+                backup_hash=request.backupHash,
+            )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Contact snapshot restore rolled back") from exc
+    return {**result, "productionWrites": True}
 
 
 @router.get("/leads/{lead_id}", response_model=ContactIntelligenceSnapshot)

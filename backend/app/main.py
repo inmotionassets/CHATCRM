@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from .routers import agreements, auth, buyer_diagnostics, buyers, contact_intelligence, counties, disposition, imports, leads, outcomes, parcels
 
 app = FastAPI(title="LEGACY API")
-BUILD_ID = "lead-store-fallback-recovery-v1"
+BUILD_ID = "propstream-guarded-contact-import-v1"
 
 app.add_middleware(
     CORSMiddleware,
