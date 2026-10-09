@@ -120,17 +120,17 @@ USERS = {
     "shawn": {
         "password_hash": "be26741b2ba331681301031661dd7aed10503ac1614a3af9c16c1629a7a72b2f",
         "name": "Shawn",
-        "role": "Admin",
+        "role": "Acquisition",
     },
     "don": {
         "password_hash": "0a7cd0e571d32201ed4c81492667dfd36a5b89bdfdbed9264a202a35e0ce1c7d",
         "name": "Donatello",
-        "role": "Admin",
+        "role": "Acquisition",
     },
     "acq-caller-01": {
         "password_hash": "12375b2b2a40278bce9fa69aa16f73db07959759a049603fecb98460d671d3d7",
-        "name": "Acquisition Caller 01",
-        "role": "Acquisition",
+        "name": "Chikeitha",
+        "role": "Admin",
     },
     "acq-caller-02": {
         "password_hash": "cd6c981976ee15dc42680aedeb2a4a089a07bc39a3a7f248aabf455bd566d42f",
@@ -564,7 +564,8 @@ def get_current_user(authorization: Annotated[str | None, Header()] = None) -> U
     return User(
         username=username,
         name=str(payload.get("name", "")),
-        role=str(payload.get("role", "")),
+        # Roles come from current account configuration, so downgrades also apply to existing sessions.
+        role=str(USERS[username]["role"]),
         email=str(payload.get("email", "")),
         profile_complete=bool(payload.get("profile_complete", False)),
         agreement_signed=bool(payload.get("agreement_signed", False)),
