@@ -16,10 +16,13 @@ export function buildGoogleVoiceTextUrl(phone) {
 }
 export function getContactCallStatus(contact) {
   const status = String(contact?.status || "").trim().toLowerCase().replace(/[ -]+/g, "_");
-  if (contact?.doNotCall || contact?.wrongNumber || contact?.suppressed || contact?.isSuppressed || ["dnc", "do_not_call", "public_dnc", "suppressed", "wrong_number", "opted_out", "opt_out", "do_not_contact"].includes(status)) return "suppressed";
+  if (contact?.doNotCall || contact?.wrongNumber || contact?.suppressed || contact?.isSuppressed || ["dnc", "do_not_call", "public_dnc", "suppressed", "wrong_number", "opted_out", "opt_out", "do_not_contact", "litigation_hold"].includes(status)) return "suppressed";
   if (contact?.disconnected || status === "disconnected") return "disconnected";
+  const reviewComplete = contact?.verifiedOwner === true
+    && (contact?.sourceQualityReviewed === true || ["confirmed_owner", "verified", "call_ready"].includes(status));
   if (!normalizeCallablePhone(contact?.normalizedValue || contact?.value || contact?.displayValue)
     || contact?.isCallable !== true
+    || !reviewComplete
     || ["needs_review", "unverified", "unreviewed", "contact_review", "review_required", "pending_review", "unknown"].includes(status)) return "unreviewed";
   return "eligible";
 }
@@ -40,8 +43,8 @@ export function getCallingContacts(lead = {}, snapshot = null) {
     const key = normalized || value;
     if (!records.has(key)) records.set(key, {
       value, normalizedValue: normalized, contactType: "phone", source: "Imported lead data",
-      status: normalized ? "imported" : "needs_review", isCallable: Boolean(normalized),
-      isTextable: Boolean(normalized),
+      // A syntactically valid phone is not an ownership/compliance review.
+      status: "needs_review", isCallable: false, isTextable: false,
     });
   }
   const current = snapshot?.leadId === lead.id ? snapshot : null;
@@ -54,7 +57,9 @@ export function getCallingContacts(lead = {}, snapshot = null) {
   }
   let contacts = [...records.values()];
   const leadStatus = String(lead.contactStatus || "").trim().toLowerCase().replace(/[_ ]+/g, "-");
-  if (["dnc", "do-not-call", "not-interested", "wrong-number", "suppressed", "opt-out", "opted-out", "do-not-contact"].includes(leadStatus)) {
+  if (lead.litigationHold === true) {
+    contacts = contacts.map((contact) => ({ ...contact, isCallable: false, isTextable: false, status: "litigation_hold" }));
+  } else if (["dnc", "do-not-call", "not-interested", "wrong-number", "suppressed", "opt-out", "opted-out", "do-not-contact"].includes(leadStatus)) {
     contacts = contacts.map((contact) => ({ ...contact, doNotCall: true, isCallable: false, status: "suppressed" }));
   } else if (leadStatus === "disconnected") {
     contacts = contacts.map((contact) => ({ ...contact, disconnected: true, isCallable: false, status: "disconnected" }));

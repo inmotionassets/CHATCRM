@@ -10,25 +10,28 @@ test('normalizes supported US formats and rejects broken actions', () => {
 });
 test('all five imports survive missing or stale intelligence without mutating the lead', () => {
   const before = JSON.stringify(lead);
-  const snapshot = {leadId: lead.id, contacts: [{id:'saved', contactType:'phone',value:'4696288298',isCallable:true, status:'imported'}]};
+  const snapshot = {leadId: lead.id, contacts: [{id:'saved', contactType:'phone',value:'4696288298',isCallable:true, verifiedOwner:true, sourceQualityReviewed:true, status:'confirmed_owner'}]};
   assert.equal(getCallingContacts(lead, snapshot).contacts.length, 5);
-  assert.equal(getCallingContacts(lead).contacts.length, 5);
+  const missingIntelligence = getCallingContacts(lead);
+  assert.equal(missingIntelligence.contacts.length, 5);
+  assert.equal(missingIntelligence.best, null);
+  assert.ok(missingIntelligence.contacts.every((contact) => !canCallContact(contact) && !canTextContact(contact)));
   assert.equal(JSON.stringify(lead), before);
 });
 test('ranked best is first, additional calls use their own numbers, saved-only records survive', () => {
-  const best = {id:'best',contactType:'phone',value:'9725554567',isCallable:true,verifiedOwner:true};
+  const best = {id:'best',contactType:'phone',value:'9725554567',isCallable:true,verifiedOwner:true,sourceQualityReviewed:true,status:'confirmed_owner'};
   const result = getCallingContacts(lead, {leadId:lead.id,bestContact:best,contacts:[best,{contactType:'phone',value:'2145550109'}]});
   assert.equal(result.contacts.length,6);
   assert.equal(result.best.id,'best');
   assert.equal(buildGoogleVoiceUrl(result.contacts[0].value),'https://voice.google.com/u/0/calls?a=nc,%2B19725554567');
-  assert.equal(buildGoogleVoiceUrl(result.contacts[1].value),'https://voice.google.com/u/0/calls?a=nc,%2B14696288298');
+  assert.equal(canCallContact(result.contacts[1]),false);
 });
 test('blocked contacts stay visible with no call/text action and no text when opted out', () => {
   for (const flag of ['doNotCall','wrongNumber','disconnected']) {
     const contact={contactType:'phone',value:lead.phones[0],[flag]:true};
     const result=getCallingContacts(lead,{leadId:lead.id,contacts:[contact],bestContact:contact});
     assert.equal(result.contacts.length,5);
-    assert.notEqual(result.best.value,contact.value);
+    assert.equal(result.best,null);
     assert.equal(canCallContact(contact),false); assert.equal(canTextContact(contact),false);
   }
   assert.equal(canTextContact({value:lead.phones[0],doNotText:true}),false);
@@ -58,22 +61,27 @@ test('manual no-answer text remains a reusable template', () => {
 });
 
 test('call eligibility fails closed for unreviewed contacts and names each blocked state', () => {
-  const number = { contactType: 'phone', value: '2145550199', normalizedValue: '2145550199', isCallable: true, status: 'imported' };
+  const number = { contactType: 'phone', value: '2145550199', normalizedValue: '2145550199', isCallable: true, verifiedOwner: true, sourceQualityReviewed: true, status: 'confirmed_owner' };
   assert.equal(getContactCallStatus(number), 'eligible');
   assert.equal(canCallContact(number), true);
   const unreviewed = { ...number, status: 'needs_review', isCallable: false };
   assert.equal(getContactCallStatus(unreviewed), 'unreviewed');
   assert.equal(canCallContact(unreviewed), false);
+  assert.equal(getContactCallStatus({ ...number, verifiedOwner: false, sourceQualityReviewed: false, status: 'imported' }), 'unreviewed');
   assert.equal(getContactCallStatus({ ...number, doNotCall: true }), 'suppressed');
   assert.equal(getContactCallStatus({ ...number, disconnected: true }), 'disconnected');
+  assert.equal(getContactCallStatus({ ...number, status: 'litigation_hold', isCallable: false }), 'suppressed');
 });
 
 test('lead-level DNC and disconnected dispositions suppress all dialer numbers', () => {
-  const snapshot = { leadId: 'blocked', contacts: [{ id: 'n1', contactType: 'phone', value: '2145550199', isCallable: true, status: 'imported' }] };
+  const snapshot = { leadId: 'blocked', contacts: [{ id: 'n1', contactType: 'phone', value: '2145550199', isCallable: true, verifiedOwner: true, sourceQualityReviewed: true, status: 'confirmed_owner' }] };
   const dnc = getCallingContacts({ id: 'blocked', phone: '2145550199', contactStatus: 'do-not-call' }, snapshot);
   assert.equal(dnc.best, null);
   assert.equal(getContactCallStatus(dnc.contacts[0]), 'suppressed');
   const disconnected = getCallingContacts({ id: 'blocked', phone: '2145550199', contactStatus: 'disconnected' }, snapshot);
   assert.equal(disconnected.best, null);
   assert.equal(getContactCallStatus(disconnected.contacts[0]), 'disconnected');
+  const litigation = getCallingContacts({ id: 'held', phone: '2145550199', litigationHold: true }, snapshot);
+  assert.equal(litigation.best, null);
+  assert.equal(getContactCallStatus(litigation.contacts[0]), 'suppressed');
 });

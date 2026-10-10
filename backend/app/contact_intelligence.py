@@ -36,7 +36,9 @@ class LeadContact(BaseModel):
     normalizedValue: str = ""
     source: str = "existing_data"
     sourceUrl: str = ""
-    sourceConfidence: int = 0
+    # None means the source supplied no score. Zero is a real score and must
+    # remain distinguishable from missing provenance.
+    sourceConfidence: int | None = None
     provider: str = ""
     matchConfidence: int = 0
     ownerNameMatch: int = 0
@@ -57,6 +59,7 @@ class LeadContact(BaseModel):
     disconnected: bool = False
     wrongNumber: bool = False
     verifiedOwner: bool = False
+    sourceQualityReviewed: bool = False
     lastAttemptedAt: str = ""
     lastResult: str = ""
     lastVerifiedDate: str = ""
@@ -92,14 +95,17 @@ def calling_contact_status(contact: Any) -> str:
         item = dict(contact or {})
     status = str(item.get("status") or "").strip().lower().replace("-", "_").replace(" ", "_")
     if item.get("doNotCall") or item.get("wrongNumber") or item.get("suppressed") or item.get("isSuppressed") or status in {
-        "dnc", "do_not_call", "public_dnc", "suppressed", "wrong_number", "opted_out", "opt_out", "do_not_contact"
+        "dnc", "do_not_call", "public_dnc", "suppressed", "wrong_number", "opted_out", "opt_out", "do_not_contact", "litigation_hold"
     }:
         return "suppressed"
     if item.get("disconnected") or status == "disconnected":
         return "disconnected"
     phone = item.get("normalizedValue") or item.get("value") or item.get("displayValue") or ""
     normalized = normalize_phone(str(phone))
-    if (not is_valid_us_phone(normalized) or item.get("isCallable") is not True
+    review_complete = item.get("verifiedOwner") is True and (
+        item.get("sourceQualityReviewed") is True or status in {"confirmed_owner", "verified", "call_ready"}
+    )
+    if (not is_valid_us_phone(normalized) or item.get("isCallable") is not True or not review_complete
             or status in {"needs_review", "unverified", "unreviewed", "contact_review", "review_required", "unknown"}):
         return "unreviewed"
     return "eligible"
@@ -572,12 +578,25 @@ class ContactIntelligenceService:
 
             updates: dict[str, Any] = {"updatedAt": timestamp, "lastResult": feedback_type}
             if feedback in {"confirmed", "confirmed_owner", "owner_confirmed"}:
+                # An explicit review can enable this individual number only.
+                # Sticky suppression/quality outcomes are never cleared here.
+                blocked = (
+                    contact.doNotCall or contact.wrongNumber or contact.disconnected
+                    or contact.status.strip().lower().replace("-", "_") in {
+                        "dnc", "do_not_call", "public_dnc", "suppressed", "wrong_number",
+                        "disconnected", "opted_out", "opt_out", "do_not_contact", "litigation_hold",
+                    }
+                )
                 updates.update(
                     {
                         "verifiedOwner": True,
-                        "status": "confirmed_owner",
-                        "sourceConfidence": max(contact.sourceConfidence, 92),
-                        "evidence": [*contact.evidence, "Team confirmed this contact belongs to the owner."],
+                        "sourceQualityReviewed": True,
+                        "lastVerifiedDate": timestamp,
+                        "status": "confirmed_owner" if not blocked else contact.status,
+                        "isCallable": bool(not blocked and is_valid_us_phone(normalize_phone(contact.normalizedValue or contact.value))),
+                        # Review never certifies texting consent.
+                        "isTextable": contact.isTextable,
+                        "evidence": [*contact.evidence, "Team verified owner association and reviewed the phone source."],
                     }
                 )
             elif feedback in {"wrong_number", "not_owner"}:
@@ -587,7 +606,7 @@ class ContactIntelligenceService:
                         "isCallable": False,
                         "isTextable": False,
                         "status": "wrong_number",
-                        "sourceConfidence": min(contact.sourceConfidence, 20),
+                        "sourceConfidence": min(contact.sourceConfidence, 20) if contact.sourceConfidence is not None else None,
                         "evidence": [*contact.evidence, "Team marked this as the wrong number."],
                     }
                 )
@@ -598,7 +617,7 @@ class ContactIntelligenceService:
                         "isCallable": False,
                         "isTextable": False,
                         "status": "disconnected",
-                        "sourceConfidence": min(contact.sourceConfidence, 25),
+                        "sourceConfidence": min(contact.sourceConfidence, 25) if contact.sourceConfidence is not None else None,
                         "evidence": [*contact.evidence, "Team marked this contact as disconnected."],
                     }
                 )
@@ -621,7 +640,10 @@ class ContactIntelligenceService:
                     }
                 )
             elif feedback in {"attempted", "called", "voicemail", "no_answer"}:
-                updates.update({"lastAttemptedAt": timestamp, "status": feedback})
+                updates.update({
+                    "lastAttemptedAt": timestamp,
+                    "status": contact.status if contact.verifiedOwner and contact.sourceQualityReviewed else feedback,
+                })
 
             if notes:
                 updates["evidence"] = [*updates.get("evidence", contact.evidence), notes]
@@ -807,7 +829,7 @@ def merge_snapshots(
     for contact in [*existing_snapshot.contacts, *provider_snapshot.contacts]:
         key = f"{contact.contactType}:{contact.normalizedValue or contact.value}".lower()
         current = contacts_by_key.get(key)
-        if not current or contact.sourceConfidence > current.sourceConfidence:
+        if not current or (contact.sourceConfidence or 0) > (current.sourceConfidence or 0):
             contacts_by_key[key] = contact
 
     source_urls = dedupe_source_links([*existing_snapshot.sourceUrls, *provider_snapshot.sourceUrls])
@@ -875,7 +897,7 @@ def normalize_snapshot(snapshot: ContactIntelligenceSnapshot) -> ContactIntellig
         ),
         normalized_contacts[0] if normalized_contacts else None,
     )
-    confidence = best_contact.sourceConfidence if best_contact else 0
+    confidence = (best_contact.sourceConfidence or 0) if best_contact else 0
     return snapshot.model_copy(update={"contacts": normalized_contacts, "bestContact": best_contact, "confidence": confidence})
 
 

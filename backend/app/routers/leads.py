@@ -71,6 +71,7 @@ class Lead(BaseModel):
     assignmentFee: str = ""
     followUpDate: str = ""
     needsReview: bool = False
+    litigationHold: bool = False
     contactStatus: str = "needs-review"
     lastContactedUserId: str = ""
     lastContactedBy: str = ""

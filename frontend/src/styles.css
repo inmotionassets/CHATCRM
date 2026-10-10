@@ -7034,6 +7034,86 @@ textarea::placeholder {
   gap: 6px;
 }
 
+.contact-review-summary,
+.contact-number-row {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+}
+
+.contact-review-summary {
+  color: var(--muted-strong);
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
+.contact-review-list {
+  display: grid;
+  gap: 6px;
+  max-height: 340px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 2px;
+}
+
+.contact-review-list .contact-best-card {
+  gap: 5px;
+  padding: 8px;
+}
+
+.contact-number-row strong {
+  font-variant-numeric: tabular-nums;
+}
+
+.contact-state-badges {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  gap: 4px;
+  justify-content: flex-end;
+}
+
+.contact-review-state {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted-strong);
+  flex: 0 0 auto;
+  font-size: 0.67rem;
+  font-weight: 900;
+  padding: 3px 7px;
+}
+
+.contact-review-state.is-call-ready {
+  background: rgba(15, 159, 110, 0.14);
+  border-color: rgba(15, 159, 110, 0.4);
+  color: #15936e;
+}
+
+.contact-review-state.is-suppressed,
+.contact-review-state.is-disconnected {
+  background: rgba(211, 66, 66, 0.1);
+  border-color: rgba(211, 66, 66, 0.3);
+  color: #c54141;
+}
+
+.contact-review-confirm {
+  border-color: rgba(15, 159, 110, 0.45) !important;
+  color: #07865d !important;
+}
+
+.contact-optout-note {
+  color: #c54141;
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+@media (max-width: 640px) {
+  .contact-review-list { max-height: 300px; }
+  .contact-number-row { align-items: flex-start; }
+  .contact-number-row strong { font-size: 0.92rem; }
+}
+
 .contact-intel-badges small {
   background: rgba(15, 159, 110, 0.12);
   border: 1px solid rgba(15, 159, 110, 0.18);

@@ -225,7 +225,7 @@ export default function PowerDialerView({
       <div className="power-dialer-context">
         <span><b>Assigned Caller</b>{lead.assignedToName || currentUser?.name || currentUser?.username}</span>
         <span><b>Best Contact</b>{displayPhone(activeContact)}</span>
-        <span><b>Contact Status</b>{activeContact.status || "Stored"} / {activeContact.matchConfidence || activeContact.sourceConfidence || 0}%</span>
+        <span><b>Contact Status</b>Verified · Call Ready<br /><small>{activeContact.sourceConfidence == null ? "Source score not provided" : `${activeContact.sourceConfidence}% source confidence`}</small></span>
         <span><b>Attempts</b>{attemptCount}</span>
         <span><b>Last Contact</b>{lastContact ? `${lastContact.callOutcome} / ${formatTime(lastContact.createdAt)}` : "None"}</span>
         <span><b>Follow-Up</b>{lead.followUpDate || "None"}</span>
