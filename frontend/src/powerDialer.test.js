@@ -59,3 +59,29 @@ test("save failure never advances", async () => {
   );
   assert.equal(advanced, false);
 });
+
+test('All Leads includes caller-owned and available leads but never another caller’s assignment', () => {
+  assert.equal(normalizeDialerQueue('All Leads'), 'All Leads');
+  assert.deepEqual(getPowerDialerQueue(leads, 'All Leads', user).map((lead) => lead.id), ['mine-1', 'mine-no-phone', 'available', 'due', 'overdue']);
+});
+
+test('campaign eligibility can come from saved Contact Intelligence and never wraps to completed leads', () => {
+  const savedOnly = [
+    { id: 'first', assignedToUserId: 'caller-a' },
+    { id: 'second', assignedToUserId: 'caller-a' },
+    { id: 'third', assignedToUserId: 'caller-a' }
+  ];
+  assert.equal(getNextPowerDialerLead(savedOnly, 'first', 'My Queue', user, '2026-09-29', ['second', 'third'], ['second']).id, 'third');
+  assert.equal(getNextPowerDialerLead(savedOnly, 'third', 'My Queue', user, '2026-09-29', ['first'], ['third']), null);
+});
+
+test('campaign queues exclude lead-level DNC, disconnected, wrong-number, and opt-out dispositions', () => {
+  const blocked = [
+    { id: 'dnc', assignedToUserId: 'caller-a', phones: ['2145551212'], contactStatus: 'do-not-call' },
+    { id: 'wrong', assignedToUserId: 'caller-a', phones: ['2145551212'], contactStatus: 'wrong-number' },
+    { id: 'disconnected', assignedToUserId: 'caller-a', phones: ['2145551212'], contactStatus: 'disconnected' },
+    { id: 'not-interested', assignedToUserId: 'caller-a', phones: ['2145551212'], contactStatus: 'not-interested' },
+  ];
+  assert.deepEqual(getPowerDialerQueue(blocked, 'All Leads', user).map((lead) => lead.id), ['dnc', 'wrong', 'disconnected', 'not-interested']);
+  assert.equal(getNextPowerDialerLead(blocked, '', 'All Leads', user, '2026-09-29'), null);
+});

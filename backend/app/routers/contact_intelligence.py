@@ -16,6 +16,7 @@ from ..contact_intelligence import (
     extract_lead_emails,
     extract_lead_phones,
     normalize_phone,
+    summarize_calling_snapshot,
 )
 from . import leads as lead_store
 from ..propstream_import import (
@@ -38,6 +39,11 @@ class ContactFeedbackRequest(BaseModel):
 
 class ContactBatchRequest(BaseModel):
     leadIds: list[str] = Field(default_factory=list)
+
+
+class CallingQueueRequest(BaseModel):
+    leadIds: list[str] = Field(default_factory=list, max_length=5000)
+
 
 
 class ContactEntitySnapshotRequest(BaseModel):
@@ -565,6 +571,55 @@ def rollback_propstream_contacts(request: PropStreamRollbackRequest, current_use
     except Exception as exc:
         raise HTTPException(status_code=503, detail="Contact snapshot restore rolled back") from exc
     return {**result, "productionWrites": True}
+
+
+@router.post("/calling-queue")
+def summarize_calling_queue(request: CallingQueueRequest, current_user: CurrentUser):
+    """Read a bounded campaign snapshot without returning phone values or enriching contacts."""
+    require_lead_contact_access(current_user)
+    requested_ids = list(dict.fromkeys(str(value).strip() for value in request.leadIds if str(value).strip()))
+    saved_leads = lead_store.list_saved_leads()
+    leads_by_id = {str(lead.id): lead for lead in saved_leads}
+    selected = [leads_by_id[lead_id] for lead_id in requested_ids if lead_id in leads_by_id]
+    selected_ids = [str(lead.id) for lead in selected]
+    saved_by_id: dict[str, ContactIntelligenceSnapshot] = {}
+
+    if selected_ids:
+        with get_connection() as connection:
+            if lead_store.USE_POSTGRES:
+                rows = connection.execute(
+                    "SELECT lead_id, payload FROM contact_intelligence_records WHERE lead_id = ANY(%s)",
+                    (selected_ids,),
+                ).fetchall()
+                saved_by_id = {
+                    str(row[0]): ContactIntelligenceSnapshot.model_validate(lead_store.parse_saved_payload(row[1]))
+                    for row in rows
+                }
+            else:
+                for offset in range(0, len(selected_ids), 500):
+                    chunk = selected_ids[offset:offset + 500]
+                    placeholders = ",".join("?" for _ in chunk)
+                    rows = connection.execute(
+                        f"SELECT lead_id, payload FROM contact_intelligence_records WHERE lead_id IN ({placeholders})",
+                        chunk,
+                    ).fetchall()
+                    saved_by_id.update({
+                        str(row["lead_id"]): ContactIntelligenceSnapshot.model_validate(lead_store.parse_saved_payload(row["payload"]))
+                        for row in rows
+                    })
+
+    service = real_enrichment_service()
+    summaries = [
+        summarize_calling_snapshot(service.current_snapshot(lead, saved_by_id.get(str(lead.id))), getattr(lead, "contactStatus", ""))
+        for lead in selected
+    ]
+    lead_counts = {status: 0 for status in ("eligible", "unreviewed", "disconnected", "suppressed", "no_numbers")}
+    number_counts = {status: 0 for status in ("eligible", "unreviewed", "disconnected", "suppressed")}
+    for item in summaries:
+        lead_counts[item["status"]] += 1
+        for status, count in item["numberCounts"].items():
+            number_counts[status] += count
+    return {"leads": summaries, "leadCounts": lead_counts, "numberCounts": number_counts}
 
 
 @router.get("/leads/{lead_id}", response_model=ContactIntelligenceSnapshot)

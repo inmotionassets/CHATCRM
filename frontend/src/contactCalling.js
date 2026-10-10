@@ -14,11 +14,17 @@ export function buildGoogleVoiceTextUrl(phone) {
   // Google documents Messages navigation, not a stable recipient-compose URL.
   return normalizeCallablePhone(phone) ? "https://voice.google.com/u/0/messages" : "";
 }
+export function getContactCallStatus(contact) {
+  const status = String(contact?.status || "").trim().toLowerCase().replace(/[ -]+/g, "_");
+  if (contact?.doNotCall || contact?.wrongNumber || contact?.suppressed || contact?.isSuppressed || ["dnc", "do_not_call", "public_dnc", "suppressed", "wrong_number", "opted_out", "opt_out", "do_not_contact"].includes(status)) return "suppressed";
+  if (contact?.disconnected || status === "disconnected") return "disconnected";
+  if (!normalizeCallablePhone(contact?.normalizedValue || contact?.value || contact?.displayValue)
+    || contact?.isCallable !== true
+    || ["needs_review", "unverified", "unreviewed", "contact_review", "review_required", "pending_review", "unknown"].includes(status)) return "unreviewed";
+  return "eligible";
+}
 export function canCallContact(contact) {
-  return Boolean(contact && normalizeCallablePhone(contact.normalizedValue || contact.value)
-    && !contact.doNotCall && !contact.wrongNumber && !contact.disconnected
-    && !["do_not_call", "wrong_number", "disconnected"].includes(contact.status)
-    && contact.isCallable !== false);
+  return getContactCallStatus(contact) === "eligible";
 }
 export function canTextContact(contact) {
   return canCallContact(contact) && !contact.doNotText && contact.status !== "do_not_text"
@@ -46,7 +52,13 @@ export function getCallingContacts(lead = {}, snapshot = null) {
     const key = normalizeCallablePhone(value) || String(value).trim();
     records.set(key, { ...records.get(key), ...contact });
   }
-  const contacts = [...records.values()];
+  let contacts = [...records.values()];
+  const leadStatus = String(lead.contactStatus || "").trim().toLowerCase().replace(/[_ ]+/g, "-");
+  if (["dnc", "do-not-call", "not-interested", "wrong-number", "suppressed", "opt-out", "opted-out", "do-not-contact"].includes(leadStatus)) {
+    contacts = contacts.map((contact) => ({ ...contact, doNotCall: true, isCallable: false, status: "suppressed" }));
+  } else if (leadStatus === "disconnected") {
+    contacts = contacts.map((contact) => ({ ...contact, disconnected: true, isCallable: false, status: "disconnected" }));
+  }
   const preferred = normalizeCallablePhone(current?.bestContact?.normalizedValue || current?.bestContact?.value);
   const best = contacts.find((contact) => preferred && normalizeCallablePhone(contact.normalizedValue || contact.value) === preferred && canCallContact(contact))
     || contacts.filter(canCallContact).sort((a, b) => (a.priorityRank ?? 999) - (b.priorityRank ?? 999))[0]

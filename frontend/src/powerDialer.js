@@ -1,6 +1,6 @@
 import { normalizeCallablePhone } from "./contactCalling.js";
 
-export const dialerQueueFilters = new Set(["My Queue", "Available Leads", "Follow Up", "Due Today", "Overdue"]);
+export const dialerQueueFilters = new Set(["All Leads", "My Queue", "Available Leads", "Follow Up", "Due Today", "Overdue"]);
 
 export function normalizeDialerQueue(filter = "") {
   return dialerQueueFilters.has(filter) ? filter : "My Queue";
@@ -15,8 +15,10 @@ export function getPowerDialerQueue(leads = [], filter = "My Queue", currentUser
   const queue = normalizeDialerQueue(filter);
   const userId = String(currentUser?.username || "");
   return leads.filter((lead) => {
-    if (String(lead.contactStatus || "").toLowerCase() === "interested") return false;
+    const leadStatus = String(lead.contactStatus || "").trim().toLowerCase().replace(/[_ ]+/g, "-");
+    if (leadStatus === "interested") return false;
     if (queue === "Available Leads") return !lead.assignedToUserId;
+    if (queue === "All Leads" ) return !lead.assignedToUserId || lead.assignedToUserId === userId;
     if (lead.assignedToUserId !== userId) return false;
     if (queue === "Follow Up") return lead.stage === "Follow Up" || lead.contactStatus === "follow-up" || Boolean(lead.followUpDate);
     if (queue === "Due Today") return lead.followUpDate === today;
@@ -25,12 +27,17 @@ export function getPowerDialerQueue(leads = [], filter = "My Queue", currentUser
   });
 }
 
-export function getNextPowerDialerLead(leads, currentLeadId, filter, currentUser, today) {
+export function getNextPowerDialerLead(leads, currentLeadId, filter, currentUser, today, eligibleLeadIds = null, completedLeadIds = []) {
   const queue = getPowerDialerQueue(leads, filter, currentUser, today);
-  if (!queue.length) return null;
+  const eligible = eligibleLeadIds ? new Set(eligibleLeadIds) : null;
+  const completed = new Set(completedLeadIds);
   const index = queue.findIndex((lead) => lead.id === currentLeadId);
-  const ordered = index >= 0 ? [...queue.slice(index + 1), ...queue.slice(0, index)] : queue;
-  return ordered.find(leadHasStoredPhone) || null;
+  const ordered = index >= 0 ? queue.slice(index + 1) : queue;
+  return ordered.find((lead) => {
+    const status = String(lead.contactStatus || "").trim().toLowerCase().replace(/[_ ]+/g, "-");
+    const blocked = ["not-interested", "wrong-number", "disconnected", "dnc", "do-not-call", "suppressed", "opt-out", "opted-out", "do-not-contact"].includes(status);
+    return !blocked && !completed.has(lead.id) && (eligible ? eligible.has(lead.id) : leadHasStoredPhone(lead));
+  }) || null;
 }
 
 export function isSavedCallAttempt(activity = {}) {

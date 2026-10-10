@@ -84,6 +84,58 @@ class ContactIntelligenceSnapshot(BaseModel):
     updatedAt: str = ""
 
 
+def calling_contact_status(contact: Any) -> str:
+    """Return an explicit, fail-closed call status for one phone contact."""
+    if isinstance(contact, BaseModel):
+        item = contact.model_dump()
+    else:
+        item = dict(contact or {})
+    status = str(item.get("status") or "").strip().lower().replace("-", "_").replace(" ", "_")
+    if item.get("doNotCall") or item.get("wrongNumber") or item.get("suppressed") or item.get("isSuppressed") or status in {
+        "dnc", "do_not_call", "public_dnc", "suppressed", "wrong_number", "opted_out", "opt_out", "do_not_contact"
+    }:
+        return "suppressed"
+    if item.get("disconnected") or status == "disconnected":
+        return "disconnected"
+    phone = item.get("normalizedValue") or item.get("value") or item.get("displayValue") or ""
+    normalized = normalize_phone(str(phone))
+    if (not is_valid_us_phone(normalized) or item.get("isCallable") is not True
+            or status in {"needs_review", "unverified", "unreviewed", "contact_review", "review_required", "unknown"}):
+        return "unreviewed"
+    return "eligible"
+
+
+def summarize_calling_snapshot(snapshot: ContactIntelligenceSnapshot, lead_contact_status: str = "") -> dict[str, Any]:
+    """Summarize lead/number call readiness without returning phone values."""
+    counts = {"eligible": 0, "unreviewed": 0, "disconnected": 0, "suppressed": 0}
+    for contact in snapshot.contacts:
+        if contact.contactType != "phone":
+            continue
+        counts[calling_contact_status(contact)] += 1
+    lead_status_value = str(lead_contact_status or "").strip().lower().replace("_", "-").replace(" ", "-")
+    lead_override = (
+        "disconnected" if lead_status_value == "disconnected"
+        else "suppressed" if lead_status_value in {"dnc", "do-not-call", "not-interested", "wrong-number", "suppressed", "opt-out", "opted-out", "do-not-contact"}
+        else ""
+    )
+    if lead_override:
+        total_numbers = sum(counts.values())
+        counts = {"eligible": 0, "unreviewed": 0, "disconnected": 0, "suppressed": 0}
+        counts[lead_override] = total_numbers
+    if lead_override:
+        lead_status = lead_override
+    elif counts["eligible"]:
+        lead_status = "eligible"
+    elif counts["unreviewed"]:
+        lead_status = "unreviewed"
+    elif counts["disconnected"]:
+        lead_status = "disconnected"
+    elif counts["suppressed"]:
+        lead_status = "suppressed"
+    else:
+        lead_status = "no_numbers"
+    return {"leadId": snapshot.leadId, "status": lead_status, "numberCounts": counts}
+
 class ContactIntelligenceProvider:
     provider_name = "base"
 

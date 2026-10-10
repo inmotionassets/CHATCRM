@@ -10473,6 +10473,34 @@ html:not([data-theme="dark"]),
   margin: 0;
 }
 
+.power-dialer-campaign-summary,
+.power-dialer-next-call {
+  background: color-mix(in srgb, var(--accent-soft) 65%, var(--panel));
+  border: 1px solid color-mix(in srgb, var(--accent) 25%, var(--border));
+  border-radius: 10px;
+  display: grid;
+  gap: 5px;
+  padding: 12px 14px;
+}
+
+.power-dialer-campaign-summary span,
+.power-dialer-next-call small,
+.power-call-guidance {
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+.power-dialer-next-call span {
+  color: var(--accent-dark);
+  font-size: 0.7rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.power-dialer-next-call strong {
+  font-size: 1.3rem;
+}
+
 .power-dialer-context {
   display: grid;
   gap: 10px;
@@ -10551,6 +10579,15 @@ html:not([data-theme="dark"]),
   gap: 4px;
   padding: 11px;
   text-align: left;
+}
+
+.power-contact-list button:disabled {
+  cursor: not-allowed;
+  opacity: 0.72;
+}
+
+.power-contact-list button:disabled strong {
+  color: var(--muted);
 }
 
 .power-contact-list button.active {

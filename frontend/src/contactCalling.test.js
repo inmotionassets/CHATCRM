@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { normalizeCallablePhone, buildGoogleVoiceUrl, buildGoogleVoiceTextUrl, getCallingContacts, canCallContact, canTextContact, noAnswerTextTemplate, openGoogleVoiceWindow } from './contactCalling.js';
+import { normalizeCallablePhone, buildGoogleVoiceUrl, buildGoogleVoiceTextUrl, getCallingContacts, canCallContact, canTextContact, getContactCallStatus, noAnswerTextTemplate, openGoogleVoiceWindow } from './contactCalling.js';
 const lead = { id: 'dallas-test', phones: ['4696288298', '2145551234', '9725554567', '4695557890', '2145559999'], phone: '+1 469 628 8298' };
 test('normalizes supported US formats and rejects broken actions', () => {
   for (const value of ['4696288298', '(469) 628-8298', '469-628-8298', '+1 469 628 8298']) assert.equal(normalizeCallablePhone(value), '+14696288298');
@@ -55,4 +55,25 @@ test('Google Voice launcher reuses one named window without controlling its cont
 test('manual no-answer text remains a reusable template', () => {
   assert.match(noAnswerTextTemplate, /LEGACY Land Acquisitions/);
   assert.match(noAnswerTextTemplate, /text or call me back/);
+});
+
+test('call eligibility fails closed for unreviewed contacts and names each blocked state', () => {
+  const number = { contactType: 'phone', value: '2145550199', normalizedValue: '2145550199', isCallable: true, status: 'imported' };
+  assert.equal(getContactCallStatus(number), 'eligible');
+  assert.equal(canCallContact(number), true);
+  const unreviewed = { ...number, status: 'needs_review', isCallable: false };
+  assert.equal(getContactCallStatus(unreviewed), 'unreviewed');
+  assert.equal(canCallContact(unreviewed), false);
+  assert.equal(getContactCallStatus({ ...number, doNotCall: true }), 'suppressed');
+  assert.equal(getContactCallStatus({ ...number, disconnected: true }), 'disconnected');
+});
+
+test('lead-level DNC and disconnected dispositions suppress all dialer numbers', () => {
+  const snapshot = { leadId: 'blocked', contacts: [{ id: 'n1', contactType: 'phone', value: '2145550199', isCallable: true, status: 'imported' }] };
+  const dnc = getCallingContacts({ id: 'blocked', phone: '2145550199', contactStatus: 'do-not-call' }, snapshot);
+  assert.equal(dnc.best, null);
+  assert.equal(getContactCallStatus(dnc.contacts[0]), 'suppressed');
+  const disconnected = getCallingContacts({ id: 'blocked', phone: '2145550199', contactStatus: 'disconnected' }, snapshot);
+  assert.equal(disconnected.best, null);
+  assert.equal(getContactCallStatus(disconnected.contacts[0]), 'disconnected');
 });

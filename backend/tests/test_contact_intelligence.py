@@ -1,10 +1,15 @@
+import sqlite3
 import sys
 import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.contact_intelligence import BatchDataContactProvider, ContactIntelligenceService, normalize_phone
+from app.contact_intelligence import BatchDataContactProvider, ContactIntelligenceService, ContactIntelligenceSnapshot, LeadContact, normalize_phone, summarize_calling_snapshot
+from app.routers import contact_intelligence as contact_router
+from app.routers.leads import Lead
 
 
 class ContactIntelligenceTests(unittest.TestCase):
@@ -18,6 +23,57 @@ class ContactIntelligenceTests(unittest.TestCase):
             "phones": ["214-555-0199"],
             "email": "owner@example.com",
         }
+
+    def test_calling_queue_summary_classifies_all_phone_safety_states(self):
+        contacts = [
+            LeadContact(id="eligible", leadId="queue-test", value="2145550199", normalizedValue="2145550199", isCallable=True, status="imported", doNotText=True),
+            LeadContact(id="review", leadId="queue-test", value="4695550111", normalizedValue="4695550111", isCallable=False, status="needs_review"),
+            LeadContact(id="down", leadId="queue-test", value="9725550111", normalizedValue="9725550111", isCallable=False, disconnected=True, status="disconnected"),
+            LeadContact(id="blocked", leadId="queue-test", value="8175550111", normalizedValue="8175550111", isCallable=False, doNotCall=True, status="do_not_call"),
+            LeadContact(id="email", leadId="queue-test", contactType="email", value="owner@example.com"),
+        ]
+        summary = summarize_calling_snapshot(ContactIntelligenceSnapshot(leadId="queue-test", contacts=contacts))
+        self.assertEqual(summary["status"], "eligible")
+        self.assertEqual(summary["numberCounts"], {"eligible": 1, "unreviewed": 1, "disconnected": 1, "suppressed": 1})
+        self.assertNotIn("value", summary)
+
+    def test_lead_level_compliance_status_overrides_callable_phone_snapshot(self):
+        snapshot = ContactIntelligenceSnapshot(leadId="queue-dnc", contacts=[
+            LeadContact(id="n1", leadId="queue-dnc", value="2145550199", normalizedValue="2145550199", isCallable=True, status="imported")
+        ])
+        summary = summarize_calling_snapshot(snapshot, "do-not-call")
+        self.assertEqual(summary["status"], "suppressed")
+        self.assertEqual(summary["numberCounts"]["eligible"], 0)
+        self.assertEqual(summary["numberCounts"]["suppressed"], 1)
+
+    def test_empty_snapshot_is_explicitly_no_numbers(self):
+        summary = summarize_calling_snapshot(ContactIntelligenceSnapshot(leadId="empty"))
+        self.assertEqual(summary["status"], "no_numbers")
+
+    def test_calling_queue_endpoint_uses_saved_contact_snapshot_without_returning_phone_values(self):
+        connection = sqlite3.connect(":memory:")
+        connection.row_factory = sqlite3.Row
+        connection.execute("CREATE TABLE contact_intelligence_records (lead_id TEXT, payload TEXT)")
+        saved = ContactIntelligenceSnapshot(leadId="saved-only-lead", contacts=[
+            LeadContact(id="saved-phone", leadId="saved-only-lead", value="(214) 555-0199", normalizedValue="2145550199", isCallable=True, status="imported")
+        ])
+        connection.execute(
+            "INSERT INTO contact_intelligence_records (lead_id, payload) VALUES (?, ?)",
+            (saved.leadId, saved.model_dump_json()),
+        )
+        lead = Lead(id="saved-only-lead", name="Owner", address="1 Main St", contactStatus="needs-review")
+        request = contact_router.CallingQueueRequest(leadIds=[lead.id])
+        with (
+            patch.object(contact_router.lead_store, "USE_POSTGRES", False),
+            patch.object(contact_router.lead_store, "list_saved_leads", return_value=[lead]),
+            patch.object(contact_router, "get_connection", return_value=connection),
+            patch.object(contact_router, "real_enrichment_service", return_value=ContactIntelligenceService(provider_name="free_public")),
+        ):
+            result = contact_router.summarize_calling_queue(request, SimpleNamespace(role="Acquisition"))
+        self.assertEqual(result["leadCounts"]["eligible"], 1)
+        self.assertEqual(result["numberCounts"]["eligible"], 1)
+        self.assertEqual(result["leads"][0]["status"], "eligible")
+        self.assertNotIn("2145550199", str(result))
 
     def test_free_contact_intelligence_ranks_existing_numbers(self):
         snapshot = ContactIntelligenceService(provider_name="free_public").build_snapshot(self.lead, enrich=True)

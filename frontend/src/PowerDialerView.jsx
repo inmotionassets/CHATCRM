@@ -1,6 +1,6 @@
 import React from "react";
 import GoogleVoiceActions from "./GoogleVoiceActions.jsx";
-import { getCallingContacts, noAnswerTextTemplate, normalizeCallablePhone } from "./contactCalling.js";
+import { canCallContact, getCallingContacts, getContactCallStatus, noAnswerTextTemplate, normalizeCallablePhone } from "./contactCalling.js";
 import { isSavedCallAttempt, saveBeforeAdvance } from "./powerDialer.js";
 
 const outcomes = [
@@ -34,6 +34,8 @@ function formatTime(value = "") {
 }
 
 export default function PowerDialerView({
+  campaignCompletedCount = 0,
+  campaignSummary = null,
   currentUser,
   lead,
   loadActivities,
@@ -47,6 +49,7 @@ export default function PowerDialerView({
   queueLabel
 }) {
   const [snapshot, setSnapshot] = React.useState(null);
+  const [contactsLoaded, setContactsLoaded] = React.useState(false);
   const [activities, setActivities] = React.useState([]);
   const [activePhone, setActivePhone] = React.useState("");
   const [outcome, setOutcome] = React.useState("");
@@ -61,6 +64,7 @@ export default function PowerDialerView({
   React.useEffect(() => {
     let cancelled = false;
     setSnapshot(null);
+    setContactsLoaded(false);
     setActivities([]);
     setOutcome("");
     setAttemptedPhone("");
@@ -72,7 +76,9 @@ export default function PowerDialerView({
     Promise.all([loadContacts(lead.id), loadActivities(lead.id)])
       .then(([nextSnapshot, nextActivities]) => {
         if (cancelled) return;
+        if (!nextSnapshot || nextSnapshot.leadId !== lead.id) throw new Error("Contact snapshot identity did not match the open lead.");
         setSnapshot(nextSnapshot);
+        setContactsLoaded(true);
         setActivities(nextActivities);
         setMessage("");
       })
@@ -85,25 +91,24 @@ export default function PowerDialerView({
   }, [lead.id]);
 
   const calling = getCallingContacts(lead, snapshot);
-  const usableContacts = calling.contacts.filter((contact) => {
-    const normalized = normalizeCallablePhone(contact.normalizedValue || contact.value);
-    return normalized && contact.isCallable !== false && !contact.doNotCall && !contact.wrongNumber && !contact.disconnected
-      && !["do_not_call", "wrong_number", "disconnected"].includes(contact.status);
-  });
-  const activeContact = usableContacts.find((contact) => normalizeCallablePhone(contact.normalizedValue || contact.value) === activePhone)
-    || calling.best
-    || usableContacts[0]
-    || null;
+  const usableContacts = contactsLoaded ? calling.contacts.filter(canCallContact) : [];
+  const activeContact = contactsLoaded
+    ? usableContacts.find((contact) => normalizeCallablePhone(contact.normalizedValue || contact.value) === activePhone)
+      || calling.best
+      || usableContacts[0]
+      || null
+    : null;
   const activeNumber = normalizeCallablePhone(activeContact?.normalizedValue || activeContact?.value);
   const activeIndex = usableContacts.findIndex((contact) => normalizeCallablePhone(contact.normalizedValue || contact.value) === activeNumber);
   const nextContact = activeIndex >= 0 ? usableContacts[activeIndex + 1] : usableContacts[1];
+  const callIsForActiveNumber = Boolean(attemptedPhone && attemptedPhone === activeNumber && attemptedContactId && attemptedContactId === activeContact?.id);
   const attemptCount = activities.filter(isSavedCallAttempt).length;
   const lastContact = activities.find(isSavedCallAttempt);
   const ownerName = lead.name || lead.ownerName || "Owner name needed";
   const needsFollowUp = outcome === "follow-up";
   const canSave = Boolean(outcome)
     && (!needsFollowUp || Boolean(followUpDate && notes.trim()))
-    && Boolean(attemptedPhone)
+    && callIsForActiveNumber
     && !saving;
 
   async function copyTemplate() {
@@ -169,7 +174,13 @@ export default function PowerDialerView({
     }
   }
 
-  if (!activeContact || !activeNumber) {
+  if (!contactsLoaded || !activeContact || !activeNumber) {
+    const statusCounts = { eligible: 0, unreviewed: 0, disconnected: 0, suppressed: 0 };
+    if (contactsLoaded) {
+      for (const contact of calling.contacts) {
+        if (contact.contactType === "phone") statusCounts[getContactCallStatus(contact)] += 1;
+      }
+    }
     return (
       <section className="power-dialer-shell">
         <header className="power-dialer-header">
@@ -177,8 +188,23 @@ export default function PowerDialerView({
           <button className="secondary-button" onClick={onClose}>Exit Calling Mode</button>
         </header>
         <div className="power-dialer-empty">
-          <h3>Contact Review</h3>
-          <p>No usable phone number is available. DNC, wrong, and disconnected contacts stay suppressed.</p>
+          <h3>{contactsLoaded ? "Contact Review" : "Phone status could not be verified"}</h3>
+          <p>{contactsLoaded
+            ? "No eligible number is available. Review, disconnected, and DNC numbers are shown below and cannot be called."
+            : "Saved contact and compliance status did not load. Calling is paused for this lead; retry the campaign after reconnecting."}</p>
+          {contactsLoaded ? <div className="power-contact-status-summary">
+            <span>Eligible: {statusCounts.eligible}</span><span>Review: {statusCounts.unreviewed}</span>
+            <span>Disconnected: {statusCounts.disconnected}</span><span>Suppressed / DNC: {statusCounts.suppressed}</span>
+          </div> : null}
+          {contactsLoaded ? <div className="power-contact-list">
+            {calling.contacts.filter((contact) => contact.contactType === "phone").map((contact, index) => {
+              const status = getContactCallStatus(contact);
+              const label = status === "suppressed" ? "Suppressed / DNC" : status === "disconnected" ? "Disconnected" : status === "unreviewed" ? "Needs review" : "Eligible";
+              return <button disabled type="button" key={contact.id || contact.value || index}>
+                <strong>{label}</strong><span>{displayPhone(contact)}</span><small>{contact.source || contact.status || "Saved phone"}</small>
+              </button>;
+            })}
+          </div> : null}
           <button className="primary-button" onClick={() => onAdvance(lead)}>Skip to Next Eligible Lead</button>
         </div>
       </section>
@@ -205,28 +231,46 @@ export default function PowerDialerView({
         <span><b>Follow-Up</b>{lead.followUpDate || "None"}</span>
       </div>
 
+      {campaignSummary ? <div className="power-dialer-campaign-summary" role="status">
+        <strong>Campaign: {campaignSummary.leadCounts?.eligible || 0} eligible leads / {campaignSummary.numberCounts?.eligible || 0} eligible numbers</strong>
+        <span>{campaignCompletedCount} completed · {campaignSummary.leadCounts?.unreviewed || 0} review · {campaignSummary.leadCounts?.disconnected || 0} disconnected · {campaignSummary.leadCounts?.suppressed || 0} suppressed/DNC · {campaignSummary.leadCounts?.no_numbers || 0} no numbers</span>
+      </div> : null}
       {message ? <p className="queue-message" role="status">{message}</p> : null}
 
       <div className="power-dialer-grid">
         <main className="power-dialer-call-card">
+          <div className="power-dialer-next-call">
+            <span>Next eligible call</span><strong>{displayPhone(activeContact)}</strong>
+            <small>{ownerName} · {lead.address || "Property address missing"}</small>
+          </div>
           <div className="power-dialer-primary-action">
             <GoogleVoiceActions
               callLabel="Open Google Voice"
               contact={activeContact}
               leadContext={{ ownerName, address: lead.address || "Missing address" }}
-              onCall={(phone) => onVoiceAction("voice_opened", phone)}
+              onCall={(phone) => {
+                setAttemptedPhone(phone);
+                setAttemptedContactId(activeContact.id || "");
+                setOutcome("");
+                setFeedbackReceipt("");
+                onVoiceAction("voice_opened", phone);
+              }}
               onText={(phone) => onVoiceAction("voice_text_opened", phone)}
               primary
             />
           </div>
 
-          <div className="power-contact-list">
-            {usableContacts.map((contact, index) => {
+          <div className="power-contact-list" aria-label="Phone numbers and call status">
+            {calling.contacts.filter((contact) => contact.contactType === "phone").map((contact, index) => {
               const phone = normalizeCallablePhone(contact.normalizedValue || contact.value);
+              const status = getContactCallStatus(contact);
+              const eligible = status === "eligible";
+              const label = status === "suppressed" ? "Suppressed / DNC" : status === "disconnected" ? "Disconnected" : status === "unreviewed" ? "Needs review" : index === 0 ? "Eligible · Best" : "Eligible";
               return (
                 <button
                   className={phone === activeNumber ? "active" : ""}
-                  key={contact.id || phone}
+                  disabled={!eligible}
+                  key={contact.id || phone || `${status}-${index}`}
                   onClick={() => {
                     setActivePhone(phone);
                     setOutcome("");
@@ -236,14 +280,13 @@ export default function PowerDialerView({
                   }}
                   type="button"
                 >
-                  <strong>{index === 0 ? "Best Contact" : `Additional ${index}`}</strong>
+                  <strong>{label}</strong>
                   <span>{displayPhone(contact)}</span>
-                  <small>{contact.status || contact.source || "Stored contact"}</small>
+                  <small>{contact.source || contact.status || "Saved contact"}</small>
                 </button>
               );
             })}
           </div>
-
           <section className="power-call-script">
             <p className="eyebrow">Call Script</p>
             <p>Hi, is this {ownerName}? This is Virgo with LEGACY Land Acquisitions. I’m calling about {lead.address || "a property in the area"}. Would you be open to discussing an offer?</p>
@@ -260,14 +303,13 @@ export default function PowerDialerView({
           <div><p className="eyebrow">Call Result</p><h3>What happened?</h3></div>
           <div className="power-result-buttons">
             {outcomes.map(([value, label]) => (
-              <button className={outcome === value ? "active" : ""} key={value} onClick={() => {
+              <button className={outcome === value ? "active" : ""} disabled={!callIsForActiveNumber} key={value} onClick={() => {
                 setOutcome(value);
-                setAttemptedPhone(activeNumber);
-                setAttemptedContactId(activeContact?.id || "");
                 setFeedbackReceipt("");
               }} type="button">{label}</button>
             ))}
           </div>
+          {!callIsForActiveNumber ? <small className="power-call-guidance">Open Google Voice for {displayPhone(activeContact)} first. Results will be saved to that exact number.</small> : <small className="power-call-guidance">Result applies to {displayPhone(activeContact)}.</small>}
 
           <label className="power-notes">
             <span>Call Notes{needsFollowUp ? " (required)" : ""}</span>

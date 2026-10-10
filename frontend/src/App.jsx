@@ -2,7 +2,7 @@ import React from "react";
 import GoogleVoiceActions from "./GoogleVoiceActions.jsx";
 import PowerDialerView from "./PowerDialerView.jsx";
 import { getCallingContacts } from "./contactCalling.js";
-import { getNextPowerDialerLead, getPowerDialerQueue, leadHasStoredPhone, normalizeDialerQueue } from "./powerDialer.js";
+import { getPowerDialerQueue, normalizeDialerQueue } from "./powerDialer.js";
 import { findPhoneLeadMatches, getLatestLeadNote, isPhoneSearchQuery } from "./phoneLookup.js";
 import { isAuthTokenExpired } from "./authSession.js";
 import { DispositionIntelligenceView, LeadLegacyMarketMap } from "./DispositionIntelligence.jsx";
@@ -359,6 +359,9 @@ export function App() {
   const [selectedLeadId, setSelectedLeadId] = React.useState(() => getLeadIdFromPath() || null);
   const [dialerLeadId, setDialerLeadId] = React.useState(null);
   const [dialerQueue, setDialerQueue] = React.useState("My Queue");
+  const [campaignSummary, setCampaignSummary] = React.useState(null);
+  const [campaignEligibleLeadIds, setCampaignEligibleLeadIds] = React.useState([]);
+  const [campaignCompletedLeadIds, setCampaignCompletedLeadIds] = React.useState([]);
   const [activeView, setActiveView] = React.useState("Properties");
   const [backendReady, setBackendReady] = React.useState(false);
   const [saveStatus, setSaveStatus] = React.useState("Connecting...");
@@ -804,8 +807,11 @@ export function App() {
     }
   }
 
-  async function claimAvailableForDialer(candidates) {
-    for (const candidate of candidates.filter(leadHasStoredPhone)) {
+  async function claimAvailableForDialer(candidates, eligibleLeadIds = campaignEligibleLeadIds) {
+    const eligible = new Set(eligibleLeadIds);
+    for (const candidate of candidates.filter((lead) => eligible.has(lead.id))) {
+      if (candidate.assignedToUserId === auth.user?.username) return candidate;
+      if (candidate.assignedToUserId) continue;
       try {
         const claimed = await claimLeadForCaller(candidate.id, authToken);
         setLeads((current) => current.map((lead) => (lead.id === claimed.id ? claimed : lead)));
@@ -817,16 +823,30 @@ export function App() {
     return null;
   }
 
+  function callingReadinessMessage(summary, queueName) {
+    const leadsByStatus = summary?.leadCounts || {};
+    const numbers = summary?.numberCounts || {};
+    return `${queueName}: ${leadsByStatus.eligible || 0} eligible leads (${numbers.eligible || 0} numbers), ${leadsByStatus.unreviewed || 0} need review, ${leadsByStatus.disconnected || 0} disconnected, ${leadsByStatus.suppressed || 0} suppressed/DNC, ${leadsByStatus.no_numbers || 0} with no numbers. History is preserved.`;
+  }
+
   async function startPowerDialer() {
     const activeQueue = normalizeDialerQueue(queueFilter);
-    setQueueMessage(`Starting ${activeQueue}...`);
+    const queue = getPowerDialerQueue(leads, activeQueue, auth.user);
+    if (!queue.length) {
+      setQueueMessage(`No leads are in ${activeQueue}.`);
+      return;
+    }
+    setQueueMessage(`Checking saved phone and compliance status for ${queue.length} leads...`);
     try {
-      const queue = getPowerDialerQueue(leads, activeQueue, auth.user);
-      const lead = activeQueue === "Available Leads"
-        ? await claimAvailableForDialer(queue)
-        : queue.find(leadHasStoredPhone) || null;
+      const summary = await fetchCallingQueueSummary(queue.map((lead) => lead.id), authToken);
+      const eligibleIds = summary.leads.filter((item) => item.status === "eligible").map((item) => item.leadId);
+      setCampaignSummary(summary);
+      setCampaignEligibleLeadIds(eligibleIds);
+      setCampaignCompletedLeadIds([]);
+      const eligibleQueue = queue.filter((lead) => eligibleIds.includes(lead.id));
+      const lead = await claimAvailableForDialer(eligibleQueue, eligibleIds);
       if (!lead) {
-        setQueueMessage(`No callable leads are ready in ${activeQueue}. No-phone records remain in Contact Review.`);
+        setQueueMessage(callingReadinessMessage(summary, activeQueue));
         return;
       }
       setQueueFilter(activeQueue);
@@ -835,29 +855,26 @@ export function App() {
       setQueueMessage("");
       closeLeadWorkspace({ restore: false });
     } catch (error) {
-      setQueueMessage(error?.message || "Calling mode could not start. The queue was not changed.");
+      setQueueMessage(error?.message || "Saved phone eligibility could not be verified. Calling did not start.");
     }
   }
 
   async function advancePowerDialer(savedLead) {
     const currentLeads = leads.map((lead) => (lead.id === savedLead.id ? savedLead : lead));
-    if (dialerQueue === "Available Leads") {
-      const available = getPowerDialerQueue(currentLeads, dialerQueue, auth.user)
-        .filter((lead) => lead.id !== savedLead.id);
-      const claimed = await claimAvailableForDialer(available);
-      if (claimed) {
-        setDialerLeadId(claimed.id);
-        return;
-      }
-    } else {
-      const next = getNextPowerDialerLead(currentLeads, savedLead.id, dialerQueue, auth.user);
-      if (next) {
-        setDialerLeadId(next.id);
-        return;
-      }
+    const completed = new Set(campaignCompletedLeadIds);
+    completed.add(savedLead.id);
+    setCampaignCompletedLeadIds([...completed]);
+    const queue = getPowerDialerQueue(currentLeads, dialerQueue, auth.user);
+    const currentIndex = queue.findIndex((lead) => lead.id === savedLead.id);
+    const candidates = (currentIndex >= 0 ? queue.slice(currentIndex + 1) : queue)
+      .filter((lead) => campaignEligibleLeadIds.includes(lead.id) && !completed.has(lead.id));
+    const next = await claimAvailableForDialer(candidates, campaignEligibleLeadIds);
+    if (next) {
+      setDialerLeadId(next.id);
+      return;
     }
     setDialerLeadId(null);
-    setQueueMessage(`${dialerQueue} is complete. No additional callable leads are ready.`);
+    setQueueMessage(`${dialerQueue} campaign complete. ${callingReadinessMessage(campaignSummary, dialerQueue)}`);
   }
 
   async function applyBulkAssignment(value) {
@@ -1283,6 +1300,8 @@ export function App() {
           onLeadSaved={(saved) => setLeads((current) => current.map((lead) => (lead.id === saved.id ? saved : lead)))}
           onSaveResult={(leadId, result) => saveLeadCallResult(leadId, result, authToken)}
           onVoiceAction={(actionType, phone) => recordPhoneInteraction(dialerLead.id, actionType, phone)}
+          campaignCompletedCount={campaignCompletedLeadIds.length}
+          campaignSummary={campaignSummary}
           queueLabel={dialerQueue}
         />
       </main>
@@ -6225,6 +6244,16 @@ async function lockLeadForUser(leadId, token) {
   }
 
   return sanitizeLeadLock(await response.json());
+}
+
+async function fetchCallingQueueSummary(leadIds, token) {
+  const response = await fetch(`${apiBaseUrl}/contact-intelligence/calling-queue`, {
+    method: "POST",
+    headers: { ...authHeaders(token), "Content-Type": "application/json" },
+    body: JSON.stringify({ leadIds })
+  });
+  if (!response.ok) throw new Error("Saved phone eligibility could not be verified. Calling did not start.");
+  return response.json();
 }
 
 async function fetchContactIntelligence(leadId, token) {
