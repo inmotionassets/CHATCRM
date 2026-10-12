@@ -51,7 +51,7 @@ class ContactIntelligenceTests(unittest.TestCase):
         summary = summarize_calling_snapshot(ContactIntelligenceSnapshot(leadId="empty"))
         self.assertEqual(summary["status"], "no_numbers")
 
-    def test_calling_queue_endpoint_uses_saved_contact_snapshot_without_returning_phone_values(self):
+    def test_calling_queue_returns_numbers_only_when_display_payload_is_requested(self):
         connection = sqlite3.connect(":memory:")
         connection.row_factory = sqlite3.Row
         connection.execute("CREATE TABLE contact_intelligence_records (lead_id TEXT, payload TEXT)")
@@ -75,6 +75,16 @@ class ContactIntelligenceTests(unittest.TestCase):
         self.assertEqual(result["numberCounts"]["eligible"], 1)
         self.assertEqual(result["leads"][0]["status"], "eligible")
         self.assertNotIn("2145550199", str(result))
+
+        display_request = contact_router.CallingQueueRequest(leadIds=[lead.id], includePhoneNumbers=True)
+        with (
+            patch.object(contact_router.lead_store, "USE_POSTGRES", False),
+            patch.object(contact_router.lead_store, "list_saved_leads", return_value=[lead]),
+            patch.object(contact_router, "get_connection", return_value=connection),
+            patch.object(contact_router, "real_enrichment_service", return_value=ContactIntelligenceService(provider_name="free_public")),
+        ):
+            display_result = contact_router.summarize_calling_queue(display_request, SimpleNamespace(role="Acquisition"))
+        self.assertEqual(display_result["leads"][0]["phoneNumbers"], [{"value": "(214) 555-0199", "status": "eligible"}])
 
     def test_review_to_calling_queue_promotes_only_the_reviewed_test_number(self):
         connection = sqlite3.connect(":memory:")

@@ -111,8 +111,12 @@ def calling_contact_status(contact: Any) -> str:
     return "eligible"
 
 
-def summarize_calling_snapshot(snapshot: ContactIntelligenceSnapshot, lead_contact_status: str = "") -> dict[str, Any]:
-    """Summarize lead/number call readiness without returning phone values."""
+def summarize_calling_snapshot(
+    snapshot: ContactIntelligenceSnapshot,
+    lead_contact_status: str = "",
+    include_phone_numbers: bool = False,
+) -> dict[str, Any]:
+    """Summarize readiness, optionally including phone values for the authorized UI."""
     counts = {"eligible": 0, "unreviewed": 0, "disconnected": 0, "suppressed": 0}
     for contact in snapshot.contacts:
         if contact.contactType != "phone":
@@ -140,7 +144,17 @@ def summarize_calling_snapshot(snapshot: ContactIntelligenceSnapshot, lead_conta
         lead_status = "suppressed"
     else:
         lead_status = "no_numbers"
-    return {"leadId": snapshot.leadId, "status": lead_status, "numberCounts": counts}
+    summary = {"leadId": snapshot.leadId, "status": lead_status, "numberCounts": counts}
+    if include_phone_numbers:
+        summary["phoneNumbers"] = [
+            {
+                "value": contact.displayValue or contact.value or contact.normalizedValue,
+                "status": "suppressed" if lead_override == "suppressed" else "disconnected" if lead_override == "disconnected" else calling_contact_status(contact),
+            }
+            for contact in snapshot.contacts
+            if contact.contactType == "phone" and (contact.displayValue or contact.value or contact.normalizedValue)
+        ]
+    return summary
 
 class ContactIntelligenceProvider:
     provider_name = "base"

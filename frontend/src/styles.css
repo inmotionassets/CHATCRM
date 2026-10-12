@@ -7109,8 +7109,8 @@ textarea::placeholder {
 }
 
 @media (max-width: 640px) {
-  .contact-review-list { max-height: 300px; }
-  .contact-number-row { align-items: flex-start; }
+  .contact-review-list { max-height: none; overflow: visible; }
+  .contact-number-row { align-items: flex-start; flex-direction: column; }
   .contact-number-row strong { font-size: 0.92rem; }
 }
 

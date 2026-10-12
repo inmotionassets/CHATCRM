@@ -44,6 +44,7 @@ class ContactBatchRequest(BaseModel):
 
 class CallingQueueRequest(BaseModel):
     leadIds: list[str] = Field(default_factory=list, max_length=5000)
+    includePhoneNumbers: bool = False
 
 
 
@@ -687,7 +688,11 @@ def summarize_calling_queue(request: CallingQueueRequest, current_user: CurrentU
     for lead in selected:
         snapshot = service.current_snapshot(lead, saved_by_id.get(str(lead.id)))
         snapshot = apply_litigation_hold(lead, snapshot)
-        summaries.append(summarize_calling_snapshot(snapshot, getattr(lead, "contactStatus", "")))
+        summaries.append(summarize_calling_snapshot(
+            snapshot,
+            getattr(lead, "contactStatus", ""),
+            include_phone_numbers=request.includePhoneNumbers,
+        ))
     lead_counts = {status: 0 for status in ("eligible", "unreviewed", "disconnected", "suppressed", "no_numbers")}
     number_counts = {status: 0 for status in ("eligible", "unreviewed", "disconnected", "suppressed")}
     for item in summaries:

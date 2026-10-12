@@ -613,7 +613,7 @@ export function App() {
     }
     let cancelled = false;
     const requestId = ++callReadinessRequestRef.current;
-    fetchCallingQueueSummary(overviewLeadIds, authToken)
+    fetchCallingQueueSummary(overviewLeadIds, authToken, true)
       .then((summary) => {
         if (!cancelled && requestId === callReadinessRequestRef.current) setCallReadinessSummary(summary);
       })
@@ -733,6 +733,10 @@ export function App() {
   const strongProperties = leads.filter((lead) => getPropertyOpportunity(lead).score >= 80).length;
   const callReadyLeads = callReadinessSummary?.leadCounts?.eligible ?? leads.filter(isCallReadyLead).length;
   const contactReviewLeads = callReadinessSummary?.leadCounts?.unreviewed ?? leads.filter(isContactReviewLead).length;
+  const callReadinessByLeadId = React.useMemo(
+    () => new Map((callReadinessSummary?.leads || []).map((item) => [item.leadId, item])),
+    [callReadinessSummary]
+  );
   const hotLeads = leads.filter(isSellerHotLead).length;
   const followUps = leads.filter((lead) => lead.stage === "Follow Up").length;
   const selectedLead = leads.find((lead) => lead.id === selectedLeadId);
@@ -855,7 +859,7 @@ export function App() {
     const refreshAll = !leadId || callReadinessSummary?.leads?.length !== leads.length;
     const requestId = ++callReadinessRequestRef.current;
     try {
-      const summary = await fetchCallingQueueSummary(refreshAll ? leads.map((lead) => lead.id) : [leadId], authToken);
+      const summary = await fetchCallingQueueSummary(refreshAll ? leads.map((lead) => lead.id) : [leadId], authToken, true);
       if (requestId !== callReadinessRequestRef.current) return;
       setCallReadinessSummary((current) => refreshAll || !current ? summary : mergeCallingQueueSummary(current, summary));
     } catch {
@@ -1610,7 +1614,7 @@ export function App() {
                         <StatusDot lead={lead} />
                       </h3>
                       <p>{getDisplayOwnerName(lead) || "Owner name needed"}</p>
-                      <small>{formatPhoneList(lead) || "No phone yet"}</small>
+                      <small>{getLeadPhoneAvailability(lead, callReadinessByLeadId.get(lead.id))}</small>
                       {isRecentlyContactedByAnother(lead, auth.user) ? (
                         <small className="recent-contact-note">
                           Recently contacted by {lead.lastContactedBy} at {formatActivityTime(lead.lastContactedAt)}
@@ -1620,7 +1624,7 @@ export function App() {
                     <div className="lead-meta-grid call-queue-grid">
                       <span className="lead-meta"><b>Seller</b>{getDisplayOwnerName(lead) || "Owner needed"}</span>
                       <span className="lead-meta"><b>Property</b>{lead.parcelNumber || getLeadZip(lead) || "Address saved"}</span>
-                      <span className="lead-meta"><b>Best Contact</b>{getBestContactLabel(lead)}</span>
+                      <span className="lead-meta"><b>Best Contact</b>{getBestContactLabel(lead, callReadinessByLeadId.get(lead.id))}</span>
                       <span className="lead-meta"><b>Status</b>{getLeadQueueStatus(lead).label}</span>
                       <span className="lead-meta"><b>Assigned</b>{lead.assignedToName || "Available"}</span>
                       <span className="lead-meta"><b>Last Contact</b>{lead.lastContactedAt ? `${lead.lastContactedBy || "Unknown"} / ${formatActivityTime(lead.lastContactedAt)}` : "None"}</span>
@@ -1653,7 +1657,7 @@ export function App() {
           ) : null}
 
           {activeView === "Pipeline" ? (
-            <PipelineView leads={leads} onViewLead={openLeadWorkspace} />
+            <PipelineView leads={leads} onViewLead={openLeadWorkspace} phoneReadinessByLeadId={callReadinessByLeadId} />
           ) : null}
 
           {activeView === "Disposition" ? (
@@ -2204,7 +2208,7 @@ function CallerProfileView({ currentUser, leads }) {
   );
 }
 
-function PipelineView({ leads, onViewLead }) {
+function PipelineView({ leads, onViewLead, phoneReadinessByLeadId }) {
   return (
     <div className="panel wide-panel">
       <div className="panel-header">
@@ -2230,7 +2234,7 @@ function PipelineView({ leads, onViewLead }) {
                   <button className="pipeline-card" key={lead.id} onClick={() => onViewLead(lead.id)}>
                     <strong>{getDisplayOwnerName(lead) || "Owner name needed"}</strong>
                     <span>{lead.address}</span>
-                    <small>{formatPhoneList(lead) || "No phone"}</small>
+                    <small>{getLeadPhoneAvailability(lead, phoneReadinessByLeadId?.get(lead.id))}</small>
                   </button>
                 ))
               ) : (
@@ -6307,11 +6311,11 @@ async function lockLeadForUser(leadId, token) {
   return sanitizeLeadLock(await response.json());
 }
 
-async function fetchCallingQueueSummary(leadIds, token) {
+async function fetchCallingQueueSummary(leadIds, token, includePhoneNumbers = false) {
   const response = await fetch(`${apiBaseUrl}/contact-intelligence/calling-queue`, {
     method: "POST",
     headers: { ...authHeaders(token), "Content-Type": "application/json" },
-    body: JSON.stringify({ leadIds })
+    body: JSON.stringify({ leadIds, includePhoneNumbers })
   });
   if (!response.ok) throw new Error("Saved phone eligibility could not be verified. Calling did not start.");
   return response.json();
@@ -6319,7 +6323,10 @@ async function fetchCallingQueueSummary(leadIds, token) {
 
 function mergeCallingQueueSummary(current, updated) {
   const byLeadId = new Map((current.leads || []).map((lead) => [lead.leadId, lead]));
-  for (const lead of updated.leads || []) byLeadId.set(lead.leadId, lead);
+  for (const lead of updated.leads || []) {
+    const previous = byLeadId.get(lead.leadId) || {};
+    byLeadId.set(lead.leadId, { ...previous, ...lead, phoneNumbers: lead.phoneNumbers || previous.phoneNumbers });
+  }
   const leads = [...byLeadId.values()];
   const leadCounts = { eligible: 0, unreviewed: 0, disconnected: 0, suppressed: 0, no_numbers: 0 };
   const numberCounts = { eligible: 0, unreviewed: 0, disconnected: 0, suppressed: 0 };
@@ -6993,6 +7000,32 @@ function formatPhoneList(lead = {}) {
   return getLeadPhones(lead).map(formatPhone).join(", ");
 }
 
+function getLeadPhoneAvailability(lead = {}, readiness = null) {
+  const savedNumbers = Array.isArray(readiness?.phoneNumbers) ? readiness.phoneNumbers : [];
+  const leadPhones = getLeadPhones(lead);
+  const phoneValues = [...leadPhones];
+  const seen = new Set(leadPhones.map(normalizePhone));
+  savedNumbers.forEach((number) => {
+    const value = String(number?.value || "");
+    const key = normalizePhone(value);
+    if (key && !seen.has(key)) {
+      seen.add(key);
+      phoneValues.push(value);
+    }
+  });
+  if (phoneValues.length) {
+    const statusByNumber = new Map(savedNumbers.map((number) => [normalizePhone(number.value), number.status]));
+    return phoneValues.map((phone) => {
+      const status = statusByNumber.get(normalizePhone(phone));
+      const label = status === "eligible" ? "Call Ready" : status === "suppressed" ? "Blocked" : status === "disconnected" ? "Disconnected" : status === "unreviewed" ? "Needs Review" : "";
+      return `${formatPhone(phone)}${label ? ` · ${label}` : ""}`;
+    }).join("  |  ");
+  }
+  if (!readiness) return "Loading saved numbers…";
+  const total = Object.values(readiness.numberCounts || {}).reduce((sum, value) => sum + (Number(value) || 0), 0);
+  return total ? `${total} saved numbers` : "No saved phone numbers";
+}
+
 function normalizeText(value = "") {
   return value.toLowerCase().replace(/[^a-z0-9]/g, "");
 }
@@ -7090,9 +7123,10 @@ function getLeadDuplicateKey(lead = {}) {
   return address ? "address:" + address : "";
 }
 
-function getBestContactLabel(lead = {}) {
-  const phone = getLeadPhones(lead)[0];
-  return phone ? formatPhone(phone) : "Missing Phone";
+function getBestContactLabel(lead = {}, readiness = null) {
+  const phone = getLeadPhones(lead)[0] || readiness?.phoneNumbers?.[0]?.value;
+  if (phone) return formatPhone(phone);
+  return readiness ? "Missing Phone" : "Loading saved numbers…";
 }
 
 function hasCallableLeadPhone(lead = {}) {
