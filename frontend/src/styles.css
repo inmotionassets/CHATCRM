@@ -7034,6 +7034,86 @@ textarea::placeholder {
   gap: 6px;
 }
 
+.contact-review-summary,
+.contact-number-row {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+}
+
+.contact-review-summary {
+  color: var(--muted-strong);
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
+.contact-review-list {
+  display: grid;
+  gap: 6px;
+  max-height: 340px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 2px;
+}
+
+.contact-review-list .contact-best-card {
+  gap: 5px;
+  padding: 8px;
+}
+
+.contact-number-row strong {
+  font-variant-numeric: tabular-nums;
+}
+
+.contact-state-badges {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  gap: 4px;
+  justify-content: flex-end;
+}
+
+.contact-review-state {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted-strong);
+  flex: 0 0 auto;
+  font-size: 0.67rem;
+  font-weight: 900;
+  padding: 3px 7px;
+}
+
+.contact-review-state.is-call-ready {
+  background: rgba(15, 159, 110, 0.14);
+  border-color: rgba(15, 159, 110, 0.4);
+  color: #15936e;
+}
+
+.contact-review-state.is-suppressed,
+.contact-review-state.is-disconnected {
+  background: rgba(211, 66, 66, 0.1);
+  border-color: rgba(211, 66, 66, 0.3);
+  color: #c54141;
+}
+
+.contact-review-confirm {
+  border-color: rgba(15, 159, 110, 0.45) !important;
+  color: #07865d !important;
+}
+
+.contact-optout-note {
+  color: #c54141;
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+@media (max-width: 640px) {
+  .contact-review-list { max-height: none; overflow: visible; }
+  .contact-number-row { align-items: flex-start; flex-direction: column; }
+  .contact-number-row strong { font-size: 0.92rem; }
+}
+
 .contact-intel-badges small {
   background: rgba(15, 159, 110, 0.12);
   border: 1px solid rgba(15, 159, 110, 0.18);
@@ -9815,6 +9895,11 @@ html:not([data-theme="dark"]),
   text-transform: uppercase;
 }
 
+.primary-phone-status {
+  color: var(--muted-strong);
+  font-size: 0.72rem;
+}
+
 .acquisition-desk-layout {
   align-items: start;
   display: grid;
@@ -10473,6 +10558,34 @@ html:not([data-theme="dark"]),
   margin: 0;
 }
 
+.power-dialer-campaign-summary,
+.power-dialer-next-call {
+  background: color-mix(in srgb, var(--accent-soft) 65%, var(--panel));
+  border: 1px solid color-mix(in srgb, var(--accent) 25%, var(--border));
+  border-radius: 10px;
+  display: grid;
+  gap: 5px;
+  padding: 12px 14px;
+}
+
+.power-dialer-campaign-summary span,
+.power-dialer-next-call small,
+.power-call-guidance {
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+.power-dialer-next-call span {
+  color: var(--accent-dark);
+  font-size: 0.7rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.power-dialer-next-call strong {
+  font-size: 1.3rem;
+}
+
 .power-dialer-context {
   display: grid;
   gap: 10px;
@@ -10551,6 +10664,15 @@ html:not([data-theme="dark"]),
   gap: 4px;
   padding: 11px;
   text-align: left;
+}
+
+.power-contact-list button:disabled {
+  cursor: not-allowed;
+  opacity: 0.72;
+}
+
+.power-contact-list button:disabled strong {
+  color: var(--muted);
 }
 
 .power-contact-list button.active {
@@ -10660,5 +10782,55 @@ html:not([data-theme="dark"]),
 
   .power-dialer-primary-action .google-voice-actions {
     grid-template-columns: 1fr;
+  }
+}
+
+/* Keep imported phone records readable on narrow acquisition workspaces. */
+.contact-review-list {
+  max-height: none;
+  overflow: visible;
+  padding-right: 0;
+}
+
+.contact-number-row {
+  align-items: start;
+  display: grid;
+  gap: 6px 10px;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.contact-number-row > strong {
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.contact-state-badges {
+  align-items: flex-start;
+  justify-content: flex-end;
+  max-width: 100%;
+}
+
+.google-voice-context {
+  background: var(--panel-soft);
+  border-color: var(--border);
+  min-width: 0;
+}
+
+.google-voice-context b {
+  color: var(--text);
+}
+
+.google-voice-context small {
+  color: var(--muted-strong);
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 640px) {
+  .contact-number-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .contact-state-badges {
+    justify-content: flex-start;
   }
 }

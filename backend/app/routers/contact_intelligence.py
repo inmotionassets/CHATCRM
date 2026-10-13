@@ -16,6 +16,7 @@ from ..contact_intelligence import (
     extract_lead_emails,
     extract_lead_phones,
     normalize_phone,
+    summarize_calling_snapshot,
 )
 from . import leads as lead_store
 from ..propstream_import import (
@@ -34,10 +35,17 @@ class ContactFeedbackRequest(BaseModel):
     leadId: str
     feedbackType: str
     notes: str = ""
+    sourceQualityReviewed: bool = False
 
 
 class ContactBatchRequest(BaseModel):
     leadIds: list[str] = Field(default_factory=list)
+
+
+class CallingQueueRequest(BaseModel):
+    leadIds: list[str] = Field(default_factory=list, max_length=5000)
+    includePhoneNumbers: bool = False
+
 
 
 class ContactEntitySnapshotRequest(BaseModel):
@@ -141,17 +149,109 @@ def get_saved_snapshot(lead_id: str) -> ContactIntelligenceSnapshot | None:
                 "SELECT payload FROM contact_intelligence_records WHERE lead_id = ?",
                 (lead_id,),
             ).fetchone()
+        if not row:
+            return None
+        payload = row[0] if lead_store.USE_POSTGRES else row["payload"]
+        snapshot = ContactIntelligenceSnapshot.model_validate(lead_store.parse_saved_payload(payload))
+        return apply_registered_phone_suppressions(connection, snapshot)
 
-    if not row:
-        return None
 
-    payload = row[0] if lead_store.USE_POSTGRES else row["payload"]
-    return ContactIntelligenceSnapshot.model_validate(lead_store.parse_saved_payload(payload))
+def _registered_phone_suppression_restrictions(connection, snapshots: list[ContactIntelligenceSnapshot]) -> dict[str, dict[str, bool]]:
+    """Fetch sticky phone restrictions once for one or more snapshots."""
+    if lead_store.USE_POSTGRES:
+        exists = connection.execute("SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='contact_phone_suppressions')").fetchone()[0]
+    else:
+        exists = connection.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='contact_phone_suppressions'").fetchone()
+    if not exists:
+        return {}
+    phone_contacts = [item for snapshot in snapshots for item in snapshot.contacts if item.contactType == "phone"]
+    numbers = list(dict.fromkeys(normalize_phone(item.normalizedValue or item.value) for item in phone_contacts))
+    numbers = [number for number in numbers if len(number) == 10]
+    if not numbers:
+        return {}
+    if lead_store.USE_POSTGRES:
+        rows = connection.execute(
+            "SELECT phone, do_not_call, do_not_text, disconnected, wrong_number FROM contact_phone_suppressions WHERE phone = ANY(%s)",
+            (numbers,),
+        ).fetchall()
+        restrictions = {str(row[0]): {"doNotCall": bool(row[1]), "doNotText": bool(row[2]), "disconnected": bool(row[3]), "wrongNumber": bool(row[4])} for row in rows}
+    else:
+        restrictions = {}
+        for offset in range(0, len(numbers), 500):
+            chunk = numbers[offset:offset + 500]
+            marks = ",".join("?" for _ in chunk)
+            rows = connection.execute(
+                f"SELECT phone, do_not_call, do_not_text, disconnected, wrong_number FROM contact_phone_suppressions WHERE phone IN ({marks})",
+                tuple(chunk),
+            ).fetchall()
+            restrictions.update({str(row["phone"]): {"doNotCall": bool(row["do_not_call"]), "doNotText": bool(row["do_not_text"]), "disconnected": bool(row["disconnected"]), "wrongNumber": bool(row["wrong_number"])} for row in rows})
+    return restrictions
+
+
+def _apply_phone_suppression_restrictions(snapshot: ContactIntelligenceSnapshot, restrictions: dict[str, dict[str, bool]]) -> ContactIntelligenceSnapshot:
+    if not restrictions:
+        return snapshot
+    updated_contacts = []
+    contacts_by_number = {}
+    for contact in snapshot.contacts:
+        number = normalize_phone(contact.normalizedValue or contact.value) if contact.contactType == "phone" else ""
+        restriction = restrictions.get(number)
+        if restriction:
+            status = "do_not_call" if restriction["doNotCall"] else "disconnected" if restriction["disconnected"] else "wrong_number" if restriction["wrongNumber"] else "do_not_text" if restriction["doNotText"] else contact.status
+            evidence = list(dict.fromkeys([*contact.evidence, "Blocked by LEGACY's persistent phone suppression registry."]))
+            contact = contact.model_copy(update={
+                "doNotCall": contact.doNotCall or restriction["doNotCall"],
+                "doNotText": contact.doNotText or restriction["doNotText"],
+                "disconnected": contact.disconnected or restriction["disconnected"],
+                "wrongNumber": contact.wrongNumber or restriction["wrongNumber"],
+                "isCallable": False if restriction["doNotCall"] or restriction["disconnected"] or restriction["wrongNumber"] else contact.isCallable,
+                "isTextable": False if restriction["doNotText"] else contact.isTextable,
+                "status": status,
+                "evidence": evidence,
+            })
+        if number:
+            contacts_by_number[number] = contact
+        updated_contacts.append(contact)
+    best = snapshot.bestContact
+    if best and best.contactType == "phone":
+        best = contacts_by_number.get(normalize_phone(best.normalizedValue or best.value), best)
+    return snapshot.model_copy(update={"contacts": updated_contacts, "bestContact": best})
+
+
+def apply_registered_phone_suppressions(connection, snapshot: ContactIntelligenceSnapshot) -> ContactIntelligenceSnapshot:
+    """Apply sticky, phone-level opt-outs to every future saved or displayed snapshot."""
+    restrictions = _registered_phone_suppression_restrictions(connection, [snapshot])
+    return _apply_phone_suppression_restrictions(snapshot, restrictions)
+
+
+def apply_registered_phone_suppressions_batch(connection, snapshots: list[ContactIntelligenceSnapshot]) -> list[ContactIntelligenceSnapshot]:
+    """Apply the same persistent restrictions with one bounded lookup for a queue batch."""
+    restrictions = _registered_phone_suppression_restrictions(connection, snapshots)
+    return [_apply_phone_suppression_restrictions(snapshot, restrictions) for snapshot in snapshots]
+
+
+def apply_litigation_hold(lead, snapshot: ContactIntelligenceSnapshot) -> ContactIntelligenceSnapshot:
+    """Keep source litigation flags out of calling and texting even after number review."""
+    if not getattr(lead, "litigationHold", False):
+        return snapshot
+    updated = [contact.model_copy(update={
+        "isCallable": False,
+        "isTextable": False,
+        "status": "litigation_hold" if contact.contactType == "phone" else contact.status,
+        "evidence": list(dict.fromkeys([*contact.evidence, "Property is on a litigation outreach hold."])),
+    }) if contact.contactType == "phone" else contact for contact in snapshot.contacts]
+    by_id = {contact.id: contact for contact in updated}
+    best = by_id.get(snapshot.bestContact.id, snapshot.bestContact) if snapshot.bestContact else None
+    return snapshot.model_copy(update={"contacts": updated, "bestContact": best})
 
 
 def save_snapshot(snapshot: ContactIntelligenceSnapshot) -> ContactIntelligenceSnapshot:
+    lead = lead_store.get_saved_lead(snapshot.leadId)
+    if lead:
+        snapshot = apply_litigation_hold(lead, snapshot)
     with get_connection() as connection:
         ensure_contact_intelligence_table(connection)
+        snapshot = apply_registered_phone_suppressions(connection, snapshot)
         if lead_store.USE_POSTGRES:
             connection.execute(
                 """
@@ -567,11 +667,62 @@ def rollback_propstream_contacts(request: PropStreamRollbackRequest, current_use
     return {**result, "productionWrites": True}
 
 
+@router.post("/calling-queue")
+def summarize_calling_queue(request: CallingQueueRequest, current_user: CurrentUser):
+    """Read a bounded campaign snapshot without returning phone values or enriching contacts."""
+    require_lead_contact_access(current_user)
+    requested_ids = list(dict.fromkeys(str(value).strip() for value in request.leadIds if str(value).strip()))
+    saved_leads = lead_store.list_saved_leads_by_ids(requested_ids)
+    leads_by_id = {str(lead.id): lead for lead in saved_leads}
+    selected = [leads_by_id[lead_id] for lead_id in requested_ids if lead_id in leads_by_id]
+    selected_ids = [str(lead.id) for lead in selected]
+    saved_by_id: dict[str, ContactIntelligenceSnapshot] = {}
+
+    if selected_ids:
+        with get_connection() as connection:
+            if lead_store.USE_POSTGRES:
+                rows = connection.execute(
+                    "SELECT lead_id, payload FROM contact_intelligence_records WHERE lead_id = ANY(%s)",
+                    (selected_ids,),
+                ).fetchall()
+                parsed = [(str(row[0]), ContactIntelligenceSnapshot.model_validate(lead_store.parse_saved_payload(row[1]))) for row in rows]
+            else:
+                parsed = []
+                for offset in range(0, len(selected_ids), 500):
+                    chunk = selected_ids[offset:offset + 500]
+                    placeholders = ",".join("?" for _ in chunk)
+                    rows = connection.execute(
+                        f"SELECT lead_id, payload FROM contact_intelligence_records WHERE lead_id IN ({placeholders})",
+                        chunk,
+                    ).fetchall()
+                    parsed.extend((str(row["lead_id"]), ContactIntelligenceSnapshot.model_validate(lead_store.parse_saved_payload(row["payload"]))) for row in rows)
+            restricted_snapshots = apply_registered_phone_suppressions_batch(connection, [snapshot for _, snapshot in parsed])
+            saved_by_id = {lead_id: snapshot for (lead_id, _), snapshot in zip(parsed, restricted_snapshots)}
+
+    service = real_enrichment_service()
+    summaries = []
+    for lead in selected:
+        snapshot = service.current_snapshot(lead, saved_by_id.get(str(lead.id)))
+        snapshot = apply_litigation_hold(lead, snapshot)
+        summaries.append(summarize_calling_snapshot(
+            snapshot,
+            getattr(lead, "contactStatus", ""),
+            include_phone_numbers=request.includePhoneNumbers,
+        ))
+    lead_counts = {status: 0 for status in ("eligible", "unreviewed", "disconnected", "suppressed", "no_numbers")}
+    number_counts = {status: 0 for status in ("eligible", "unreviewed", "disconnected", "suppressed")}
+    for item in summaries:
+        lead_counts[item["status"]] += 1
+        for status, count in item["numberCounts"].items():
+            number_counts[status] += count
+    return {"leads": summaries, "leadCounts": lead_counts, "numberCounts": number_counts}
+
+
 @router.get("/leads/{lead_id}", response_model=ContactIntelligenceSnapshot)
 def get_lead_contact_intelligence(lead_id: str, current_user: CurrentUser):
     lead = require_lead(lead_id)
     saved_snapshot = get_saved_snapshot(lead_id)
-    return real_enrichment_service().current_snapshot(lead, saved_snapshot)
+    return apply_litigation_hold(lead, real_enrichment_service().current_snapshot(lead, saved_snapshot))
 
 
 @router.post("/entities/snapshot", response_model=ContactIntelligenceSnapshot)
@@ -612,9 +763,26 @@ def enrich_lead_contact_intelligence(lead_id: str, current_user: CurrentUser):
 
 @router.post("/contacts/{contact_id}/feedback", response_model=ContactIntelligenceSnapshot)
 def record_contact_feedback(contact_id: str, request: ContactFeedbackRequest, current_user: CurrentUser):
+    require_lead_contact_access(current_user)
+    feedback = request.feedbackType.strip().lower().replace("-", "_")
+    allowed_feedback = {
+        "confirmed", "confirmed_owner", "owner_confirmed", "wrong_number", "not_owner",
+        "disconnected", "do_not_call", "dnc", "do_not_text", "dnt", "attempted",
+        "called", "voicemail", "no_answer",
+    }
+    if feedback not in allowed_feedback:
+        raise HTTPException(status_code=400, detail="Unsupported contact review action")
+    if feedback in {"confirmed", "confirmed_owner", "owner_confirmed"} and not request.sourceQualityReviewed:
+        raise HTTPException(status_code=400, detail="Confirm that you reviewed the phone source before marking this number verified")
     lead = require_lead(request.leadId)
     saved_snapshot = get_saved_snapshot(request.leadId)
     saved_snapshot = real_enrichment_service().current_snapshot(lead, saved_snapshot)
+    # Re-apply both layers of protection immediately before a human review.
+    with get_connection() as connection:
+        saved_snapshot = apply_registered_phone_suppressions(connection, saved_snapshot)
+    saved_snapshot = apply_litigation_hold(lead, saved_snapshot)
+    if not any(contact.id == contact_id for contact in saved_snapshot.contacts):
+        raise HTTPException(status_code=404, detail="Phone number not found on this lead")
 
     snapshot = ContactIntelligenceService().apply_feedback(
         saved_snapshot,

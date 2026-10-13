@@ -1,8 +1,8 @@
 import React from "react";
 import GoogleVoiceActions from "./GoogleVoiceActions.jsx";
 import PowerDialerView from "./PowerDialerView.jsx";
-import { getCallingContacts } from "./contactCalling.js";
-import { getNextPowerDialerLead, getPowerDialerQueue, leadHasStoredPhone, normalizeDialerQueue } from "./powerDialer.js";
+import { getCallingContacts, getContactCallStatus, getLeadDisplayContact } from "./contactCalling.js";
+import { getPowerDialerQueue, normalizeDialerQueue } from "./powerDialer.js";
 import { findPhoneLeadMatches, getLatestLeadNote, isPhoneSearchQuery } from "./phoneLookup.js";
 import { isAuthTokenExpired } from "./authSession.js";
 import { DispositionIntelligenceView, LeadLegacyMarketMap } from "./DispositionIntelligence.jsx";
@@ -359,6 +359,11 @@ export function App() {
   const [selectedLeadId, setSelectedLeadId] = React.useState(() => getLeadIdFromPath() || null);
   const [dialerLeadId, setDialerLeadId] = React.useState(null);
   const [dialerQueue, setDialerQueue] = React.useState("My Queue");
+  const [campaignSummary, setCampaignSummary] = React.useState(null);
+  const [callReadinessSummary, setCallReadinessSummary] = React.useState(null);
+  const callReadinessRequestRef = React.useRef(0);
+  const [campaignEligibleLeadIds, setCampaignEligibleLeadIds] = React.useState([]);
+  const [campaignCompletedLeadIds, setCampaignCompletedLeadIds] = React.useState([]);
   const [activeView, setActiveView] = React.useState("Properties");
   const [backendReady, setBackendReady] = React.useState(false);
   const [saveStatus, setSaveStatus] = React.useState("Connecting...");
@@ -599,6 +604,39 @@ export function App() {
     };
   }, [authToken, hasFullAccess]);
 
+  const overviewLeadIds = React.useMemo(() => {
+    const phoneLookupLeadIds = new Set(findPhoneLeadMatches(leads, query).map((match) => match.lead.id));
+    const visible = leads.filter((lead) => {
+      const searchText = `${lead.name} ${lead.address} ${lead.parcelNumber} ${lead.county} ${getLeadPhones(lead).join(" ")} ${lead.email} ${lead.source}`.toLowerCase();
+      const matchesQuery = searchText.includes(query.toLowerCase()) || phoneLookupLeadIds.has(lead.id);
+      const matchesStage = stageFilter === "All" || lead.stage === stageFilter;
+      const matchesReview = reviewFilter === "All"
+        || (reviewFilter === "Needs Review" && lead.needsReview)
+        || (reviewFilter === "Reviewed" && !lead.needsReview);
+      return matchesQuery && matchesStage && matchesReview
+        && (!hotOnly || isSellerHotLead(lead))
+        && leadMatchesQueueFilter(lead, queueFilter, auth?.user);
+    });
+    if (selectedLeadId) return visible.some((lead) => lead.id === selectedLeadId) ? [selectedLeadId] : [];
+    return sortLeads(visible, sortMode).slice(0, 250).map((lead) => lead.id);
+  }, [leads, query, stageFilter, reviewFilter, hotOnly, queueFilter, sortMode, auth?.user, selectedLeadId]);
+  React.useEffect(() => {
+    if (!authToken || !backendReady || !overviewLeadIds.length) {
+      setCallReadinessSummary(null);
+      return undefined;
+    }
+    let cancelled = false;
+    const requestId = ++callReadinessRequestRef.current;
+    fetchCallingQueueSummary(overviewLeadIds, authToken, true)
+      .then((summary) => {
+        if (!cancelled && requestId === callReadinessRequestRef.current) setCallReadinessSummary(summary);
+      })
+      .catch(() => {
+        if (!cancelled && requestId === callReadinessRequestRef.current) setCallReadinessSummary(null);
+      });
+    return () => { cancelled = true; };
+  }, [authToken, backendReady, overviewLeadIds]);
+
   React.useEffect(() => {
     let cancelled = false;
 
@@ -707,8 +745,12 @@ export function App() {
   const sortedLeads = sortLeads(filteredLeads, sortMode);
 
   const strongProperties = leads.filter((lead) => getPropertyOpportunity(lead).score >= 80).length;
-  const callReadyLeads = leads.filter(isCallReadyLead).length;
-  const contactReviewLeads = leads.filter(isContactReviewLead).length;
+  const callReadyLeads = callReadinessSummary?.leadCounts?.eligible ?? leads.filter(isCallReadyLead).length;
+  const contactReviewLeads = callReadinessSummary?.leadCounts?.unreviewed ?? leads.filter(isContactReviewLead).length;
+  const callReadinessByLeadId = React.useMemo(
+    () => new Map((callReadinessSummary?.leads || []).map((item) => [item.leadId, item])),
+    [callReadinessSummary]
+  );
   const hotLeads = leads.filter(isSellerHotLead).length;
   const followUps = leads.filter((lead) => lead.stage === "Follow Up").length;
   const selectedLead = leads.find((lead) => lead.id === selectedLeadId);
@@ -804,8 +846,11 @@ export function App() {
     }
   }
 
-  async function claimAvailableForDialer(candidates) {
-    for (const candidate of candidates.filter(leadHasStoredPhone)) {
+  async function claimAvailableForDialer(candidates, eligibleLeadIds = campaignEligibleLeadIds) {
+    const eligible = new Set(eligibleLeadIds);
+    for (const candidate of candidates.filter((lead) => eligible.has(lead.id))) {
+      if (candidate.assignedToUserId === auth.user?.username) return candidate;
+      if (candidate.assignedToUserId) continue;
       try {
         const claimed = await claimLeadForCaller(candidate.id, authToken);
         setLeads((current) => current.map((lead) => (lead.id === claimed.id ? claimed : lead)));
@@ -817,16 +862,44 @@ export function App() {
     return null;
   }
 
+  function callingReadinessMessage(summary, queueName) {
+    const leadsByStatus = summary?.leadCounts || {};
+    const numbers = summary?.numberCounts || {};
+    return `${queueName}: ${leadsByStatus.eligible || 0} eligible leads (${numbers.eligible || 0} numbers), ${leadsByStatus.unreviewed || 0} need review, ${leadsByStatus.disconnected || 0} disconnected, ${leadsByStatus.suppressed || 0} suppressed/DNC, ${leadsByStatus.no_numbers || 0} with no numbers. History is preserved.`;
+  }
+
+  async function refreshCallReadinessOverview(leadId = "") {
+    if (!authToken || !leads.length) return;
+    const targetLeadIds = leadId ? [leadId] : overviewLeadIds;
+    if (!targetLeadIds.length) return;
+    const requestId = ++callReadinessRequestRef.current;
+    try {
+      const summary = await fetchCallingQueueSummary(targetLeadIds, authToken, true);
+      if (requestId !== callReadinessRequestRef.current) return;
+      setCallReadinessSummary((current) => leadId && current ? mergeCallingQueueSummary(current, summary) : summary);
+    } catch {
+      // Start Calling performs its own current eligibility check; retain the last good overview.
+    }
+  }
+
   async function startPowerDialer() {
     const activeQueue = normalizeDialerQueue(queueFilter);
-    setQueueMessage(`Starting ${activeQueue}...`);
+    const queue = getPowerDialerQueue(leads, activeQueue, auth.user);
+    if (!queue.length) {
+      setQueueMessage(`No leads are in ${activeQueue}.`);
+      return;
+    }
+    setQueueMessage(`Checking saved phone and compliance status for ${queue.length} leads...`);
     try {
-      const queue = getPowerDialerQueue(leads, activeQueue, auth.user);
-      const lead = activeQueue === "Available Leads"
-        ? await claimAvailableForDialer(queue)
-        : queue.find(leadHasStoredPhone) || null;
+      const summary = await fetchCallingQueueSummary(queue.map((lead) => lead.id), authToken);
+      const eligibleIds = summary.leads.filter((item) => item.status === "eligible").map((item) => item.leadId);
+      setCampaignSummary(summary);
+      setCampaignEligibleLeadIds(eligibleIds);
+      setCampaignCompletedLeadIds([]);
+      const eligibleQueue = queue.filter((lead) => eligibleIds.includes(lead.id));
+      const lead = await claimAvailableForDialer(eligibleQueue, eligibleIds);
       if (!lead) {
-        setQueueMessage(`No callable leads are ready in ${activeQueue}. No-phone records remain in Contact Review.`);
+        setQueueMessage(callingReadinessMessage(summary, activeQueue));
         return;
       }
       setQueueFilter(activeQueue);
@@ -835,29 +908,26 @@ export function App() {
       setQueueMessage("");
       closeLeadWorkspace({ restore: false });
     } catch (error) {
-      setQueueMessage(error?.message || "Calling mode could not start. The queue was not changed.");
+      setQueueMessage(error?.message || "Saved phone eligibility could not be verified. Calling did not start.");
     }
   }
 
   async function advancePowerDialer(savedLead) {
     const currentLeads = leads.map((lead) => (lead.id === savedLead.id ? savedLead : lead));
-    if (dialerQueue === "Available Leads") {
-      const available = getPowerDialerQueue(currentLeads, dialerQueue, auth.user)
-        .filter((lead) => lead.id !== savedLead.id);
-      const claimed = await claimAvailableForDialer(available);
-      if (claimed) {
-        setDialerLeadId(claimed.id);
-        return;
-      }
-    } else {
-      const next = getNextPowerDialerLead(currentLeads, savedLead.id, dialerQueue, auth.user);
-      if (next) {
-        setDialerLeadId(next.id);
-        return;
-      }
+    const completed = new Set(campaignCompletedLeadIds);
+    completed.add(savedLead.id);
+    setCampaignCompletedLeadIds([...completed]);
+    const queue = getPowerDialerQueue(currentLeads, dialerQueue, auth.user);
+    const currentIndex = queue.findIndex((lead) => lead.id === savedLead.id);
+    const candidates = (currentIndex >= 0 ? queue.slice(currentIndex + 1) : queue)
+      .filter((lead) => campaignEligibleLeadIds.includes(lead.id) && !completed.has(lead.id));
+    const next = await claimAvailableForDialer(candidates, campaignEligibleLeadIds);
+    if (next) {
+      setDialerLeadId(next.id);
+      return;
     }
     setDialerLeadId(null);
-    setQueueMessage(`${dialerQueue} is complete. No additional callable leads are ready.`);
+    setQueueMessage(`${dialerQueue} campaign complete. ${callingReadinessMessage(campaignSummary, dialerQueue)}`);
   }
 
   async function applyBulkAssignment(value) {
@@ -1279,10 +1349,16 @@ export function App() {
             setDialerLeadId(null);
             setQueueMessage("Calling mode paused. Queue position is preserved.");
           }}
-          onContactFeedback={(contactId, feedbackType) => sendContactFeedback(dialerLead.id, contactId, feedbackType, authToken)}
+          onContactFeedback={async (contactId, feedbackType) => {
+            const snapshot = await sendContactFeedback(dialerLead.id, contactId, feedbackType, authToken);
+            await refreshCallReadinessOverview(dialerLead.id);
+            return snapshot;
+          }}
           onLeadSaved={(saved) => setLeads((current) => current.map((lead) => (lead.id === saved.id ? saved : lead)))}
           onSaveResult={(leadId, result) => saveLeadCallResult(leadId, result, authToken)}
           onVoiceAction={(actionType, phone) => recordPhoneInteraction(dialerLead.id, actionType, phone)}
+          campaignCompletedCount={campaignCompletedLeadIds.length}
+          campaignSummary={campaignSummary}
           queueLabel={dialerQueue}
         />
       </main>
@@ -1426,16 +1502,16 @@ export function App() {
                 <p>Start with the properties and follow-ups that can move the business today.</p>
               </div>
               <div className="briefing-metrics">
-                <span><b>{callReadyLeads}</b> Call Ready</span>
-                <span><b>{contactReviewLeads}</b> Contact Review</span>
+                <span><b>{callReadyLeads}</b> Shown Call Ready</span>
+                <span><b>{contactReviewLeads}</b> Shown Contact Review</span>
                 <span><b>{followUps}</b> Follow-Ups</span>
               </div>
             </section>
 
             <section className="stats-grid" aria-label="Property stats">
               <Stat label="Total Properties" value={leads.length} />
-              <Stat label="Call Ready" value={callReadyLeads} />
-              <Stat label="Contact Review" value={contactReviewLeads} />
+              <Stat label="Shown Call Ready" value={callReadyLeads} />
+              <Stat label="Shown Contact Review" value={contactReviewLeads} />
               <Stat label="Follow-Ups" value={followUps} />
               {isAdmin ? (
               <>
@@ -1553,7 +1629,7 @@ export function App() {
                         <StatusDot lead={lead} />
                       </h3>
                       <p>{getDisplayOwnerName(lead) || "Owner name needed"}</p>
-                      <small>{formatPhoneList(lead) || "No phone yet"}</small>
+                      <small>{getLeadPhoneAvailability(lead, callReadinessByLeadId.get(lead.id))}</small>
                       {isRecentlyContactedByAnother(lead, auth.user) ? (
                         <small className="recent-contact-note">
                           Recently contacted by {lead.lastContactedBy} at {formatActivityTime(lead.lastContactedAt)}
@@ -1563,11 +1639,11 @@ export function App() {
                     <div className="lead-meta-grid call-queue-grid">
                       <span className="lead-meta"><b>Seller</b>{getDisplayOwnerName(lead) || "Owner needed"}</span>
                       <span className="lead-meta"><b>Property</b>{lead.parcelNumber || getLeadZip(lead) || "Address saved"}</span>
-                      <span className="lead-meta"><b>Best Contact</b>{getBestContactLabel(lead)}</span>
-                      <span className="lead-meta"><b>Status</b>{getLeadQueueStatus(lead).label}</span>
+                      <span className="lead-meta"><b>Best Contact</b>{getBestContactLabel(lead, callReadinessByLeadId.get(lead.id))}</span>
+                      <span className="lead-meta"><b>Status</b>{getLeadQueueStatus(lead, callReadinessByLeadId.get(lead.id)).label}</span>
                       <span className="lead-meta"><b>Assigned</b>{lead.assignedToName || "Available"}</span>
                       <span className="lead-meta"><b>Last Contact</b>{lead.lastContactedAt ? `${lead.lastContactedBy || "Unknown"} / ${formatActivityTime(lead.lastContactedAt)}` : "None"}</span>
-                      <span className="lead-meta"><b>Next Action</b>{getLeadNextAction(lead)}</span>
+                      <span className="lead-meta"><b>Next Action</b>{getLeadNextAction(lead, callReadinessByLeadId.get(lead.id))}</span>
                     </div>
                     <div className="row-actions">
                       <button onClick={() => openLeadWorkspace(lead.id)}>View</button>
@@ -1596,7 +1672,7 @@ export function App() {
           ) : null}
 
           {activeView === "Pipeline" ? (
-            <PipelineView leads={leads} onViewLead={openLeadWorkspace} />
+            <PipelineView leads={leads} onViewLead={openLeadWorkspace} phoneReadinessByLeadId={callReadinessByLeadId} />
           ) : null}
 
           {activeView === "Disposition" ? (
@@ -1691,6 +1767,7 @@ export function App() {
             currentUser={auth.user}
             lead={selectedLead}
             onBack={closeLeadWorkspace}
+            onCallingOverviewRefresh={refreshCallReadinessOverview}
             onEdit={() => openEditForm(selectedLead)}
             onMarkReviewed={() => markReviewed(selectedLead.id)}
             onMarkReviewedAndNext={markReviewedAndNext}
@@ -2146,7 +2223,7 @@ function CallerProfileView({ currentUser, leads }) {
   );
 }
 
-function PipelineView({ leads, onViewLead }) {
+function PipelineView({ leads, onViewLead, phoneReadinessByLeadId }) {
   return (
     <div className="panel wide-panel">
       <div className="panel-header">
@@ -2172,7 +2249,7 @@ function PipelineView({ leads, onViewLead }) {
                   <button className="pipeline-card" key={lead.id} onClick={() => onViewLead(lead.id)}>
                     <strong>{getDisplayOwnerName(lead) || "Owner name needed"}</strong>
                     <span>{lead.address}</span>
-                    <small>{formatPhoneList(lead) || "No phone"}</small>
+                    <small>{getLeadPhoneAvailability(lead, phoneReadinessByLeadId?.get(lead.id))}</small>
                   </button>
                 ))
               ) : (
@@ -3561,6 +3638,7 @@ function LeadWorkspacePage({
   currentUser,
   lead,
   onBack,
+  onCallingOverviewRefresh,
   onEdit,
   onMarkReviewed,
   onMarkReviewedAndNext,
@@ -3576,8 +3654,14 @@ function LeadWorkspacePage({
   const [visualMode, setVisualMode] = React.useState("street");
   const phones = getLeadPhones(lead);
   const [contactSnapshot, setContactSnapshot] = React.useState(null);
-  const { best: bestContact } = getCallingContacts(lead, contactSnapshot);
-  const primaryPhone = bestContact?.normalizedValue || bestContact?.value || "";
+  const { contact: primaryDisplayContact, isCallReady } = getLeadDisplayContact(lead, contactSnapshot);
+  const primaryPhone = primaryDisplayContact?.normalizedValue || primaryDisplayContact?.value || "";
+  const primaryContactStatus = primaryDisplayContact ? getContactCallStatus(primaryDisplayContact) : "no_numbers";
+  const primaryContactStatusLabel = primaryContactStatus === "eligible" ? "Call Ready"
+    : primaryContactStatus === "suppressed" ? "Restricted — calling blocked"
+      : primaryContactStatus === "disconnected" ? "Disconnected — calling blocked"
+        : primaryDisplayContact ? "Needs Review — calling blocked"
+          : contactSnapshot ? "No saved number" : "Loading saved numbers…";
   const ownerName = getDisplayOwnerName(lead) || "Owner name needed";
   const taxUrl = buildCountyTaxUrl(lead);
   const mapUrl = buildGoogleMapsUrl(lead.address);
@@ -3630,12 +3714,13 @@ function LeadWorkspacePage({
 
       <nav className="property-command-bar single-command-bar" aria-label="Property command bar">
         <span className="primary-phone-command">
-          <b>Best Contact</b>
-          {primaryPhone ? formatPhone(primaryPhone) : "Missing"}
+          <b>{isCallReady ? "Best Contact" : primaryDisplayContact ? "Saved Number" : "Best Contact"}</b>
+          {primaryPhone ? formatPhone(primaryPhone) : contactSnapshot ? "No number on file" : "Loading saved numbers…"}
+          <small className="primary-phone-status">{primaryContactStatusLabel}</small>
         </span>
         {canWorkLead ? (
           <GoogleVoiceActions
-            contact={bestContact}
+            contact={primaryDisplayContact}
             leadContext={{ ownerName, address: lead.address || "Missing Address" }}
             onCall={(phone) => onPhoneInteraction?.("voice_opened", phone)}
             onText={(phone) => onPhoneInteraction?.("voice_text_opened", phone)}
@@ -4194,10 +4279,15 @@ function LeadDetail({
 
   async function handleContactFeedback(contactId, feedbackType) {
     if (!authToken || !lead.id || !contactId) return;
+    const sourceQualityReviewed = feedbackType === "confirmed_owner"
+      ? window.confirm("Confirm that you checked this phone against the owner and reviewed its source. LEGACY will still block DNC, opt-outs, disconnected numbers, and litigation holds.")
+      : false;
+    if (feedbackType === "confirmed_owner" && !sourceQualityReviewed) return;
 
     try {
-      const snapshot = await sendContactFeedback(lead.id, contactId, feedbackType, authToken);
+      const snapshot = await sendContactFeedback(lead.id, contactId, feedbackType, authToken, sourceQualityReviewed);
       setContactIntelligence(snapshot);
+      await onCallingOverviewRefresh?.(lead.id);
       setContactIntelligenceMessage("Contact feedback saved.");
       addLeadActivity({
         actionType: "note_added",
@@ -4775,16 +4865,28 @@ function LeadDetail({
 
 function ContactIntelligencePanel({ lead, canEnrichContacts = false, isRefreshing, message, onCall, onFeedback, onRefresh, onText, snapshot }) {
   const { best, contacts } = getCallingContacts(lead, snapshot);
-  const additional = contacts.filter((contact) => contact !== best);
+  const displayContacts = best ? [best, ...contacts.filter((contact) => contact !== best)] : contacts;
   const sourceLinks = Array.isArray(snapshot?.sourceUrls) ? snapshot.sourceUrls : [];
   function renderContact(contact) {
     const phone = contact.normalizedValue || contact.value;
+    const callStatus = getContactCallStatus(contact);
+    const reviewLabel = contact.status === "litigation_hold" ? "Litigation Hold"
+      : contact.doNotCall || ["dnc", "do_not_call", "public_dnc", "suppressed", "opted_out", "opt_out", "do_not_contact"].includes(String(contact.status).toLowerCase())
+      ? "DNC"
+      : contact.wrongNumber || contact.status === "wrong_number" ? "Wrong Number"
+        : contact.disconnected || contact.status === "disconnected" ? "Disconnected"
+          : callStatus === "eligible" ? (contact.verifiedOwner ? "Verified" : "Saved Number") : "Needs Review";
     return <div className="contact-best-card" key={contact.id || phone}>
-      <strong>{contact.isCallable === false && contact.status === "needs_review" ? contact.value : formatPhone(phone)}</strong>
+      <div className="contact-number-row"><strong>{formatPhone(phone)}</strong>
+        <span className="contact-state-badges">
+          <span className={`contact-review-state ${reviewLabel === "DNC" || reviewLabel === "Litigation Hold" ? "is-suppressed" : reviewLabel === "Disconnected" || reviewLabel === "Wrong Number" ? "is-disconnected" : ""}`}>{reviewLabel}</span>
+          {callStatus === "eligible" ? <span className="contact-review-state is-call-ready">Call Ready</span> : null}
+        </span>
+      </div>
       <div className="contact-intel-badges">
-        <small>{formatContactStatusLabel(contact.status || "unverified")}</small>
-        {contact.source ? <small>{contact.source}</small> : null}
-        {contact.sourceConfidence != null ? <small>{contact.sourceConfidence}% source confidence</small> : null}
+        {contact.source ? <small>Source: {contact.source}</small> : null}
+        <small>{contact.sourceConfidence == null ? "Source score: Not provided" : `Source score: ${contact.sourceConfidence}%`}</small>
+        {contact.sourceQualityReviewed ? <small>Source reviewed</small> : null}
       </div>
       <div className="contact-intel-actions">
         <GoogleVoiceActions
@@ -4793,12 +4895,12 @@ function ContactIntelligencePanel({ lead, canEnrichContacts = false, isRefreshin
           onCall={onCall}
           onText={onText}
         />
-        {contact.id ? <>
-          <button onClick={() => onFeedback(contact.id, "confirmed_owner")} type="button">Confirmed</button>
-          <button onClick={() => onFeedback(contact.id, "wrong_number")} type="button">Wrong #</button>
+        {contact.id && !["DNC", "Wrong Number", "Disconnected", "Litigation Hold"].includes(reviewLabel) ? <>
+          <button onClick={() => onFeedback(contact.id, "wrong_number")} type="button">Wrong number</button>
           <button onClick={() => onFeedback(contact.id, "disconnected")} type="button">Disconnected</button>
           <button onClick={() => onFeedback(contact.id, "do_not_call")} type="button">DNC</button>
         </> : null}
+        {contact.doNotText ? <small className="contact-optout-note">Texting is blocked by opt-out.</small> : null}
       </div>
     </div>;
   }
@@ -4811,13 +4913,15 @@ function ContactIntelligencePanel({ lead, canEnrichContacts = false, isRefreshin
         </button>
       </div>
       {message ? <p className="contact-intel-message">{message}</p> : null}
-      {best ? <><span>Best Contact</span>{renderContact(best)}</> : <div className="contact-empty-card">
-        <strong>Contact Review</strong><p>No existing callable number. Review saved contacts or request enrichment.</p>
+      {displayContacts.length ? <>
+        <div className="contact-review-summary">
+          <strong>{displayContacts.length} phone {displayContacts.length === 1 ? "number" : "numbers"}</strong>
+          <span>{displayContacts.filter((contact) => getContactCallStatus(contact) === "eligible").length} call ready</span>
+        </div>
+        <div className="contact-review-list">{displayContacts.map(renderContact)}</div>
+      </> : <div className="contact-empty-card">
+        <strong>No phone numbers</strong><p>Contact review will appear here when a number is available.</p>
       </div>}
-      {additional.length ? <details className="contact-extra-list">
-        <summary>Additional Contacts ({additional.length})</summary>
-        <div>{additional.map(renderContact)}</div>
-      </details> : null}
       {snapshot?.status === "provider_not_configured" ? (
         <p className="contact-intel-warning">Paid enrichment provider not configured. Add the backend API key before running real skip trace.</p>
       ) : null}
@@ -6227,6 +6331,34 @@ async function lockLeadForUser(leadId, token) {
   return sanitizeLeadLock(await response.json());
 }
 
+async function fetchCallingQueueSummary(leadIds, token, includePhoneNumbers = false) {
+  const response = await fetch(`${apiBaseUrl}/contact-intelligence/calling-queue`, {
+    method: "POST",
+    headers: { ...authHeaders(token), "Content-Type": "application/json" },
+    body: JSON.stringify({ leadIds, includePhoneNumbers })
+  });
+  if (!response.ok) throw new Error("Saved phone eligibility could not be verified. Calling did not start.");
+  return response.json();
+}
+
+function mergeCallingQueueSummary(current, updated) {
+  const byLeadId = new Map((current.leads || []).map((lead) => [lead.leadId, lead]));
+  for (const lead of updated.leads || []) {
+    const previous = byLeadId.get(lead.leadId) || {};
+    byLeadId.set(lead.leadId, { ...previous, ...lead, phoneNumbers: lead.phoneNumbers || previous.phoneNumbers });
+  }
+  const leads = [...byLeadId.values()];
+  const leadCounts = { eligible: 0, unreviewed: 0, disconnected: 0, suppressed: 0, no_numbers: 0 };
+  const numberCounts = { eligible: 0, unreviewed: 0, disconnected: 0, suppressed: 0 };
+  for (const lead of leads) {
+    if (Object.hasOwn(leadCounts, lead.status)) leadCounts[lead.status] += 1;
+    for (const [status, count] of Object.entries(lead.numberCounts || {})) {
+      if (Object.hasOwn(numberCounts, status)) numberCounts[status] += Number(count) || 0;
+    }
+  }
+  return { leads, leadCounts, numberCounts };
+}
+
 async function fetchContactIntelligence(leadId, token) {
   const response = await fetch(`${apiBaseUrl}/contact-intelligence/leads/${encodeURIComponent(leadId)}`, {
     headers: authHeaders(token)
@@ -6282,14 +6414,14 @@ async function enrichMissingLeadContacts(token) {
   return response.json();
 }
 
-async function sendContactFeedback(leadId, contactId, feedbackType, token) {
+async function sendContactFeedback(leadId, contactId, feedbackType, token, sourceQualityReviewed = false) {
   const response = await fetch(`${apiBaseUrl}/contact-intelligence/contacts/${encodeURIComponent(contactId)}/feedback`, {
     method: "POST",
     headers: {
       ...authHeaders(token),
       "Content-Type": "application/json"
     },
-    body: JSON.stringify({ leadId, feedbackType })
+    body: JSON.stringify({ leadId, feedbackType, sourceQualityReviewed })
   });
 
   if (!response.ok) {
@@ -6750,7 +6882,7 @@ function sanitizeContactRecord(contact = {}) {
     normalizedValue,
     source: safeText(contact.source || "Unknown source"),
     sourceUrl: safeText(contact.sourceUrl),
-    sourceConfidence: clampScore(contact.sourceConfidence),
+    sourceConfidence: contact.sourceConfidence == null ? null : clampScore(contact.sourceConfidence),
     provider: safeText(contact.provider),
     matchConfidence: clampScore(contact.matchConfidence),
     ownerNameMatch: clampScore(contact.ownerNameMatch),
@@ -6771,6 +6903,8 @@ function sanitizeContactRecord(contact = {}) {
     disconnected: Boolean(contact.disconnected),
     wrongNumber: Boolean(contact.wrongNumber),
     verifiedOwner: Boolean(contact.verifiedOwner),
+    sourceQualityReviewed: Boolean(contact.sourceQualityReviewed),
+    suppressed: Boolean(contact.suppressed || contact.isSuppressed),
     lastAttemptedAt: safeText(contact.lastAttemptedAt),
     lastResult: safeText(contact.lastResult),
     lastVerifiedDate: safeText(contact.lastVerifiedDate),
@@ -6886,6 +7020,32 @@ function formatPhoneList(lead = {}) {
   return getLeadPhones(lead).map(formatPhone).join(", ");
 }
 
+function getLeadPhoneAvailability(lead = {}, readiness = null) {
+  const savedNumbers = Array.isArray(readiness?.phoneNumbers) ? readiness.phoneNumbers : [];
+  const leadPhones = getLeadPhones(lead);
+  const phoneValues = [...leadPhones];
+  const seen = new Set(leadPhones.map(normalizePhone));
+  savedNumbers.forEach((number) => {
+    const value = String(number?.value || "");
+    const key = normalizePhone(value);
+    if (key && !seen.has(key)) {
+      seen.add(key);
+      phoneValues.push(value);
+    }
+  });
+  if (phoneValues.length) {
+    const statusByNumber = new Map(savedNumbers.map((number) => [normalizePhone(number.value), number.status]));
+    return phoneValues.map((phone) => {
+      const status = statusByNumber.get(normalizePhone(phone));
+      const label = status === "eligible" ? "Call Ready" : status === "suppressed" ? "Blocked" : status === "disconnected" ? "Disconnected" : status === "unreviewed" ? "Needs Review" : "";
+      return `${formatPhone(phone)}${label ? ` · ${label}` : ""}`;
+    }).join("  |  ");
+  }
+  if (!readiness) return "Loading saved numbers…";
+  const total = Object.values(readiness.numberCounts || {}).reduce((sum, value) => sum + (Number(value) || 0), 0);
+  return total ? `${total} saved numbers` : "No saved phone numbers";
+}
+
 function normalizeText(value = "") {
   return value.toLowerCase().replace(/[^a-z0-9]/g, "");
 }
@@ -6983,9 +7143,10 @@ function getLeadDuplicateKey(lead = {}) {
   return address ? "address:" + address : "";
 }
 
-function getBestContactLabel(lead = {}) {
-  const phone = getLeadPhones(lead)[0];
-  return phone ? formatPhone(phone) : "Missing Phone";
+function getBestContactLabel(lead = {}, readiness = null) {
+  const phone = getLeadPhones(lead)[0] || readiness?.phoneNumbers?.[0]?.value;
+  if (phone) return formatPhone(phone);
+  return readiness ? "Missing Phone" : "Loading saved numbers…";
 }
 
 function hasCallableLeadPhone(lead = {}) {
@@ -7013,17 +7174,25 @@ function leadMatchesQueueFilter(lead = {}, filter = "All Leads", currentUser = {
   return true;
 }
 
-function getLeadQueueStatus(lead = {}) {
-  if (getLeadPhones(lead).length === 0) return { label: "Contact Review", value: "contact-review" };
+function getLeadQueueStatus(lead = {}, readiness = null) {
+  const hasSavedNumbers = getLeadPhones(lead).length > 0 || Boolean(readiness?.phoneNumbers?.length);
+  if (!hasSavedNumbers) return { label: "Contact Review", value: "contact-review" };
+  if (readiness?.status === "suppressed") return { label: "Do Not Call", value: "do-not-call" };
+  if (readiness?.status === "disconnected") return { label: "Disconnected", value: "disconnected" };
+  if (readiness?.status === "eligible" && ["needs-review", "contact-review"].includes(normalizeContactStatus(lead.contactStatus))) {
+    return { label: "Uncontacted", value: "needs-review" };
+  }
 
   const status = getLeadContactStatus(lead);
   if (status.value === "needs-review") return { label: "Uncontacted", value: "needs-review" };
   return status;
 }
 
-function getLeadNextAction(lead = {}) {
+function getLeadNextAction(lead = {}, readiness = null) {
   const status = getLeadContactStatus(lead).value;
-  if (getLeadPhones(lead).length === 0) return "Research Contact";
+  if (getLeadPhones(lead).length === 0 && !readiness?.phoneNumbers?.length) return "Research Contact";
+  if (readiness?.status === "suppressed") return "Do Not Call";
+  if (readiness?.status === "disconnected") return "Research Contact";
   if (status === "interested") return "Escalate to Manager";
   if (status === "not-interested") return "Do Not Chase";
   if (status === "do-not-call") return "Do Not Call";

@@ -36,7 +36,9 @@ class LeadContact(BaseModel):
     normalizedValue: str = ""
     source: str = "existing_data"
     sourceUrl: str = ""
-    sourceConfidence: int = 0
+    # None means the source supplied no score. Zero is a real score and must
+    # remain distinguishable from missing provenance.
+    sourceConfidence: int | None = None
     provider: str = ""
     matchConfidence: int = 0
     ownerNameMatch: int = 0
@@ -54,9 +56,16 @@ class LeadContact(BaseModel):
     status: str = "unverified"
     doNotCall: bool = False
     doNotText: bool = False
+    suppressed: bool = False
+    isSuppressed: bool = False
+    optedOut: bool = False
+    optOut: bool = False
+    doNotContact: bool = False
+    litigationHold: bool = False
     disconnected: bool = False
     wrongNumber: bool = False
     verifiedOwner: bool = False
+    sourceQualityReviewed: bool = False
     lastAttemptedAt: str = ""
     lastResult: str = ""
     lastVerifiedDate: str = ""
@@ -83,6 +92,75 @@ class ContactIntelligenceSnapshot(BaseModel):
     limitations: list[str] = Field(default_factory=list)
     updatedAt: str = ""
 
+
+def calling_contact_status(contact: Any) -> str:
+    """Return the saved-phone calling status, keeping review separate from restrictions."""
+    if isinstance(contact, BaseModel):
+        item = contact.model_dump()
+    else:
+        item = dict(contact or {})
+    status = str(item.get("status") or "").strip().lower().replace("-", "_").replace(" ", "_")
+    blocked_by_flag = any(item.get(flag) for flag in (
+        "doNotCall", "wrongNumber", "suppressed", "isSuppressed", "optedOut", "optOut", "doNotContact", "litigationHold"
+    ))
+    blocked_statuses = {
+        "dnc", "do_not_call", "public_dnc", "suppressed", "wrong_number", "opted_out", "opt_out", "do_not_contact", "litigation_hold"
+    }
+    if blocked_by_flag or status in blocked_statuses:
+        return "suppressed"
+    if item.get("disconnected") or status == "disconnected":
+        return "disconnected"
+    phone = item.get("normalizedValue") or item.get("value") or item.get("displayValue") or ""
+    normalized = normalize_phone(str(phone))
+    if not is_valid_us_phone(normalized):
+        return "unreviewed"
+    return "eligible"
+
+
+def summarize_calling_snapshot(
+    snapshot: ContactIntelligenceSnapshot,
+    lead_contact_status: str = "",
+    include_phone_numbers: bool = False,
+) -> dict[str, Any]:
+    """Summarize readiness, optionally including phone values for the authorized UI."""
+    counts = {"eligible": 0, "unreviewed": 0, "disconnected": 0, "suppressed": 0}
+    for contact in snapshot.contacts:
+        if contact.contactType != "phone":
+            continue
+        counts[calling_contact_status(contact)] += 1
+    lead_status_value = str(lead_contact_status or "").strip().lower().replace("_", "-").replace(" ", "-")
+    lead_override = (
+        "disconnected" if lead_status_value == "disconnected"
+        else "suppressed" if lead_status_value in {"dnc", "do-not-call", "not-interested", "wrong-number", "suppressed", "opt-out", "opted-out", "do-not-contact"}
+        else ""
+    )
+    if lead_override:
+        total_numbers = sum(counts.values())
+        counts = {"eligible": 0, "unreviewed": 0, "disconnected": 0, "suppressed": 0}
+        counts[lead_override] = total_numbers
+    if lead_override:
+        lead_status = lead_override
+    elif counts["eligible"]:
+        lead_status = "eligible"
+    elif counts["unreviewed"]:
+        lead_status = "unreviewed"
+    elif counts["disconnected"]:
+        lead_status = "disconnected"
+    elif counts["suppressed"]:
+        lead_status = "suppressed"
+    else:
+        lead_status = "no_numbers"
+    summary = {"leadId": snapshot.leadId, "status": lead_status, "numberCounts": counts}
+    if include_phone_numbers:
+        summary["phoneNumbers"] = [
+            {
+                "value": contact.displayValue or contact.value or contact.normalizedValue,
+                "status": "suppressed" if lead_override == "suppressed" else "disconnected" if lead_override == "disconnected" else calling_contact_status(contact),
+            }
+            for contact in snapshot.contacts
+            if contact.contactType == "phone" and (contact.displayValue or contact.value or contact.normalizedValue)
+        ]
+    return summary
 
 class ContactIntelligenceProvider:
     provider_name = "base"
@@ -489,8 +567,7 @@ class ContactIntelligenceService:
             "contacts": list(contacts.values()),
             "sourceUrls": dedupe_source_links([*saved.sourceUrls, *current.sourceUrls]),
         })
-        has_callable = any(contact.contactType == "phone" and contact.isCallable
-                           and not contact.doNotCall and not contact.wrongNumber and not contact.disconnected
+        has_callable = any(contact.contactType == "phone" and calling_contact_status(contact) == "eligible"
                            for contact in result.contacts)
         result.needsPaidSkipTrace = not has_callable
         result.refreshRecommended = bool([c for c in result.contacts if c.contactType == "phone"]) and not has_callable
@@ -520,12 +597,27 @@ class ContactIntelligenceService:
 
             updates: dict[str, Any] = {"updatedAt": timestamp, "lastResult": feedback_type}
             if feedback in {"confirmed", "confirmed_owner", "owner_confirmed"}:
+                # An explicit review can enable this individual number only.
+                # Sticky suppression/quality outcomes are never cleared here.
+                blocked = (
+                    contact.doNotCall or contact.wrongNumber or contact.disconnected
+                    or contact.suppressed or contact.isSuppressed or contact.optedOut
+                    or contact.optOut or contact.doNotContact or contact.litigationHold
+                    or contact.status.strip().lower().replace("-", "_") in {
+                        "dnc", "do_not_call", "public_dnc", "suppressed", "wrong_number",
+                        "disconnected", "opted_out", "opt_out", "do_not_contact", "litigation_hold",
+                    }
+                )
                 updates.update(
                     {
                         "verifiedOwner": True,
-                        "status": "confirmed_owner",
-                        "sourceConfidence": max(contact.sourceConfidence, 92),
-                        "evidence": [*contact.evidence, "Team confirmed this contact belongs to the owner."],
+                        "sourceQualityReviewed": True,
+                        "lastVerifiedDate": timestamp,
+                        "status": "confirmed_owner" if not blocked else contact.status,
+                        "isCallable": bool(not blocked and is_valid_us_phone(normalize_phone(contact.normalizedValue or contact.value))),
+                        # Review never certifies texting consent.
+                        "isTextable": contact.isTextable,
+                        "evidence": [*contact.evidence, "Team verified owner association and reviewed the phone source."],
                     }
                 )
             elif feedback in {"wrong_number", "not_owner"}:
@@ -535,7 +627,7 @@ class ContactIntelligenceService:
                         "isCallable": False,
                         "isTextable": False,
                         "status": "wrong_number",
-                        "sourceConfidence": min(contact.sourceConfidence, 20),
+                        "sourceConfidence": min(contact.sourceConfidence, 20) if contact.sourceConfidence is not None else None,
                         "evidence": [*contact.evidence, "Team marked this as the wrong number."],
                     }
                 )
@@ -546,7 +638,7 @@ class ContactIntelligenceService:
                         "isCallable": False,
                         "isTextable": False,
                         "status": "disconnected",
-                        "sourceConfidence": min(contact.sourceConfidence, 25),
+                        "sourceConfidence": min(contact.sourceConfidence, 25) if contact.sourceConfidence is not None else None,
                         "evidence": [*contact.evidence, "Team marked this contact as disconnected."],
                     }
                 )
@@ -569,7 +661,10 @@ class ContactIntelligenceService:
                     }
                 )
             elif feedback in {"attempted", "called", "voicemail", "no_answer"}:
-                updates.update({"lastAttemptedAt": timestamp, "status": feedback})
+                updates.update({
+                    "lastAttemptedAt": timestamp,
+                    "status": contact.status if contact.verifiedOwner and contact.sourceQualityReviewed else feedback,
+                })
 
             if notes:
                 updates["evidence"] = [*updates.get("evidence", contact.evidence), notes]
@@ -578,8 +673,7 @@ class ContactIntelligenceService:
 
         phone_contacts = [contact for contact in updated_contacts if contact.contactType == "phone"]
         refresh_recommended = bool(phone_contacts) and not any(
-            contact.isCallable and not contact.doNotCall and not contact.wrongNumber and not contact.disconnected
-            for contact in phone_contacts
+            calling_contact_status(contact) == "eligible" for contact in phone_contacts
         )
         return normalize_snapshot(
             snapshot.model_copy(update={"contacts": updated_contacts, "refreshRecommended": refresh_recommended, "updatedAt": timestamp})
@@ -755,16 +849,13 @@ def merge_snapshots(
     for contact in [*existing_snapshot.contacts, *provider_snapshot.contacts]:
         key = f"{contact.contactType}:{contact.normalizedValue or contact.value}".lower()
         current = contacts_by_key.get(key)
-        if not current or contact.sourceConfidence > current.sourceConfidence:
+        if not current or (contact.sourceConfidence or 0) > (current.sourceConfidence or 0):
             contacts_by_key[key] = contact
 
     source_urls = dedupe_source_links([*existing_snapshot.sourceUrls, *provider_snapshot.sourceUrls])
     contacts = list(contacts_by_key.values())
     phone_contacts = [contact for contact in contacts if contact.contactType == "phone"]
-    has_callable = any(
-        contact.isCallable and not contact.doNotCall and not contact.wrongNumber and not contact.disconnected
-        for contact in phone_contacts
-    )
+    has_callable = any(calling_contact_status(contact) == "eligible" for contact in phone_contacts)
     all_phone_contacts_bad = bool(phone_contacts) and not has_callable
     if provider_snapshot.status in {"enriched", "provider_not_configured", "failed", "unmatched"}:
         status = provider_snapshot.status
@@ -816,14 +907,11 @@ def normalize_snapshot(snapshot: ContactIntelligenceSnapshot) -> ContactIntellig
             contact
             for contact in normalized_contacts
             if contact.contactType == "phone"
-            and contact.isCallable
-            and not contact.doNotCall
-            and not contact.wrongNumber
-            and not contact.disconnected
+            and calling_contact_status(contact) == "eligible"
         ),
         normalized_contacts[0] if normalized_contacts else None,
     )
-    confidence = best_contact.sourceConfidence if best_contact else 0
+    confidence = (best_contact.sourceConfidence or 0) if best_contact else 0
     return snapshot.model_copy(update={"contacts": normalized_contacts, "bestContact": best_contact, "confidence": confidence})
 
 

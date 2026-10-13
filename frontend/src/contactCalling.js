@@ -14,11 +14,19 @@ export function buildGoogleVoiceTextUrl(phone) {
   // Google documents Messages navigation, not a stable recipient-compose URL.
   return normalizeCallablePhone(phone) ? "https://voice.google.com/u/0/messages" : "";
 }
+export function getContactCallStatus(contact) {
+  const status = String(contact?.status || "").trim().toLowerCase().replace(/[ -]+/g, "_");
+  if (contact?.doNotCall || contact?.wrongNumber || contact?.suppressed || contact?.isSuppressed
+    || contact?.optedOut || contact?.optOut || contact?.doNotContact || contact?.litigationHold
+    || ["dnc", "do_not_call", "public_dnc", "suppressed", "wrong_number", "opted_out", "opt_out", "do_not_contact", "litigation_hold"].includes(status)) return "suppressed";
+  if (contact?.disconnected || status === "disconnected") return "disconnected";
+  // An unreviewed owner/source association is visible and dialable just like the
+  // original saved-phone workflow. Only explicit restrictions or a bad number block calling.
+  if (!normalizeCallablePhone(contact?.normalizedValue || contact?.value || contact?.displayValue)) return "unreviewed";
+  return "eligible";
+}
 export function canCallContact(contact) {
-  return Boolean(contact && normalizeCallablePhone(contact.normalizedValue || contact.value)
-    && !contact.doNotCall && !contact.wrongNumber && !contact.disconnected
-    && !["do_not_call", "wrong_number", "disconnected"].includes(contact.status)
-    && contact.isCallable !== false);
+  return getContactCallStatus(contact) === "eligible";
 }
 export function canTextContact(contact) {
   return canCallContact(contact) && !contact.doNotText && contact.status !== "do_not_text"
@@ -34,8 +42,8 @@ export function getCallingContacts(lead = {}, snapshot = null) {
     const key = normalized || value;
     if (!records.has(key)) records.set(key, {
       value, normalizedValue: normalized, contactType: "phone", source: "Imported lead data",
-      status: normalized ? "imported" : "needs_review", isCallable: Boolean(normalized),
-      isTextable: Boolean(normalized),
+      // A syntactically valid phone is not an ownership/compliance review.
+      status: "needs_review", isCallable: false, isTextable: false,
     });
   }
   const current = snapshot?.leadId === lead.id ? snapshot : null;
@@ -46,12 +54,28 @@ export function getCallingContacts(lead = {}, snapshot = null) {
     const key = normalizeCallablePhone(value) || String(value).trim();
     records.set(key, { ...records.get(key), ...contact });
   }
-  const contacts = [...records.values()];
+  let contacts = [...records.values()];
+  const leadStatus = String(lead.contactStatus || "").trim().toLowerCase().replace(/[_ ]+/g, "-");
+  if (lead.litigationHold === true) {
+    contacts = contacts.map((contact) => ({ ...contact, isCallable: false, isTextable: false, status: "litigation_hold" }));
+  } else if (["dnc", "do-not-call", "not-interested", "wrong-number", "suppressed", "opt-out", "opted-out", "do-not-contact"].includes(leadStatus)) {
+    contacts = contacts.map((contact) => ({ ...contact, doNotCall: true, isCallable: false, status: "suppressed" }));
+  } else if (leadStatus === "disconnected") {
+    contacts = contacts.map((contact) => ({ ...contact, disconnected: true, isCallable: false, status: "disconnected" }));
+  }
   const preferred = normalizeCallablePhone(current?.bestContact?.normalizedValue || current?.bestContact?.value);
   const best = contacts.find((contact) => preferred && normalizeCallablePhone(contact.normalizedValue || contact.value) === preferred && canCallContact(contact))
     || contacts.filter(canCallContact).sort((a, b) => (a.priorityRank ?? 999) - (b.priorityRank ?? 999))[0]
     || null;
   return { best, contacts: best ? [best, ...contacts.filter((contact) => contact !== best)] : contacts };
+}
+
+export function getLeadDisplayContact(lead = {}, snapshot = null) {
+  const calling = getCallingContacts(lead, snapshot);
+  return {
+    contact: calling.best || calling.contacts[0] || null,
+    isCallReady: Boolean(calling.best),
+  };
 }
 
 
