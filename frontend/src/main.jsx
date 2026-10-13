@@ -21,17 +21,12 @@ class ErrorBoundary extends React.Component {
           <h1>LEGACY recovery</h1>
           <p>The app hit a browser-side display error, but your uploaded leads are still saved in the backend.</p>
           <p style={{ opacity: 0.8 }}>Error: {errorMessage}</p>
-          <p style={{ opacity: 0.8 }}>Build: cache-recovery-2</p>
+          <p style={{ opacity: 0.8 }}>Build: map-shadow-fix-1</p>
           <button
-            onClick={() => {
-              Object.keys(localStorage)
-                .filter((key) => key.startsWith("chatcrm."))
-                .forEach((key) => localStorage.removeItem(key));
-              window.location.reload();
-            }}
+            onClick={() => window.location.reload()}
             style={{ cursor: "pointer", fontWeight: 700, padding: "10px 14px" }}
           >
-            Reload Saved Leads
+            Reload LEGACY
           </button>
         </main>
       );
@@ -39,13 +34,6 @@ class ErrorBoundary extends React.Component {
 
     return this.props.children;
   }
-}
-
-if (!sessionStorage.getItem("chatcrm.cacheRecovery2")) {
-  sessionStorage.setItem("chatcrm.cacheRecovery2", "1");
-  Object.keys(localStorage)
-    .filter((key) => key.startsWith("chatcrm."))
-    .forEach((key) => localStorage.removeItem(key));
 }
 
 createRoot(document.getElementById("root")).render(
