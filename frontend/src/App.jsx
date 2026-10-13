@@ -1752,7 +1752,7 @@ export function App() {
                 <div className="assistant-list">
                   <Action icon={<Phone size={18} />} onClick={openReviewQueue} text={`${leads.filter((lead) => lead.needsReview).length} properties ready for review`} />
                   <Action icon={<Mail size={18} />} onClick={showFollowUps} text={`${followUps} follow-ups need attention`} />
-                  <Action icon={<Map size={18} />} onClick={showHotLeads} text={`${hotLeads} hot sellers should be worked first`} />
+                  <Action icon={<MapIcon size={18} />} onClick={showHotLeads} text={`${hotLeads} hot sellers should be worked first`} />
                 </div>
 
                 <ImportList importMessage={importMessage} imports={imports} />
@@ -3024,7 +3024,7 @@ function BuyerNetworkView({
           </div>
 
           <button className="primary-button" disabled={isMatching || buyers.length === 0} onClick={findBuyerMatches} type="button">
-            <Map size={18} />
+            <MapIcon size={18} />
             {isMatching ? "Matching..." : "Find Best Buyers"}
           </button>
 
@@ -8370,7 +8370,7 @@ function Mail({ size }) {
   return <Icon label="Email" size={size}>M</Icon>;
 }
 
-function Map({ size }) {
+function MapIcon({ size }) {
   return <Icon label="Map" size={size}>A</Icon>;
 }
 
