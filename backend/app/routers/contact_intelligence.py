@@ -156,19 +156,19 @@ def get_saved_snapshot(lead_id: str) -> ContactIntelligenceSnapshot | None:
         return apply_registered_phone_suppressions(connection, snapshot)
 
 
-def apply_registered_phone_suppressions(connection, snapshot: ContactIntelligenceSnapshot) -> ContactIntelligenceSnapshot:
-    """Apply sticky, phone-level opt-outs to every future saved or displayed snapshot."""
+def _registered_phone_suppression_restrictions(connection, snapshots: list[ContactIntelligenceSnapshot]) -> dict[str, dict[str, bool]]:
+    """Fetch sticky phone restrictions once for one or more snapshots."""
     if lead_store.USE_POSTGRES:
         exists = connection.execute("SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='contact_phone_suppressions')").fetchone()[0]
     else:
         exists = connection.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='contact_phone_suppressions'").fetchone()
     if not exists:
-        return snapshot
-    phone_contacts = [item for item in snapshot.contacts if item.contactType == "phone"]
+        return {}
+    phone_contacts = [item for snapshot in snapshots for item in snapshot.contacts if item.contactType == "phone"]
     numbers = list(dict.fromkeys(normalize_phone(item.normalizedValue or item.value) for item in phone_contacts))
     numbers = [number for number in numbers if len(number) == 10]
     if not numbers:
-        return snapshot
+        return {}
     if lead_store.USE_POSTGRES:
         rows = connection.execute(
             "SELECT phone, do_not_call, do_not_text, disconnected, wrong_number FROM contact_phone_suppressions WHERE phone = ANY(%s)",
@@ -176,12 +176,19 @@ def apply_registered_phone_suppressions(connection, snapshot: ContactIntelligenc
         ).fetchall()
         restrictions = {str(row[0]): {"doNotCall": bool(row[1]), "doNotText": bool(row[2]), "disconnected": bool(row[3]), "wrongNumber": bool(row[4])} for row in rows}
     else:
-        marks = ",".join("?" for _ in numbers)
-        rows = connection.execute(
-            f"SELECT phone, do_not_call, do_not_text, disconnected, wrong_number FROM contact_phone_suppressions WHERE phone IN ({marks})",
-            tuple(numbers),
-        ).fetchall()
-        restrictions = {str(row["phone"]): {"doNotCall": bool(row["do_not_call"]), "doNotText": bool(row["do_not_text"]), "disconnected": bool(row["disconnected"]), "wrongNumber": bool(row["wrong_number"])} for row in rows}
+        restrictions = {}
+        for offset in range(0, len(numbers), 500):
+            chunk = numbers[offset:offset + 500]
+            marks = ",".join("?" for _ in chunk)
+            rows = connection.execute(
+                f"SELECT phone, do_not_call, do_not_text, disconnected, wrong_number FROM contact_phone_suppressions WHERE phone IN ({marks})",
+                tuple(chunk),
+            ).fetchall()
+            restrictions.update({str(row["phone"]): {"doNotCall": bool(row["do_not_call"]), "doNotText": bool(row["do_not_text"]), "disconnected": bool(row["disconnected"]), "wrongNumber": bool(row["wrong_number"])} for row in rows})
+    return restrictions
+
+
+def _apply_phone_suppression_restrictions(snapshot: ContactIntelligenceSnapshot, restrictions: dict[str, dict[str, bool]]) -> ContactIntelligenceSnapshot:
     if not restrictions:
         return snapshot
     updated_contacts = []
@@ -209,6 +216,18 @@ def apply_registered_phone_suppressions(connection, snapshot: ContactIntelligenc
     if best and best.contactType == "phone":
         best = contacts_by_number.get(normalize_phone(best.normalizedValue or best.value), best)
     return snapshot.model_copy(update={"contacts": updated_contacts, "bestContact": best})
+
+
+def apply_registered_phone_suppressions(connection, snapshot: ContactIntelligenceSnapshot) -> ContactIntelligenceSnapshot:
+    """Apply sticky, phone-level opt-outs to every future saved or displayed snapshot."""
+    restrictions = _registered_phone_suppression_restrictions(connection, [snapshot])
+    return _apply_phone_suppression_restrictions(snapshot, restrictions)
+
+
+def apply_registered_phone_suppressions_batch(connection, snapshots: list[ContactIntelligenceSnapshot]) -> list[ContactIntelligenceSnapshot]:
+    """Apply the same persistent restrictions with one bounded lookup for a queue batch."""
+    restrictions = _registered_phone_suppression_restrictions(connection, snapshots)
+    return [_apply_phone_suppression_restrictions(snapshot, restrictions) for snapshot in snapshots]
 
 
 def apply_litigation_hold(lead, snapshot: ContactIntelligenceSnapshot) -> ContactIntelligenceSnapshot:
@@ -653,7 +672,7 @@ def summarize_calling_queue(request: CallingQueueRequest, current_user: CurrentU
     """Read a bounded campaign snapshot without returning phone values or enriching contacts."""
     require_lead_contact_access(current_user)
     requested_ids = list(dict.fromkeys(str(value).strip() for value in request.leadIds if str(value).strip()))
-    saved_leads = lead_store.list_saved_leads()
+    saved_leads = lead_store.list_saved_leads_by_ids(requested_ids)
     leads_by_id = {str(lead.id): lead for lead in saved_leads}
     selected = [leads_by_id[lead_id] for lead_id in requested_ids if lead_id in leads_by_id]
     selected_ids = [str(lead.id) for lead in selected]
@@ -666,11 +685,9 @@ def summarize_calling_queue(request: CallingQueueRequest, current_user: CurrentU
                     "SELECT lead_id, payload FROM contact_intelligence_records WHERE lead_id = ANY(%s)",
                     (selected_ids,),
                 ).fetchall()
-                saved_by_id = {
-                    str(row[0]): apply_registered_phone_suppressions(connection, ContactIntelligenceSnapshot.model_validate(lead_store.parse_saved_payload(row[1])))
-                    for row in rows
-                }
+                parsed = [(str(row[0]), ContactIntelligenceSnapshot.model_validate(lead_store.parse_saved_payload(row[1]))) for row in rows]
             else:
+                parsed = []
                 for offset in range(0, len(selected_ids), 500):
                     chunk = selected_ids[offset:offset + 500]
                     placeholders = ",".join("?" for _ in chunk)
@@ -678,10 +695,9 @@ def summarize_calling_queue(request: CallingQueueRequest, current_user: CurrentU
                         f"SELECT lead_id, payload FROM contact_intelligence_records WHERE lead_id IN ({placeholders})",
                         chunk,
                     ).fetchall()
-                    saved_by_id.update({
-                        str(row["lead_id"]): apply_registered_phone_suppressions(connection, ContactIntelligenceSnapshot.model_validate(lead_store.parse_saved_payload(row["payload"])))
-                        for row in rows
-                    })
+                    parsed.extend((str(row["lead_id"]), ContactIntelligenceSnapshot.model_validate(lead_store.parse_saved_payload(row["payload"]))) for row in rows)
+            restricted_snapshots = apply_registered_phone_suppressions_batch(connection, [snapshot for _, snapshot in parsed])
+            saved_by_id = {lead_id: snapshot for (lead_id, _), snapshot in zip(parsed, restricted_snapshots)}
 
     service = real_enrichment_service()
     summaries = []

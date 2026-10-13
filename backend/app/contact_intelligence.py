@@ -56,6 +56,12 @@ class LeadContact(BaseModel):
     status: str = "unverified"
     doNotCall: bool = False
     doNotText: bool = False
+    suppressed: bool = False
+    isSuppressed: bool = False
+    optedOut: bool = False
+    optOut: bool = False
+    doNotContact: bool = False
+    litigationHold: bool = False
     disconnected: bool = False
     wrongNumber: bool = False
     verifiedOwner: bool = False
@@ -88,25 +94,25 @@ class ContactIntelligenceSnapshot(BaseModel):
 
 
 def calling_contact_status(contact: Any) -> str:
-    """Return an explicit, fail-closed call status for one phone contact."""
+    """Return the saved-phone calling status, keeping review separate from restrictions."""
     if isinstance(contact, BaseModel):
         item = contact.model_dump()
     else:
         item = dict(contact or {})
     status = str(item.get("status") or "").strip().lower().replace("-", "_").replace(" ", "_")
-    if item.get("doNotCall") or item.get("wrongNumber") or item.get("suppressed") or item.get("isSuppressed") or status in {
+    blocked_by_flag = any(item.get(flag) for flag in (
+        "doNotCall", "wrongNumber", "suppressed", "isSuppressed", "optedOut", "optOut", "doNotContact", "litigationHold"
+    ))
+    blocked_statuses = {
         "dnc", "do_not_call", "public_dnc", "suppressed", "wrong_number", "opted_out", "opt_out", "do_not_contact", "litigation_hold"
-    }:
+    }
+    if blocked_by_flag or status in blocked_statuses:
         return "suppressed"
     if item.get("disconnected") or status == "disconnected":
         return "disconnected"
     phone = item.get("normalizedValue") or item.get("value") or item.get("displayValue") or ""
     normalized = normalize_phone(str(phone))
-    review_complete = item.get("verifiedOwner") is True and (
-        item.get("sourceQualityReviewed") is True or status in {"confirmed_owner", "verified", "call_ready"}
-    )
-    if (not is_valid_us_phone(normalized) or item.get("isCallable") is not True or not review_complete
-            or status in {"needs_review", "unverified", "unreviewed", "contact_review", "review_required", "unknown"}):
+    if not is_valid_us_phone(normalized):
         return "unreviewed"
     return "eligible"
 
@@ -561,8 +567,7 @@ class ContactIntelligenceService:
             "contacts": list(contacts.values()),
             "sourceUrls": dedupe_source_links([*saved.sourceUrls, *current.sourceUrls]),
         })
-        has_callable = any(contact.contactType == "phone" and contact.isCallable
-                           and not contact.doNotCall and not contact.wrongNumber and not contact.disconnected
+        has_callable = any(contact.contactType == "phone" and calling_contact_status(contact) == "eligible"
                            for contact in result.contacts)
         result.needsPaidSkipTrace = not has_callable
         result.refreshRecommended = bool([c for c in result.contacts if c.contactType == "phone"]) and not has_callable
@@ -596,6 +601,8 @@ class ContactIntelligenceService:
                 # Sticky suppression/quality outcomes are never cleared here.
                 blocked = (
                     contact.doNotCall or contact.wrongNumber or contact.disconnected
+                    or contact.suppressed or contact.isSuppressed or contact.optedOut
+                    or contact.optOut or contact.doNotContact or contact.litigationHold
                     or contact.status.strip().lower().replace("-", "_") in {
                         "dnc", "do_not_call", "public_dnc", "suppressed", "wrong_number",
                         "disconnected", "opted_out", "opt_out", "do_not_contact", "litigation_hold",
@@ -666,8 +673,7 @@ class ContactIntelligenceService:
 
         phone_contacts = [contact for contact in updated_contacts if contact.contactType == "phone"]
         refresh_recommended = bool(phone_contacts) and not any(
-            contact.isCallable and not contact.doNotCall and not contact.wrongNumber and not contact.disconnected
-            for contact in phone_contacts
+            calling_contact_status(contact) == "eligible" for contact in phone_contacts
         )
         return normalize_snapshot(
             snapshot.model_copy(update={"contacts": updated_contacts, "refreshRecommended": refresh_recommended, "updatedAt": timestamp})
@@ -849,10 +855,7 @@ def merge_snapshots(
     source_urls = dedupe_source_links([*existing_snapshot.sourceUrls, *provider_snapshot.sourceUrls])
     contacts = list(contacts_by_key.values())
     phone_contacts = [contact for contact in contacts if contact.contactType == "phone"]
-    has_callable = any(
-        contact.isCallable and not contact.doNotCall and not contact.wrongNumber and not contact.disconnected
-        for contact in phone_contacts
-    )
+    has_callable = any(calling_contact_status(contact) == "eligible" for contact in phone_contacts)
     all_phone_contacts_bad = bool(phone_contacts) and not has_callable
     if provider_snapshot.status in {"enriched", "provider_not_configured", "failed", "unmatched"}:
         status = provider_snapshot.status
@@ -904,10 +907,7 @@ def normalize_snapshot(snapshot: ContactIntelligenceSnapshot) -> ContactIntellig
             contact
             for contact in normalized_contacts
             if contact.contactType == "phone"
-            and contact.isCallable
-            and not contact.doNotCall
-            and not contact.wrongNumber
-            and not contact.disconnected
+            and calling_contact_status(contact) == "eligible"
         ),
         normalized_contacts[0] if normalized_contacts else None,
     )

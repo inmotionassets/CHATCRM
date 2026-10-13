@@ -31,11 +31,13 @@ class ContactIntelligenceTests(unittest.TestCase):
             LeadContact(id="review", leadId="queue-test", value="4695550111", normalizedValue="4695550111", isCallable=False, status="needs_review"),
             LeadContact(id="down", leadId="queue-test", value="9725550111", normalizedValue="9725550111", isCallable=False, disconnected=True, status="disconnected"),
             LeadContact(id="blocked", leadId="queue-test", value="8175550111", normalizedValue="8175550111", isCallable=False, doNotCall=True, status="do_not_call"),
+            LeadContact(id="opted-out", leadId="queue-test", value="4695550101", normalizedValue="4695550101", optedOut=True, status="opted_out"),
+            LeadContact(id="litigation", leadId="queue-test", value="4695550102", normalizedValue="4695550102", litigationHold=True, status="litigation_hold"),
             LeadContact(id="email", leadId="queue-test", contactType="email", value="owner@example.com"),
         ]
         summary = summarize_calling_snapshot(ContactIntelligenceSnapshot(leadId="queue-test", contacts=contacts))
         self.assertEqual(summary["status"], "eligible")
-        self.assertEqual(summary["numberCounts"], {"eligible": 1, "unreviewed": 1, "disconnected": 1, "suppressed": 1})
+        self.assertEqual(summary["numberCounts"], {"eligible": 2, "unreviewed": 0, "disconnected": 1, "suppressed": 3})
         self.assertNotIn("value", summary)
 
     def test_lead_level_compliance_status_overrides_callable_phone_snapshot(self):
@@ -66,7 +68,7 @@ class ContactIntelligenceTests(unittest.TestCase):
         request = contact_router.CallingQueueRequest(leadIds=[lead.id])
         with (
             patch.object(contact_router.lead_store, "USE_POSTGRES", False),
-            patch.object(contact_router.lead_store, "list_saved_leads", return_value=[lead]),
+            patch.object(contact_router.lead_store, "list_saved_leads_by_ids", return_value=[lead]),
             patch.object(contact_router, "get_connection", return_value=connection),
             patch.object(contact_router, "real_enrichment_service", return_value=ContactIntelligenceService(provider_name="free_public")),
         ):
@@ -79,12 +81,51 @@ class ContactIntelligenceTests(unittest.TestCase):
         display_request = contact_router.CallingQueueRequest(leadIds=[lead.id], includePhoneNumbers=True)
         with (
             patch.object(contact_router.lead_store, "USE_POSTGRES", False),
-            patch.object(contact_router.lead_store, "list_saved_leads", return_value=[lead]),
+            patch.object(contact_router.lead_store, "list_saved_leads_by_ids", return_value=[lead]),
             patch.object(contact_router, "get_connection", return_value=connection),
             patch.object(contact_router, "real_enrichment_service", return_value=ContactIntelligenceService(provider_name="free_public")),
         ):
             display_result = contact_router.summarize_calling_queue(display_request, SimpleNamespace(role="Acquisition"))
         self.assertEqual(display_result["leads"][0]["phoneNumbers"], [{"value": "(214) 555-0199", "status": "eligible"}])
+
+    def test_batch_calling_queue_applies_suppressions_with_one_phone_lookup(self):
+        connection = sqlite3.connect(":memory:")
+        connection.row_factory = sqlite3.Row
+        connection.execute("""
+            CREATE TABLE contact_phone_suppressions (
+                phone TEXT PRIMARY KEY, do_not_call INTEGER, do_not_text INTEGER,
+                disconnected INTEGER, wrong_number INTEGER
+            )
+        """)
+        connection.executemany(
+            "INSERT INTO contact_phone_suppressions VALUES (?, ?, ?, ?, ?)",
+            [("2145550199", 1, 0, 0, 0), ("4695550111", 0, 1, 0, 0)],
+        )
+        statements = []
+        connection.set_trace_callback(statements.append)
+        snapshots = [
+            ContactIntelligenceSnapshot(leadId="one", contacts=[LeadContact(
+                id="one-phone", leadId="one", value="2145550199", normalizedValue="2145550199",
+                isCallable=True, isTextable=True, verifiedOwner=True, sourceQualityReviewed=True,
+                status="confirmed_owner",
+            )]),
+            ContactIntelligenceSnapshot(leadId="two", contacts=[LeadContact(
+                id="two-phone", leadId="two", value="4695550111", normalizedValue="4695550111",
+                isCallable=True, isTextable=True, verifiedOwner=True, sourceQualityReviewed=True,
+                status="confirmed_owner",
+            )]),
+        ]
+
+        with patch.object(contact_router.lead_store, "USE_POSTGRES", False):
+            restricted = contact_router.apply_registered_phone_suppressions_batch(connection, snapshots)
+
+        self.assertEqual(restricted[0].contacts[0].status, "do_not_call")
+        self.assertFalse(restricted[0].contacts[0].isCallable)
+        self.assertEqual(restricted[1].contacts[0].status, "do_not_text")
+        self.assertTrue(restricted[1].contacts[0].isCallable)
+        self.assertFalse(restricted[1].contacts[0].isTextable)
+        suppression_lookups = [sql for sql in statements if "from contact_phone_suppressions where phone in" in sql.lower()]
+        self.assertEqual(len(suppression_lookups), 1)
 
     def test_review_to_calling_queue_promotes_only_the_reviewed_test_number(self):
         connection = sqlite3.connect(":memory:")
@@ -108,10 +149,14 @@ class ContactIntelligenceTests(unittest.TestCase):
 
         with (
             patch.object(contact_router.lead_store, "USE_POSTGRES", False),
-            patch.object(contact_router.lead_store, "list_saved_leads", return_value=[lead]),
+            patch.object(contact_router.lead_store, "list_saved_leads_by_ids", return_value=[lead]),
             patch.object(contact_router, "get_connection", return_value=connection),
             patch.object(contact_router, "real_enrichment_service", return_value=service),
         ):
+            live_snapshot = service.current_snapshot(lead, pending)
+            self.assertEqual(live_snapshot.bestContact.id, candidate.id)
+            self.assertFalse(live_snapshot.needsPaidSkipTrace)
+            self.assertFalse(live_snapshot.refreshRecommended)
             before = contact_router.summarize_calling_queue(
                 contact_router.CallingQueueRequest(leadIds=[lead.id]), SimpleNamespace(role="Acquisition"),
             )
@@ -124,8 +169,9 @@ class ContactIntelligenceTests(unittest.TestCase):
                 contact_router.CallingQueueRequest(leadIds=[lead.id]), SimpleNamespace(role="Acquisition"),
             )
 
-        self.assertEqual(before["numberCounts"]["unreviewed"], 1)
-        self.assertEqual(before["numberCounts"]["eligible"], 0)
+        self.assertEqual(before["numberCounts"]["unreviewed"], 0)
+        self.assertEqual(before["numberCounts"]["eligible"], 1)
+        self.assertEqual(before["leads"][0]["status"], "eligible")
         self.assertEqual(after["numberCounts"]["eligible"], 1)
         self.assertEqual(after["leadCounts"]["eligible"], 1)
         self.assertNotIn("2145550114", str(after))
@@ -268,6 +314,8 @@ class ContactIntelligenceTests(unittest.TestCase):
             {"wrongNumber": True, "status": "wrong_number"},
             {"disconnected": True, "status": "disconnected"},
             {"status": "litigation_hold"},
+            {"optedOut": True, "status": "opted_out"},
+            {"doNotContact": True, "status": "do_not_contact"},
         ):
             with self.subTest(values=values):
                 contact = LeadContact(

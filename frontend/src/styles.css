@@ -9895,6 +9895,11 @@ html:not([data-theme="dark"]),
   text-transform: uppercase;
 }
 
+.primary-phone-status {
+  color: var(--muted-strong);
+  font-size: 0.72rem;
+}
+
 .acquisition-desk-layout {
   align-items: start;
   display: grid;
@@ -10777,5 +10782,55 @@ html:not([data-theme="dark"]),
 
   .power-dialer-primary-action .google-voice-actions {
     grid-template-columns: 1fr;
+  }
+}
+
+/* Keep imported phone records readable on narrow acquisition workspaces. */
+.contact-review-list {
+  max-height: none;
+  overflow: visible;
+  padding-right: 0;
+}
+
+.contact-number-row {
+  align-items: start;
+  display: grid;
+  gap: 6px 10px;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.contact-number-row > strong {
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.contact-state-badges {
+  align-items: flex-start;
+  justify-content: flex-end;
+  max-width: 100%;
+}
+
+.google-voice-context {
+  background: var(--panel-soft);
+  border-color: var(--border);
+  min-width: 0;
+}
+
+.google-voice-context b {
+  color: var(--text);
+}
+
+.google-voice-context small {
+  color: var(--muted-strong);
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 640px) {
+  .contact-number-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .contact-state-badges {
+    justify-content: flex-start;
   }
 }

@@ -16,14 +16,13 @@ export function buildGoogleVoiceTextUrl(phone) {
 }
 export function getContactCallStatus(contact) {
   const status = String(contact?.status || "").trim().toLowerCase().replace(/[ -]+/g, "_");
-  if (contact?.doNotCall || contact?.wrongNumber || contact?.suppressed || contact?.isSuppressed || ["dnc", "do_not_call", "public_dnc", "suppressed", "wrong_number", "opted_out", "opt_out", "do_not_contact", "litigation_hold"].includes(status)) return "suppressed";
+  if (contact?.doNotCall || contact?.wrongNumber || contact?.suppressed || contact?.isSuppressed
+    || contact?.optedOut || contact?.optOut || contact?.doNotContact || contact?.litigationHold
+    || ["dnc", "do_not_call", "public_dnc", "suppressed", "wrong_number", "opted_out", "opt_out", "do_not_contact", "litigation_hold"].includes(status)) return "suppressed";
   if (contact?.disconnected || status === "disconnected") return "disconnected";
-  const reviewComplete = contact?.verifiedOwner === true
-    && (contact?.sourceQualityReviewed === true || ["confirmed_owner", "verified", "call_ready"].includes(status));
-  if (!normalizeCallablePhone(contact?.normalizedValue || contact?.value || contact?.displayValue)
-    || contact?.isCallable !== true
-    || !reviewComplete
-    || ["needs_review", "unverified", "unreviewed", "contact_review", "review_required", "pending_review", "unknown"].includes(status)) return "unreviewed";
+  // An unreviewed owner/source association is visible and dialable just like the
+  // original saved-phone workflow. Only explicit restrictions or a bad number block calling.
+  if (!normalizeCallablePhone(contact?.normalizedValue || contact?.value || contact?.displayValue)) return "unreviewed";
   return "eligible";
 }
 export function canCallContact(contact) {
@@ -69,6 +68,14 @@ export function getCallingContacts(lead = {}, snapshot = null) {
     || contacts.filter(canCallContact).sort((a, b) => (a.priorityRank ?? 999) - (b.priorityRank ?? 999))[0]
     || null;
   return { best, contacts: best ? [best, ...contacts.filter((contact) => contact !== best)] : contacts };
+}
+
+export function getLeadDisplayContact(lead = {}, snapshot = null) {
+  const calling = getCallingContacts(lead, snapshot);
+  return {
+    contact: calling.best || calling.contacts[0] || null,
+    isCallReady: Boolean(calling.best),
+  };
 }
 
 

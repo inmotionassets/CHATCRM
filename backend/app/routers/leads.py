@@ -390,6 +390,36 @@ def list_saved_leads() -> list[Lead]:
     return list_sqlite_saved_leads()
 
 
+def list_saved_leads_by_ids(lead_ids: list[str]) -> list[Lead]:
+    """Read only the requested lead rows for bounded acquisition summaries."""
+    ids = list(dict.fromkeys(str(value).strip() for value in lead_ids if str(value).strip()))
+    if not ids:
+        return []
+    leads: list[Lead] = []
+    if USE_POSTGRES:
+        with get_postgres_connection() as connection:
+            rows = connection.execute("SELECT id, payload FROM leads WHERE id = ANY(%s)", (ids,)).fetchall()
+        for row in rows:
+            lead = lead_from_saved_payload(row[1], str(row[0]))
+            if lead:
+                leads.append(lead)
+        return leads
+
+    with get_sqlite_connection() as connection:
+        for offset in range(0, len(ids), 500):
+            chunk = ids[offset:offset + 500]
+            placeholders = ",".join("?" for _ in chunk)
+            rows = connection.execute(
+                f"SELECT id, payload FROM leads WHERE id IN ({placeholders})",
+                chunk,
+            ).fetchall()
+            for row in rows:
+                lead = lead_from_saved_payload(row["payload"], str(row["id"]))
+                if lead:
+                    leads.append(lead)
+    return leads
+
+
 def parse_saved_payload(payload: object) -> dict:
     if isinstance(payload, dict):
         return payload

@@ -1,7 +1,7 @@
 import React from "react";
 import GoogleVoiceActions from "./GoogleVoiceActions.jsx";
 import PowerDialerView from "./PowerDialerView.jsx";
-import { getCallingContacts, getContactCallStatus } from "./contactCalling.js";
+import { getCallingContacts, getContactCallStatus, getLeadDisplayContact } from "./contactCalling.js";
 import { getPowerDialerQueue, normalizeDialerQueue } from "./powerDialer.js";
 import { findPhoneLeadMatches, getLatestLeadNote, isPhoneSearchQuery } from "./phoneLookup.js";
 import { isAuthTokenExpired } from "./authSession.js";
@@ -604,8 +604,22 @@ export function App() {
     };
   }, [authToken, hasFullAccess]);
 
-  const leadIdsKey = leads.map((lead) => lead.id).join("|");
-  const overviewLeadIds = React.useMemo(() => leadIdsKey ? leadIdsKey.split("|") : [], [leadIdsKey]);
+  const overviewLeadIds = React.useMemo(() => {
+    const phoneLookupLeadIds = new Set(findPhoneLeadMatches(leads, query).map((match) => match.lead.id));
+    const visible = leads.filter((lead) => {
+      const searchText = `${lead.name} ${lead.address} ${lead.parcelNumber} ${lead.county} ${getLeadPhones(lead).join(" ")} ${lead.email} ${lead.source}`.toLowerCase();
+      const matchesQuery = searchText.includes(query.toLowerCase()) || phoneLookupLeadIds.has(lead.id);
+      const matchesStage = stageFilter === "All" || lead.stage === stageFilter;
+      const matchesReview = reviewFilter === "All"
+        || (reviewFilter === "Needs Review" && lead.needsReview)
+        || (reviewFilter === "Reviewed" && !lead.needsReview);
+      return matchesQuery && matchesStage && matchesReview
+        && (!hotOnly || isSellerHotLead(lead))
+        && leadMatchesQueueFilter(lead, queueFilter, auth?.user);
+    });
+    if (selectedLeadId) return visible.some((lead) => lead.id === selectedLeadId) ? [selectedLeadId] : [];
+    return sortLeads(visible, sortMode).slice(0, 250).map((lead) => lead.id);
+  }, [leads, query, stageFilter, reviewFilter, hotOnly, queueFilter, sortMode, auth?.user, selectedLeadId]);
   React.useEffect(() => {
     if (!authToken || !backendReady || !overviewLeadIds.length) {
       setCallReadinessSummary(null);
@@ -856,12 +870,13 @@ export function App() {
 
   async function refreshCallReadinessOverview(leadId = "") {
     if (!authToken || !leads.length) return;
-    const refreshAll = !leadId || callReadinessSummary?.leads?.length !== leads.length;
+    const targetLeadIds = leadId ? [leadId] : overviewLeadIds;
+    if (!targetLeadIds.length) return;
     const requestId = ++callReadinessRequestRef.current;
     try {
-      const summary = await fetchCallingQueueSummary(refreshAll ? leads.map((lead) => lead.id) : [leadId], authToken, true);
+      const summary = await fetchCallingQueueSummary(targetLeadIds, authToken, true);
       if (requestId !== callReadinessRequestRef.current) return;
-      setCallReadinessSummary((current) => refreshAll || !current ? summary : mergeCallingQueueSummary(current, summary));
+      setCallReadinessSummary((current) => leadId && current ? mergeCallingQueueSummary(current, summary) : summary);
     } catch {
       // Start Calling performs its own current eligibility check; retain the last good overview.
     }
@@ -1487,16 +1502,16 @@ export function App() {
                 <p>Start with the properties and follow-ups that can move the business today.</p>
               </div>
               <div className="briefing-metrics">
-                <span><b>{callReadyLeads}</b> Call Ready</span>
-                <span><b>{contactReviewLeads}</b> Contact Review</span>
+                <span><b>{callReadyLeads}</b> Shown Call Ready</span>
+                <span><b>{contactReviewLeads}</b> Shown Contact Review</span>
                 <span><b>{followUps}</b> Follow-Ups</span>
               </div>
             </section>
 
             <section className="stats-grid" aria-label="Property stats">
               <Stat label="Total Properties" value={leads.length} />
-              <Stat label="Call Ready" value={callReadyLeads} />
-              <Stat label="Contact Review" value={contactReviewLeads} />
+              <Stat label="Shown Call Ready" value={callReadyLeads} />
+              <Stat label="Shown Contact Review" value={contactReviewLeads} />
               <Stat label="Follow-Ups" value={followUps} />
               {isAdmin ? (
               <>
@@ -1625,10 +1640,10 @@ export function App() {
                       <span className="lead-meta"><b>Seller</b>{getDisplayOwnerName(lead) || "Owner needed"}</span>
                       <span className="lead-meta"><b>Property</b>{lead.parcelNumber || getLeadZip(lead) || "Address saved"}</span>
                       <span className="lead-meta"><b>Best Contact</b>{getBestContactLabel(lead, callReadinessByLeadId.get(lead.id))}</span>
-                      <span className="lead-meta"><b>Status</b>{getLeadQueueStatus(lead).label}</span>
+                      <span className="lead-meta"><b>Status</b>{getLeadQueueStatus(lead, callReadinessByLeadId.get(lead.id)).label}</span>
                       <span className="lead-meta"><b>Assigned</b>{lead.assignedToName || "Available"}</span>
                       <span className="lead-meta"><b>Last Contact</b>{lead.lastContactedAt ? `${lead.lastContactedBy || "Unknown"} / ${formatActivityTime(lead.lastContactedAt)}` : "None"}</span>
-                      <span className="lead-meta"><b>Next Action</b>{getLeadNextAction(lead)}</span>
+                      <span className="lead-meta"><b>Next Action</b>{getLeadNextAction(lead, callReadinessByLeadId.get(lead.id))}</span>
                     </div>
                     <div className="row-actions">
                       <button onClick={() => openLeadWorkspace(lead.id)}>View</button>
@@ -3639,8 +3654,14 @@ function LeadWorkspacePage({
   const [visualMode, setVisualMode] = React.useState("street");
   const phones = getLeadPhones(lead);
   const [contactSnapshot, setContactSnapshot] = React.useState(null);
-  const { best: bestContact } = getCallingContacts(lead, contactSnapshot);
-  const primaryPhone = bestContact?.normalizedValue || bestContact?.value || "";
+  const { contact: primaryDisplayContact, isCallReady } = getLeadDisplayContact(lead, contactSnapshot);
+  const primaryPhone = primaryDisplayContact?.normalizedValue || primaryDisplayContact?.value || "";
+  const primaryContactStatus = primaryDisplayContact ? getContactCallStatus(primaryDisplayContact) : "no_numbers";
+  const primaryContactStatusLabel = primaryContactStatus === "eligible" ? "Call Ready"
+    : primaryContactStatus === "suppressed" ? "Restricted — calling blocked"
+      : primaryContactStatus === "disconnected" ? "Disconnected — calling blocked"
+        : primaryDisplayContact ? "Needs Review — calling blocked"
+          : contactSnapshot ? "No saved number" : "Loading saved numbers…";
   const ownerName = getDisplayOwnerName(lead) || "Owner name needed";
   const taxUrl = buildCountyTaxUrl(lead);
   const mapUrl = buildGoogleMapsUrl(lead.address);
@@ -3693,12 +3714,13 @@ function LeadWorkspacePage({
 
       <nav className="property-command-bar single-command-bar" aria-label="Property command bar">
         <span className="primary-phone-command">
-          <b>Best Contact</b>
-          {primaryPhone ? formatPhone(primaryPhone) : "Missing"}
+          <b>{isCallReady ? "Best Contact" : primaryDisplayContact ? "Saved Number" : "Best Contact"}</b>
+          {primaryPhone ? formatPhone(primaryPhone) : contactSnapshot ? "No number on file" : "Loading saved numbers…"}
+          <small className="primary-phone-status">{primaryContactStatusLabel}</small>
         </span>
         {canWorkLead ? (
           <GoogleVoiceActions
-            contact={bestContact}
+            contact={primaryDisplayContact}
             leadContext={{ ownerName, address: lead.address || "Missing Address" }}
             onCall={(phone) => onPhoneInteraction?.("voice_opened", phone)}
             onText={(phone) => onPhoneInteraction?.("voice_text_opened", phone)}
@@ -4853,8 +4875,7 @@ function ContactIntelligencePanel({ lead, canEnrichContacts = false, isRefreshin
       ? "DNC"
       : contact.wrongNumber || contact.status === "wrong_number" ? "Wrong Number"
         : contact.disconnected || contact.status === "disconnected" ? "Disconnected"
-          : contact.verifiedOwner ? "Verified" : "Needs Review";
-    const needsReview = reviewLabel === "Needs Review";
+          : callStatus === "eligible" ? (contact.verifiedOwner ? "Verified" : "Saved Number") : "Needs Review";
     return <div className="contact-best-card" key={contact.id || phone}>
       <div className="contact-number-row"><strong>{formatPhone(phone)}</strong>
         <span className="contact-state-badges">
@@ -4874,7 +4895,6 @@ function ContactIntelligencePanel({ lead, canEnrichContacts = false, isRefreshin
           onCall={onCall}
           onText={onText}
         />
-        {contact.id && needsReview && callStatus === "unreviewed" ? <button className="contact-review-confirm" onClick={() => onFeedback(contact.id, "confirmed_owner")} type="button">Verify owner + source</button> : null}
         {contact.id && !["DNC", "Wrong Number", "Disconnected", "Litigation Hold"].includes(reviewLabel) ? <>
           <button onClick={() => onFeedback(contact.id, "wrong_number")} type="button">Wrong number</button>
           <button onClick={() => onFeedback(contact.id, "disconnected")} type="button">Disconnected</button>
@@ -7154,17 +7174,25 @@ function leadMatchesQueueFilter(lead = {}, filter = "All Leads", currentUser = {
   return true;
 }
 
-function getLeadQueueStatus(lead = {}) {
-  if (getLeadPhones(lead).length === 0) return { label: "Contact Review", value: "contact-review" };
+function getLeadQueueStatus(lead = {}, readiness = null) {
+  const hasSavedNumbers = getLeadPhones(lead).length > 0 || Boolean(readiness?.phoneNumbers?.length);
+  if (!hasSavedNumbers) return { label: "Contact Review", value: "contact-review" };
+  if (readiness?.status === "suppressed") return { label: "Do Not Call", value: "do-not-call" };
+  if (readiness?.status === "disconnected") return { label: "Disconnected", value: "disconnected" };
+  if (readiness?.status === "eligible" && ["needs-review", "contact-review"].includes(normalizeContactStatus(lead.contactStatus))) {
+    return { label: "Uncontacted", value: "needs-review" };
+  }
 
   const status = getLeadContactStatus(lead);
   if (status.value === "needs-review") return { label: "Uncontacted", value: "needs-review" };
   return status;
 }
 
-function getLeadNextAction(lead = {}) {
+function getLeadNextAction(lead = {}, readiness = null) {
   const status = getLeadContactStatus(lead).value;
-  if (getLeadPhones(lead).length === 0) return "Research Contact";
+  if (getLeadPhones(lead).length === 0 && !readiness?.phoneNumbers?.length) return "Research Contact";
+  if (readiness?.status === "suppressed") return "Do Not Call";
+  if (readiness?.status === "disconnected") return "Research Contact";
   if (status === "interested") return "Escalate to Manager";
   if (status === "not-interested") return "Do Not Chase";
   if (status === "do-not-call") return "Do Not Call";
